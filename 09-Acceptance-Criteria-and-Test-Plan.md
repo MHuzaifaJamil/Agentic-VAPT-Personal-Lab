@@ -26,6 +26,9 @@ group names its representative test cases and which IDs it covers.
 | OOM casualty detection | Test (fault injection) | In a controlled test environment, deliberately induce OOM pressure sufficient to kill a suspended process; confirm FR-ENV-12 detects the missing PID and logs "partial hibernation success" rather than silently reporting full success. |
 | Locked-file protection | Test | Open a file lock in a target app before `start`; confirm that app is never sent `SIGSTOP` (FR-ENV-04). |
 | Resource-table framing | Inspection | Confirm `02-NonFunctional-Requirements.md`'s illustrative-only note (C-02 resolution) is referenced wherever the base doc's §4 figures might otherwise be read as guaranteed. |
+| Privileged helper isolation | Inspection | Confirm the main agent process holds no elevated capability (`getcap` shows nothing), and that only the dedicated `vapt-freezer-helper` binary carries `cap_sys_ptrace+ep` (or is invoked via the scoped `sudoers`/polkit rule) — FR-ENV-13. |
+| cgroup v2 fallback | Test (fault injection) | Remove/deny the helper's capability; confirm the system falls back to `memory.high`/`memory.reclaim` rather than silently skipping reclamation, and logs the fallback as degraded (FR-ENV-13, OPS-DEGRADE). |
+| Stale-socket SLA documented | Inspection | Confirm operator-facing status/report output states the hibernation guarantee covers process memory only, not network/session continuity (FR-ENV-14). |
 
 ## TP-GATE — Inference Gateway & Local Engine Client (FR-GATE, IR-ENGINE)
 
@@ -35,6 +38,7 @@ group names its representative test cases and which IDs it covers.
 | Model-swap budget | Test | Time an unload→load cycle at a phase transition (e.g., Phase 4.1→4.2); flag as degraded if >60s (NFR-PERF-02), without failing the engagement. |
 | Engine crash recovery | Test (fault injection) | Kill the `llama.cpp --server` process externally mid-inference; confirm one automatic restart attempt, then escalation to `PAUSED` on repeated failure (FR-GATE-08). |
 | Backend swap feasibility | Analysis | Confirm the Local Engine Client interface (IR-ENGINE-01) has no orchestration-layer code that assumes `llama.cpp`-specific behavior — a code-level check, since an actual Ollama substitution is out of scope for this planning phase. |
+| Memory-settle gate | Test (constrained environment) | Artificially delay page reclamation after killing a model process (e.g., hold a reference to its pages); confirm the next `load()` blocks until `MemAvailable` clears the NFR-RES-02 threshold, and confirm the 5-second bound raises a degraded-swap alert if reclamation doesn't happen in time (FR-GATE-10, IR-ENGINE-06). |
 
 ## TP-COUNCIL1 — Two-Tier Scope Gate (FR-COUNCIL-03a/04-06)
 
@@ -59,7 +63,8 @@ group names its representative test cases and which IDs it covers.
 | Test | Method | Pass Criteria |
 |---|---|---|
 | Per-target task cap | Test | Run a target past 30 tasks; confirm it's marked `CAPPED` and the loop auto-pivots to the next target with no pause. |
-| Zero-yield circuit breaker | Test | Force 3 consecutive zero-yield tool runs against a target; confirm `CIRCUIT_BROKEN` status and auto-pivot. |
+| Zero-yield circuit breaker (state-delta based) | Test | Force 3 consecutive tool runs that each produce *some* output but zero new `discovered_entities` rows (e.g., a fuzzer hitting a wildcard/soft-404 catch-all); confirm `novel_entities_count = 0` for each, the counter still increments despite non-empty output, and `CIRCUIT_BROKEN`/auto-pivot fires on the 3rd (FR-COUNCIL-11a, DR-SCHEMA-12). |
+| Noisy-tool false-reset prevented | Test | Confirm a run against an already-discovered port/route/parameter does NOT reset `consecutive_zero_yield_count` — only a genuinely new `discovered_entities` row does (this is the specific failure mode C-17 identified). |
 | Global 12-hour budget | Test (accelerated clock or long-run) | Confirm Phase 4.2 auto-terminates for *all* remaining targets at the 12-hour mark and Phase 4.3 begins automatically, without operator input. |
 | Manual pause still works | Test | Invoke `pause` (FR-CTRL-02) mid-loop; confirm it takes effect at the next safe checkpoint despite the no-auto-pause design — manual control is independent of the automatic thresholds. |
 
@@ -78,7 +83,7 @@ group names its representative test cases and which IDs it covers.
 
 | Test | Method | Pass Criteria |
 |---|---|---|
-| Tag integrity under adversarial input | Test | Include the literal provenance-delimiter string inside a crafted target response; confirm it is escaped/stripped from raw content before wrapping (IR-SANITIZE-02), so it cannot forge a fake closing tag. |
+| Tag integrity under adversarial input | Test | Include the literal string `</tool_output_untrusted>` inside a crafted target response; confirm it is escaped/stripped from raw content before wrapping (IR-SANITIZE-02), so it cannot forge a fake closing tag. |
 | Instruction-hierarchy clause presence | Inspection | Confirm every council model's system prompt includes the fixed instruction-hierarchy clause (IR-SANITIZE-03) — a static prompt-template review, not a live test. |
 | Heuristic detector logging | Test | Submit content matching a known injection pattern; confirm `suspected_injection_flag` is set in `tool_execution_logs` and surfaced distinctly in the audit export (FR-TOOL-13, SEC-PROMPT-04), even though it doesn't itself block anything. |
 
@@ -87,7 +92,7 @@ group names its representative test cases and which IDs it covers.
 | Test | Method | Pass Criteria |
 |---|---|---|
 | LLM never emits final score | Inspection | Confirm the LLM's output schema for a finding contains only per-metric proposals + justification, never a `score` or `vector` field — those are calculator outputs only. |
-| Calculator correctness | Test | Feed the calculator a known CVSS 3.1 metric combination with a published reference score; confirm exact match. |
+| Calculator correctness | Test | Feed the Python `cvss` library a known CVSS 3.1 metric combination with a published reference score (e.g., from FIRST.org's own examples); confirm exact match. |
 | Version lock | Inspection | Confirm `cvss_version` is hardcoded to `3.1` everywhere it's written (DR-SCHEMA-07) — no code path can write a different version. |
 
 ## TP-REPORT — Report Pipeline (FR-COUNCIL-17/17a/18, FR-CTRL-08)

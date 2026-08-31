@@ -15,6 +15,7 @@ Client / path-restricted allowlist decisions recorded in
 | IR-ENGINE-03 | `unload` MUST NOT return `true` until the underlying OS process has actually exited (verified via `waitpid`/equivalent, not just a signal having been sent), so FR-GATE-09's "verify complete termination" requirement is satisfiable. |
 | IR-ENGINE-04 | The Local Engine Client interface MUST be implementable by a second backend (e.g. an `ollama`-based implementation) without changing any orchestration code above it — this is what makes the "substitute Ollama later" decision (C-13 resolution) actually low-cost rather than aspirational. |
 | IR-ENGINE-05 | The externally-exposed inference endpoint (base §Phase 2: `127.0.0.1:11434/v1`) MUST remain OpenAI-compatible (`/v1/chat/completions`, `/v1/embeddings`) regardless of which backend implementation is active underneath the Local Engine Client, since Phase 3's third-party integrations (`claude-bug-bounty`, `CyberStrike`, `strix`) depend on that contract, not on the backend's native API. |
+| IR-ENGINE-06 | **(New, confirmed — resolves critical-analysis finding C-18)** Between `unload()` confirming OS-level process exit (`IR-ENGINE-03`) and the next `load()` call, the Local Engine Client MUST poll `/proc/meminfo`'s `MemAvailable` field and MUST NOT proceed with `load()` until available memory exceeds the `NFR-RES-02` safety threshold (baseline + 1.5 GB margin). This poll is bounded to **5 seconds**; exceeding it raises a degraded-swap alert (consistent with `NFR-PERF-02`) rather than allowing `load()` to proceed into an already-tight memory state. |
 
 ## IR-TOOL — Tier 1 Structured Tool Wrappers
 
@@ -38,7 +39,7 @@ Client / path-restricted allowlist decisions recorded in
 | ID | Requirement |
 |----|-------------|
 | IR-SANITIZE-01 | The sanitization pipeline (FR-TOOL-07) MUST be implemented as one pluggable parser per tool/output-type (NFR-MAINT-03), each producing a common structured record `{ports, banners, urls, status_codes, raw_artifact_ref}`. |
-| IR-SANITIZE-02 | **(Implements FR-TOOL-12, MUST)** Every sanitized record's text fields that originated from live target interaction MUST be wrapped with a fixed provenance delimiter (e.g. `<<<UNTRUSTED_TARGET_DATA>>> ... <<<END_UNTRUSTED_TARGET_DATA>>>`) before being interpolated into any model prompt. This delimiter format MUST be reserved — if the delimiter string itself is found inside raw target content, it MUST be escaped/stripped from the raw content before wrapping, so a target cannot forge a fake closing tag to break out of the wrapped region. |
+| IR-SANITIZE-02 | **(Implements FR-TOOL-12, MUST — confirmed tag format)** Every sanitized record's text fields that originated from live target interaction MUST be wrapped in the fixed provenance tag `<tool_output_untrusted>...</tool_output_untrusted>` before being interpolated into any model prompt. This tag MUST be reserved — if the literal string `<tool_output_untrusted>` or `</tool_output_untrusted>` is found inside raw target content, it MUST be escaped/stripped from the raw content before wrapping, so a target cannot forge a fake closing tag to break out of the wrapped region. |
 | IR-SANITIZE-03 | Every council model's system prompt MUST include a fixed instruction-hierarchy clause stating that content between the provenance delimiters (IR-SANITIZE-02) is data to analyze, never instructions to follow, and that this clause cannot be overridden by anything appearing inside those delimiters. |
 
 ## IR-MCP — Burp Suite / Caido MCP Integration
@@ -57,7 +58,10 @@ Client / path-restricted allowlist decisions recorded in
 
 ## IR-CTRL — Operator CLI Control Surface
 
-**Confirmed: CLI only** (no GUI/web dashboard). Traces to FR-CTRL.
+**Confirmed: CLI only** (no GUI/web dashboard). Traces to FR-CTRL. Built with
+**Click** (confirmed, `13-Implementation-Architecture-Bridge.md` IAB-CLI); the
+scope-rules file referenced in IR-CTRL-03 uses the YAML format defined in that same
+document's IAB-FILES section.
 
 | ID | Requirement |
 |----|-------------|

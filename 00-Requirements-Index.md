@@ -35,6 +35,7 @@ performed as part of producing this documentation set.
 | 10 | [`10-Decision-Log-and-Open-Questions.md`](./10-Decision-Log-and-Open-Questions.md) | Chronological record of every explicit operator decision behind this doc set, plus what's still genuinely open |
 | 11 | [`11-Critical-Analysis-and-Design-Challenges.md`](./11-Critical-Analysis-and-Design-Challenges.md) | Adversarial review of the base plan's technical claims (C-01 through C-14), each with a confirmed resolution |
 | 12 | [`12-Report-Formatting-Rules.md`](./12-Report-Formatting-Rules.md) | Independent-practice VAPT report formatting standard (cloned/adapted from `claude-bug-bounty`'s rules, referenced by `FR-COUNCIL-17a`) |
+| 13 | [`13-Implementation-Architecture-Bridge.md`](./13-Implementation-Architecture-Bridge.md) | Closes the requirements→code gap: process/daemon model, language baseline, file formats, privileged-helper contract, CLI framework, proposed module layout |
 
 **Read order for a new reader:** `00` → `11` (see what was challenged and why) → `10`
 (see how every challenge and every open design fork was actually resolved) → `01`-`09`
@@ -108,3 +109,19 @@ other numeric/design fork raised along the way, is in
 genuinely cannot be closed without the real target hardware (thermal telemetry
 availability, actual driver binding, sustained-load backend stability) or without
 transferring this document set to that hardware in the first place.
+
+**Update:** the base document, `Agentic VAPT Setup (HOME).md`, was originally treated
+as an immutable historical record — every correction above was folded into `01`-`09`
+only. By explicit, later operator decision, thirteen of the findings (C-01, C-03,
+C-07, C-08, C-09, C-11, C-12, C-13, C-14, C-15, C-16, C-17, C-18, plus the unbounded
+task-queue loop) have since been corrected directly in that file too, each marked
+inline with a pointer back to `11`. See decisions #39 and #40 in
+`10-Decision-Log-and-Open-Questions.md` for the full before/after record.
+
+**Second update:** a further externally-sourced issue list surfaced four more
+critical-analysis findings (C-15 process-privilege conflict, C-16 stale network
+sessions, C-17 an imprecisely-defined "zero-yield" metric, C-18 a model-swap memory
+race) — each independently evaluated and confirmed genuine, not just transcribed, and
+all four resolved with concrete mechanisms (a privilege-separated helper, a reframed
+hibernation SLA, a state-delta `discovered_entities` ledger, and a `MemAvailable`
+poll gate). See decision #40.

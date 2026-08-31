@@ -1,11 +1,24 @@
 # Critical Analysis — Challenges to the Original Plan's Correctness
 
 **Scope of this document:** This is a critical/adversarial review of the technical
-claims and design choices in `Agentic VAPT Setup (HOME).md`. It does not modify that
-file. Each item below is a specific claim or design decision from the source document,
-why it is questionable, and what evidence or design change would be needed to make it
-sound. Severity is rated **High** (likely wrong or unsafe as written), **Medium**
-(plausible but unverified/optimistic), or **Low** (minor inaccuracy/wording issue).
+claims and design choices in `Agentic VAPT Setup (HOME).md`. Each item below is a
+specific claim or design decision from the source document, why it is questionable,
+and what evidence or design change would be needed to make it sound. Severity is
+rated **High** (likely wrong or unsafe as written), **Medium** (plausible but
+unverified/optimistic), or **Low** (minor inaccuracy/wording issue).
+
+**Update:** for most of this document's history, it deliberately did not modify the
+source file — findings were recorded here only, and resolutions were folded into
+`01`-`09` instead. That changed by explicit operator decision: thirteen of the findings
+below — **C-01, C-03, C-07, C-08, C-09, C-11, C-12, C-13, C-14, C-15, C-16, C-17,
+C-18** — plus the previously unbounded task-queue loop (`FR-COUNCIL-11`, not itself a
+numbered C-finding) have now been corrected **directly in
+`Agentic VAPT Setup (HOME).md` itself**, each marked inline with a short note
+pointing back to the relevant finding here. C-02, C-04, C-05, C-06, and C-10 were
+**not** applied to the source file (not offered / not selected for that treatment) —
+their resolutions remain only in `01`-`09`. This document remains the record of *why*
+each correction was made; `10-Decision-Log-and-Open-Questions.md` records *when* and
+*that it was an explicit decision* (see decisions #39 and #40).
 
 ---
 
@@ -106,6 +119,20 @@ separate pre-flight driver-verification requirement is added. Rationale: the GPU
 offload benchmark already mandated by `FR-PRE-08` (resolving C-05) will surface a
 non-working acceleration path regardless of which driver is actually bound, making a
 dedicated `lsmod`/`dmesg` check redundant for this system's purposes.
+
+**Addendum (operator decision):** if `FR-PRE-08`'s benchmark shows the GPU-offload
+path underperforming CPU-only on this hardware, the underlying cause may be the
+legacy `i915` driver binding the GPU instead of the modern `xe` driver. A migration
+path exists — appending `i915.force_probe=!7d55 xe.force_probe=7d55` to the GRUB
+kernel command line to force `xe` to bind instead — but this is confirmed as a
+**documented manual recommendation only**, not an automated remediation: it is a
+system-wide, reboot-requiring bootloader change, a fundamentally different risk class
+from anything else in this design (everything else is sandboxed to the agent's own
+behavior), and per this planning phase's own scope, no installation/system-config
+commands are executed by the agent or this documentation set. If the pre-flight
+benchmark surfaces this condition, the system should simply log the CPU-only
+fallback and note this migration path as something the operator may choose to apply
+themselves, outside the agent.
 
 ### C-07. CVSS/CWE scoring assigned autonomously by an 8B distilled model is not verifiable as accurate — Severity: **High**
 
@@ -258,6 +285,90 @@ exactly as stated above.
 
 ---
 
+### C-15. `process_madvise(MADV_PAGEOUT)` requires privileges the least-privilege agent design doesn't have — Severity: **High**
+
+Base doc Phase 1 step 2 (and `FR-ENV-07`) call for `process_madvise(MADV_PAGEOUT)` to
+reclaim memory from suspended PIDs. This syscall requires the caller to hold
+`CAP_SYS_PTRACE` (and, depending on kernel policy, `CAP_SYS_NICE`/`CAP_SYS_ADMIN`)
+over the target process. `NFR-SEC-03` in this same document set requires the agent to
+run as a dedicated, least-privileged OS user — under that constraint, the page-out
+call would fail with `EPERM`, silently defeating the entire Phase 1 memory-reclamation
+step (the 9.5→13.0 GiB gain the rest of the resource budget assumes) without the base
+design ever accounting for the conflict between these two requirements.
+
+**Resolution (operator decision):** isolate the page-out logic into a narrow, audited
+helper (e.g. `vapt-freezer-helper`) granted only the specific capability it needs via
+Linux file capabilities (`setcap cap_sys_ptrace+ep`) or an equivalently narrow,
+single-purpose `sudoers`/polkit rule — the main agent process itself never runs
+privileged. If the helper or capability grant is unavailable at runtime, the system
+MUST fall back to cgroup v2 memory limits (`memory.high`/`memory.reclaim`) rather than
+silently fail the reclamation step. See `01-Functional-Requirements.md` FR-ENV-07/
+FR-ENV-13 and `05-Security-Safety-and-Compliance-Requirements.md` SEC-CONTAIN-05.
+
+### C-16. Long-duration `SIGSTOP` breaks network/IPC session state, not just memory — Severity: **Medium**
+
+Hibernating desktop apps for 10-12 hours via `SIGSTOP` freezes process scheduling but
+does nothing to keep remote TCP/TLS sessions, keepalives, or local DBus/IPC
+heartbeats alive during that window — those lapse from the *other* end (server-side
+timeouts, NAT table expiry) regardless of what the frozen process itself does. On
+`SIGCONT`, affected applications will find their live connections gone and will need
+to reconnect/re-authenticate; a poorly-behaved app might even force a reload or
+discard in-progress state specifically because it detects the stale session, not
+because of anything in this design.
+
+**Resolution (operator decision):** this system's hibernation guarantee is reframed
+as covering **process memory / in-memory UI state** (open tabs, unsaved form text,
+application state) — not network/session continuity. On resume, affected
+applications may show reconnect prompts or silently re-negotiate; this is expected
+and outside what `SIGSTOP`/`SIGCONT` can control. **Caveat added by this analysis, on
+top of the proposed fix:** "applications resume without data loss" cannot be
+universally guaranteed by this mechanism alone — some web applications are coded to
+force a reload or discard unsaved state specifically upon detecting a stale/expired
+session, which is application-level behavior this system has no visibility into or
+control over. The correct SLA statement is "no data loss *caused by the hibernation
+mechanism itself*," not "no data loss, period." See
+`02-NonFunctional-Requirements.md` NFR-REL-06.
+
+### C-17. "Zero-yield" was never precisely defined, letting noisy tools defeat the circuit breaker — Severity: **High**
+
+`FR-COUNCIL-11`'s circuit breaker trips after 3 consecutive zero-yield tool runs, but
+"yield" was never given a precise, code-checkable definition. If implemented naively
+as "non-empty stdout" or "exit code 0," a noisy tool (`ffuf`, `gobuster`,
+`dirsearch`) hitting a wildcard/soft-404 catch-all can return hundreds of
+superficially-successful `200 OK` responses containing no new information — which
+would reset the zero-yield counter every time, letting the loop burn through the
+entire 30-task-per-target budget on one unproductive target without the breaker ever
+tripping. This is a sharp, previously-unstated gap in an already-confirmed
+requirement, not a new feature request.
+
+**Resolution (operator decision):** "yield" is redefined as a **state-delta**: a tool
+run only counts as yielding if it causes at least one new row in a dedicated
+`discovered_entities` table (a previously-unseen port, HTTP route, parameter name, or
+anomalous status-code pattern for that target) — never merely non-empty output or a
+zero exit code. Three consecutive runs contributing zero new rows trips the circuit
+breaker. See `01-Functional-Requirements.md` FR-COUNCIL-11 (revised) and
+`03-Data-and-Storage-Requirements.md` DR-SCHEMA-12.
+
+### C-18. Model-swap race between process teardown and next allocation — Severity: **Medium**
+
+`FR-GATE-09`/`IR-ENGINE-03` already require verifying full OS-level process exit
+(via `waitpid`) before considering a model unloaded — but process exit and full
+memory-page reclamation are not always instantaneous in lockstep, on a system
+already running close to its RAM ceiling by design (`NFR-RES-02`'s 1.5 GB margin is
+thin). Spawning the next model's process immediately after `waitpid` returns risks a
+transient window where the kernel hasn't finished reclaiming the outbound process's
+pages while the inbound process starts allocating its own multi-gigabyte weights —
+which could transiently exceed the safety margin and risk the OOM killer or an
+allocation failure, right at the moment the design is most memory-constrained.
+
+**Resolution (operator decision):** after `waitpid` confirms exit, the orchestrator
+MUST poll `/proc/meminfo`'s `MemAvailable` field and MUST NOT spawn the next model
+process until available memory has rebounded past the `NFR-RES-02` safety threshold
+(baseline + 1.5 GB margin), with a bounded polling timeout (confirmed: **5 seconds**)
+after which a degraded-state alert is raised — consistent with `NFR-PERF-02`'s
+existing degraded-swap handling, not a new failure mode. See
+`04-Interface-and-Integration-Requirements.md` IR-ENGINE-06.
+
 ## Summary Table
 
 | ID | Area | Severity |
@@ -276,6 +387,10 @@ exactly as stated above.
 | C-12 | Tier 2 denylist is inherently incomplete vs. an allowlist | High |
 | C-13 | `llama.cpp` vs. `ollama` treated as interchangeable when they aren't | Medium |
 | C-14 | Path-allowlist still permits the full Kali arsenal unattended; Gate 1/Gate 2 are the real boundary | Medium (residual, accepted trade-off) |
+| C-15 | `process_madvise` needs privileges the least-privilege agent design doesn't have | High |
+| C-16 | Long `SIGSTOP` breaks network/IPC session state, not just memory | Medium |
+| C-17 | "Zero-yield" was never precisely defined; noisy tools could defeat the circuit breaker | High |
+| C-18 | Model-swap race between process teardown and next allocation | Medium |
 
 These are analysis findings, not yet requirements — none have been folded into the
 requirement documents (`01`–`09`) as new obligations. Whether and how to act on each

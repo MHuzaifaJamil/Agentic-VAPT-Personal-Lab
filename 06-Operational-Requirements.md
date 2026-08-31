@@ -53,5 +53,8 @@ system's requirements define, since they're otherwise scattered across `01`/`02`
 | Thermal throttling detected (if measurable at all — OPS-MONITOR-03) | C-10 | Log degraded-performance flag, continue |
 | RAM margin breached | NFR-RES-02, OPS-MONITOR-02 | **Pause** engagement (safety stop, not loop-bound) |
 | Disk 95% hard-block hit | NFR-RES-04, OPS-MONITOR-02 | **Pause** engagement, block further artifact writes |
-| Per-target task cap (30) or circuit breaker (3) hit | FR-COUNCIL-11 | Auto-pivot to next target, no pause |
+| Per-target task cap (30) or circuit breaker (3, state-delta-based) hit | FR-COUNCIL-11/11a | Auto-pivot to next target, no pause |
 | 12-hour global session budget hit | FR-COUNCIL-11, NFR-PERF-05 | Auto-transition to Phase 4.3, no pause |
+| Privileged hibernation helper/capability unavailable | FR-ENV-13, finding C-15 | Fall back to cgroup v2 memory limits, log as degraded, continue |
+| Resumed application shows reconnect/re-auth prompt (network session lapsed) | FR-ENV-14, finding C-16 | Expected, not a fault — log as informational, not degraded |
+| Post-swap `MemAvailable` poll exceeds 5s | FR-GATE-10, IR-ENGINE-06, finding C-18 | Log as degraded-swap alert (same handling as a slow swap under NFR-PERF-02), continue |

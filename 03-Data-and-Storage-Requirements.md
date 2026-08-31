@@ -28,6 +28,10 @@ other way around.
 | `allow_brute_force` | INTEGER (bool) DEFAULT 0 | opt-in flag, FR-TOOL-06a |
 | `allow_active_exploitation` | INTEGER (bool) DEFAULT 0 | opt-in flag, FR-TOOL-06a |
 | `allow_lateral_movement` | INTEGER (bool) DEFAULT 0 | opt-in flag, FR-TOOL-06a |
+| `orchestrator_pid` | INTEGER, nullable | **(new — IAB-SCHEMA-01)** set by `start`/`resume` on launch; cleared on clean exit |
+| `orchestrator_pid_started_at` | TEXT (ISO8601), nullable | **(new — IAB-SCHEMA-01)** paired with the PID to detect PID reuse after a crash |
+| `control_intent` | TEXT | **(new — IAB-SCHEMA-01)** `NONE` / `PAUSE_REQUESTED` / `ABORT` |
+| `control_intent_at` | TEXT (ISO8601), nullable | **(new — IAB-SCHEMA-01)** |
 | `notes` | TEXT | free-text operator notes |
 
 ### DR-SCHEMA-01a: `engagement_flag_history` (new — required by FR-TOOL-06c)
@@ -57,7 +61,7 @@ counters used by FR-COUNCIL-11's diminishing-returns thresholds.
 | `host_or_domain` | TEXT | |
 | `added_at` | TEXT (ISO8601) | |
 | `task_count` | INTEGER DEFAULT 0 | incremented per task executed against this target; capped at **30** (FR-COUNCIL-11a) |
-| `consecutive_zero_yield_count` | INTEGER DEFAULT 0 | reset to 0 on any yielding task; circuit-breaks at **3** (FR-COUNCIL-11b) |
+| `consecutive_zero_yield_count` | INTEGER DEFAULT 0 | reset to 0 on any task whose `tool_execution_logs.novel_entities_count > 0`; circuit-breaks at **3** consecutive tasks with `novel_entities_count = 0` (FR-COUNCIL-11a/b) — **not** based on exit code or non-empty output alone |
 | `status` | TEXT | `PENDING` / `ACTIVE` / `CAPPED` / `CIRCUIT_BROKEN` / `COMPLETE` |
 
 ### DR-SCHEMA-03: `scope_rules`
@@ -111,12 +115,14 @@ technical in/out-of-scope pattern data the scope-boundary check operates against
 | `task_id` | INTEGER FK → `task_queue` | |
 | `argument_vector` | TEXT (JSON array) | exact argv, never a shell string (FR-TOOL-04) |
 | `resolved_binary_path` | TEXT | absolute path the bridge resolved and allowlist-checked (FR-TOOL-03) |
+| `pid` | INTEGER, nullable | **(new — IAB-SCHEMA-02)** the OS PID of the spawned subprocess; `end_ts IS NULL AND pid IS NOT NULL` is how `abort` finds a currently-running subprocess to kill |
 | `start_ts` / `end_ts` | TEXT (ISO8601) | |
 | `exit_code` | INTEGER, nullable | null if killed on timeout |
 | `timeout_hit` | INTEGER (bool) | |
 | `raw_output_artifact_id` | INTEGER FK → `artifacts_index` | full unsanitized stdout/stderr (FR-TOOL-08) |
 | `sanitized_summary` | TEXT | what actually entered model context (FR-TOOL-07) |
 | `suspected_injection_flag` | INTEGER (bool) DEFAULT 0 | set by the heuristic check in FR-TOOL-13 |
+| `novel_entities_count` | INTEGER DEFAULT 0 | count of new rows this run inserted into `discovered_entities` (DR-SCHEMA-12); **0 here means this run counts toward the zero-yield circuit breaker (FR-COUNCIL-11a)**, regardless of `exit_code` or whether `sanitized_summary` is non-empty |
 
 ### DR-SCHEMA-07: `verified_vulnerabilities`
 
@@ -186,6 +192,53 @@ Tracks phase transitions for resumability (NFR-REL-02).
 | `file_path` | TEXT | |
 | `created_at` / `approved_at` | TEXT (ISO8601), nullable | |
 | `approved_by` | TEXT | fixed value: `Muhammad Huzaifa Jamil` once approved (FR-CTRL-08) |
+
+### DR-SCHEMA-13: `suspended_processes` (new — FR-ENV-05 required this; no table previously existed for it, closed by IAB-SCHEMA-03)
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER PK | |
+| `engagement_id` | INTEGER FK → `engagements` | |
+| `pid` | INTEGER | |
+| `process_name` | TEXT | |
+| `suspended_at` | TEXT (ISO8601) | |
+| `resumed_at` | TEXT (ISO8601), nullable | |
+| `resume_verified` | INTEGER (bool) DEFAULT 0 | set once FR-ENV-12/FR-HIB-03 confirms the process is alive post-`SIGCONT` |
+
+### DR-SCHEMA-14: `redaction_map` (new — FR-COUNCIL-18 required this; no table previously existed for it, closed by IAB-SCHEMA-04)
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER PK | |
+| `report_id` | INTEGER FK → `reports` | |
+| `placeholder_token` | TEXT | unique per report, e.g. `[REDACTED-1]` |
+| `source_artifact_id` | INTEGER FK → `artifacts_index` | the raw evidence artifact holding the real value |
+| `extraction_note` | TEXT | how to locate the value within that artifact, so `approve-report` (FR-CTRL-08) can restore it without re-deriving or approximating |
+
+The real secret value is never duplicated into this table — it is re-read from
+`source_artifact_id` at unredaction time.
+
+### DR-SCHEMA-12: `discovered_entities` (new — required by FR-COUNCIL-11a, resolves critical-analysis finding C-17)
+
+The state-delta ledger that makes "yield" a precise, code-checkable concept instead
+of "non-empty output." A tool run's contribution to this table — not its exit code,
+not whether its output was non-empty — is what the zero-yield circuit breaker reads.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER PK | |
+| `target_id` | INTEGER FK → `targets` | |
+| `entity_type` | TEXT | `open_port` / `http_route` / `parameter` / `status_anomaly` (extensible) |
+| `entity_value` | TEXT | the concrete discovered value (e.g. `443/tcp`, `/api/v2/users`, `debug=1`) |
+| `first_seen_task_id` | INTEGER FK → `task_queue` | the task whose run first produced this row |
+| `first_seen_at` | TEXT (ISO8601) | |
+
+`(target_id, entity_type, entity_value)` MUST be a **unique constraint**. Inserting a
+row for this triple is an `INSERT OR IGNORE` (or equivalent) — the number of rows
+actually inserted (not attempted) by a given task's parsing step is exactly its
+`tool_execution_logs.novel_entities_count`. A row that already exists for that triple
+contributes 0 to `novel_entities_count`, correctly reflecting that the finding wasn't
+novel, even if the tool run itself succeeded and returned data.
 
 ---
 
