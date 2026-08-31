@@ -32,6 +32,14 @@ performed as part of producing this documentation set.
 | 07 | [`07-Risk-Register.md`](./07-Risk-Register.md) | Identified risks, likelihood/impact, mitigations, owners |
 | 08 | [`08-Assumptions-Constraints-Dependencies.md`](./08-Assumptions-Constraints-Dependencies.md) | What is assumed true, hard constraints, external dependencies, non-goals |
 | 09 | [`09-Acceptance-Criteria-and-Test-Plan.md`](./09-Acceptance-Criteria-and-Test-Plan.md) | Verification method and pass/fail criteria per requirement |
+| 10 | [`10-Decision-Log-and-Open-Questions.md`](./10-Decision-Log-and-Open-Questions.md) | Chronological record of every explicit operator decision behind this doc set, plus what's still genuinely open |
+| 11 | [`11-Critical-Analysis-and-Design-Challenges.md`](./11-Critical-Analysis-and-Design-Challenges.md) | Adversarial review of the base plan's technical claims (C-01 through C-14), each with a confirmed resolution |
+| 12 | [`12-Report-Formatting-Rules.md`](./12-Report-Formatting-Rules.md) | Independent-practice VAPT report formatting standard (cloned/adapted from `claude-bug-bounty`'s rules, referenced by `FR-COUNCIL-17a`) |
+
+**Read order for a new reader:** `00` → `11` (see what was challenged and why) → `10`
+(see how every challenge and every open design fork was actually resolved) → `01`-`09`
+(the resulting requirements, which already read as settled — the *why* lives in `10`
+and `11`, not repeated inline everywhere).
 
 ---
 
@@ -60,15 +68,21 @@ are addressed by new requirements rather than left implicit:
    for this system — obtaining/confirming authorization is the operator's
    responsibility outside the tool. Only the scope-*data format* question is addressed
    in `05`; no authorization-gating requirement is included.
-2. **No human-in-the-loop control surface** — the 5-phase blueprint runs end-to-end
-   with only two internal LLM gates (Hermes-3, Mistral-7B); there is no operator
-   pause/resume/abort control, no approval checkpoint before destructive actions, and
-   no kill-switch. Addressed in `04` and `05`.
+2. **No human-in-the-loop control surface** — the base blueprint runs end-to-end with
+   only internal LLM gates and no operator pause/resume/abort control, no approval
+   checkpoint before destructive actions, and no kill-switch. Addressed in `04` and
+   `05` (CLI-only control surface, confirmed). *(Note: the gate roster itself has
+   since changed from the base plan's original two gate-models — see `11` findings
+   C-03/C-09 and `10` decisions #34-35: Gate 1 is now a two-tier deterministic+LLM
+   check using `Llama-3.1-8B-Instruct`, and Gate 2 is fully deterministic, not an
+   LLM.)*
 3. **No Phase 0 (pre-flight self-test)** — the blueprint assumes the inference engine,
    GPU drivers, and Kali tool suite are already verified working. Addressed as FR-PRE
-   in `01`.
+   in `01`, including a mandatory GPU-offload benchmark (`FR-PRE-08`).
 4. **No defined report deliverable format, evidence redaction policy, or CVSS/CWE
-   mapping detail.** Addressed in `01` (FR-REPORT) and `05` (evidence handling).
+   mapping detail.** Addressed in `01` (`FR-COUNCIL-16a`-`18`) and `12` (formatting
+   standard) — Markdown-first with operator approval gating HTML/PDF rendering and
+   evidence unredaction.
 5. **No error/crash recovery model** — what happens if a model hangs, a subprocess
    never returns, or the process is killed mid-phase. Addressed in `02` (NFR-REL) and
    `06`.
@@ -81,3 +95,16 @@ are addressed by new requirements rather than left implicit:
 
 None of these gaps require code or installation to resolve at this stage — they are
 resolved here as requirements the eventual implementation must satisfy.
+
+**Beyond these seven structural gaps**, a separate adversarial pass over the base
+plan's technical claims surfaced fourteen further findings (`11-Critical-Analysis...md`,
+C-01 through C-14 — memory/OOM interaction, prompt injection, CVSS scoring reliability,
+the Tier 2 tool-execution safety mechanism, the inference-engine choice, and more).
+Every one of them now has an explicit, operator-confirmed resolution folded into
+`01`-`09` — none were left as silent assumptions. The full chronological record of
+every decision behind this entire document set, including these fourteen and every
+other numeric/design fork raised along the way, is in
+`10-Decision-Log-and-Open-Questions.md`, along with the small number of items that
+genuinely cannot be closed without the real target hardware (thermal telemetry
+availability, actual driver binding, sustained-load backend stability) or without
+transferring this document set to that hardware in the first place.

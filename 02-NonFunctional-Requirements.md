@@ -1,8 +1,19 @@
 # Non-Functional Requirements — Autonomous Agentic VAPT System
 
 Quantitative targets below are derived directly from the base document's §1 (hardware)
-and §4 (resource allocation table); where the base document did not specify a number,
-a reasoned target is proposed and flagged **[PROPOSED]**.
+and §4 (resource allocation table). Every numeric target in this document has been
+explicitly confirmed by the operator (see `10-Decision-Log-and-Open-Questions.md`) —
+none are standing proposals.
+
+**Confirmed framing note (resolves critical-analysis finding C-02):** the base
+document's §4 resource-allocation table (RAM freed by hibernation, per-model RAM
+figures, headroom values) is a **sample/expected-case measurement, not a guaranteed
+specification**. Actual desktop-application memory usage varies run to run, so those
+numbers MUST NOT be treated as something the implementation is "held to." The actual
+enforcement mechanism is `FR-ENV-08` (live re-measurement of freed RAM after
+hibernation, with an abort if insufficient) and `NFR-RES-02` (the 1.5 GB safety
+margin) — both operate on measured-at-runtime values, not the base document's
+illustrative figures.
 
 ---
 
@@ -21,11 +32,10 @@ a reasoned target is proposed and flagged **[PROPOSED]**.
 
 | ID | Requirement |
 |----|-------------|
-| NFR-PERF-01 | The Pre-Flight Linter (`Qwen2.5-Coder-3B`) MUST sustain at least the documented ~28.5 tok/s throughput on this hardware to keep command-validation latency sub-second per command. |
+| NFR-PERF-01 | **(Superseded by the C-09 resolution)** `Qwen2.5-Coder-3B` no longer performs per-command validation — that role is now the deterministic Gate 2 validator (`FR-COUNCIL-08`), which has no meaningful throughput requirement since it's plain code, not inference. `Qwen2.5-Coder-3B`'s remaining offline, between-phase role (multi-line script syntax checks, `FR-COUNCIL-09a`) is infrequent enough that the base document's ~28.5 tok/s figure is no longer a binding latency target — it's retained here only as a historical data point, not a requirement. |
 | NFR-PERF-02 | Model swap (unload N → load N+1) MUST complete, end-to-end, within a bounded time budget of **60 seconds** under normal conditions, else the phase transition is logged as degraded. **[CONFIRMED]** |
 | NFR-PERF-05 | The Phase 4.2 tool-execution loop is bounded by a **global 12-hour wall-clock session budget** (FR-COUNCIL-11); the system MUST track elapsed session time from Phase 4 start and MUST trigger automatic transition to Phase 4.3 when the budget is reached, regardless of remaining queued tasks. **[CONFIRMED]** |
 | NFR-PERF-03 | Tool subprocess execution MUST respect the default 180-second timeout (FR-TOOL-05); the orchestration loop MUST NOT block on a single hung subprocess beyond that window. |
-| NFR-PERF-04 | The full 5-phase lifecycle (excluding arbitrarily long human review pauses) SHOULD complete a single-host, moderate-scope engagement within a session budget the operator can configure; the system MUST report elapsed time per phase for capacity planning. **[PROPOSED]** |
 
 ## NFR-REL — Reliability, Availability & Recoverability
 
@@ -79,9 +89,11 @@ non-functional properties are stated here.)*
 **out of scope** for this system — it is not a gate the software enforces. Obtaining and
 confirming authorization to test a target is the operator's responsibility outside this
 tool. The one compliance-adjacent requirement that remains is the scope-boundary check
-that was already part of the original plan's Council Gate 1 (Hermes-3), which is a
-content/technical check against declared scope data, not an authorization/legal check.
+that was already part of the original plan's Council Gate 1 — now a deterministic
+Python pre-check plus `Llama-3.1-8B-Instruct` as the semantic layer, replacing
+Hermes-3 per the C-03 resolution — which is a content/technical check against
+declared scope data, not an authorization/legal check.
 
 | ID | Requirement |
 |----|-------------|
-| NFR-COMPLIANCE-01 | The system's autonomy MUST remain bounded by the non-overridable scope-boundary check performed by Council Gate 1 (FR-COUNCIL-06) regardless of configured autonomy level — this is a technical scope check inherited from the original plan, not an authorization/legal gate. |
+| NFR-COMPLIANCE-01 | The system's autonomy MUST remain bounded by the non-overridable scope-boundary check performed by Council Gate 1 (FR-COUNCIL-06) under every configuration — this is a technical scope check inherited from the original plan, not an authorization/legal gate. (Note: the generic "autonomy level" concept referenced here in earlier drafts has been removed per confirmed decision — see FR-CTRL-06 in `01`.) |

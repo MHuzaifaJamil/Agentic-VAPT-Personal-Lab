@@ -50,6 +50,20 @@ mechanism described that prevents the Strategist's plan text (or, worse, injecte
 content from a scanned target's own HTTP responses — see C-04) from persuading an
 "uncensored, steerable" gate to approve something it should reject.
 
+**Resolution (operator decision):** two changes, together. (1) A **mandatory,
+non-bypassable deterministic Python scope checker** now runs as a first, non-LLM tier
+of Council Gate 1 — validating CIDR/domain-regex membership, port boundaries, and a
+destructive-flag denylist with zero model dependence (`FR-COUNCIL-03a`). (2) The
+semantic LLM tier of Gate 1 is swapped from `Hermes-3-Llama-3.1-8B` to
+**`Llama-3.1-8B-Instruct`** (`meta-llama`, `Q4_K_M`), chosen to restore intact refusal
+behavior and conservative instruction-following — the opposite of the "uncensored
+steerability" the base plan explicitly selected Hermes-3 for. `Mistral-7B-Instruct-v0.3`
+remains dedicated exclusively to Gate 3, unchanged, so scope-gating and false-positive
+triage never share a model. See `01-Functional-Requirements.md` §4.1 intro and
+`FR-COUNCIL-03a`/`04`. This narrows but does not eliminate the underlying risk — the
+new model's actual refusal behavior has not been empirically tested, only reasoned
+about (see `10-Decision-Log-and-Open-Questions.md`, Open Item C).
+
 ### C-04. No defense against prompt injection via scanned target content — Severity: **High**
 
 The sanitization pipeline (Phase 3, step 3) is designed to extract structured signal
@@ -86,6 +100,12 @@ overlapping hardware generations; a given kernel build typically selects one for
 given device, not both simultaneously bound to the same GPU. This should be verified
 against `lsmod`/`dmesg` on the actual target machine rather than asserted, since it
 affects which acceleration interface (Level Zero vs. legacy) is actually reachable.
+
+**Resolution (operator decision):** confirmed as a documentation caveat only — no
+separate pre-flight driver-verification requirement is added. Rationale: the GPU
+offload benchmark already mandated by `FR-PRE-08` (resolving C-05) will surface a
+non-working acceleration path regardless of which driver is actually bound, making a
+dedicated `lsmod`/`dmesg` check redundant for this system's purposes.
 
 ### C-07. CVSS/CWE scoring assigned autonomously by an 8B distilled model is not verifiable as accurate — Severity: **High**
 
@@ -142,6 +162,11 @@ per C-04, none of them a formal/deterministic verifier). This claim should be
 downgraded to "reduces, but does not eliminate" in any document that inherits it, and
 any acceptance test derived from it (see doc 09) should not treat "no hallucinated
 finding will ever occur" as a pass criterion, because that cannot be proven true.
+
+**Resolution (operator decision):** confirmed sufficient as-is — the downgraded
+language plus Gate 3's existing false-positive checklist (`FR-COUNCIL-14`) is the
+final control. No additional compensating requirement (e.g., mandatory operator
+spot-checking) is added for this finding.
 
 ### C-12. Tier 2 dynamic bridge relies on a denylist, which is inherently incomplete — Severity: **High**
 
@@ -216,6 +241,20 @@ between "the binary happens to live in an allowed path" and "an intrusive/exploi
 command actually runs against a live target." This is a residual risk to carry
 forward, not a flaw in the C-12 resolution itself — the trade-off (flexibility over a
 narrower allowlist) was made deliberately.
+
+**Resolution (operator decision):** a **pre-engagement opt-in flag mechanism**,
+confirmed as three curated high-risk categories, each requiring its own explicit flag
+before any listed binary can run: `--allow-brute-force`, `--allow-active-exploitation`,
+`--allow-lateral-movement` (full binary lists in `01-Functional-Requirements.md`
+FR-TOOL-06a). Flags are set at `start` and may be updated via `resume`
+(FR-TOOL-06c) — there is no mid-scan interactive halt; an unpermitted high-risk
+binary is simply refused for that task (`POLICY_REFUSED`, FR-TOOL-06b) and the loop
+autonomously continues. Any Tier 2 binary not on one of the three curated lists is
+explicitly unaffected and remains governed by the original C-12 resolution
+(FR-TOOL-03/06) alone. This narrows — but by design does not eliminate — the residual
+risk: tools outside the three curated lists (and any binary run once its flag is
+enabled) still depend on Gate 1/Gate 2 correctness as the real safety boundary,
+exactly as stated above.
 
 ---
 

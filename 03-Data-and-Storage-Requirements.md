@@ -22,11 +22,28 @@ other way around.
 | `engagement_id` | INTEGER PK | |
 | `created_at` | TEXT (ISO8601) | |
 | `status` | TEXT | `PENDING` / `IN_PROGRESS` / `PAUSED` / `COMPLETE` / `ABORTED` |
-| `autonomy_level` | TEXT | e.g. `normal` (per FR-CTRL-06) |
 | `phase4_started_at` | TEXT (ISO8601, nullable) | set when Phase 4.2 execution begins |
 | `session_budget_hours` | INTEGER | confirmed default: **12** (FR-COUNCIL-11 / NFR-PERF-05) |
 | `session_deadline_at` | TEXT (ISO8601, nullable) | `phase4_started_at` + `session_budget_hours`; computed once execution starts |
+| `allow_brute_force` | INTEGER (bool) DEFAULT 0 | opt-in flag, FR-TOOL-06a |
+| `allow_active_exploitation` | INTEGER (bool) DEFAULT 0 | opt-in flag, FR-TOOL-06a |
+| `allow_lateral_movement` | INTEGER (bool) DEFAULT 0 | opt-in flag, FR-TOOL-06a |
 | `notes` | TEXT | free-text operator notes |
+
+### DR-SCHEMA-01a: `engagement_flag_history` (new — required by FR-TOOL-06c)
+
+Every change to the three opt-in flags, whether set at `start` or updated via
+`resume`, MUST be recorded here — the flags themselves (on `engagements`) only hold
+current state; this table is the audit trail of *when* each changed.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER PK | |
+| `engagement_id` | INTEGER FK → `engagements` | |
+| `flag_name` | TEXT | `allow_brute_force` / `allow_active_exploitation` / `allow_lateral_movement` |
+| `old_value` / `new_value` | INTEGER (bool) | |
+| `changed_at` | TEXT (ISO8601) | |
+| `changed_via` | TEXT | `start` / `resume` |
 
 ### DR-SCHEMA-02: `targets`
 
@@ -45,9 +62,10 @@ counters used by FR-COUNCIL-11's diminishing-returns thresholds.
 
 ### DR-SCHEMA-03: `scope_rules`
 
-Scope-boundary data consumed by the Strategist and checked by Council Gate 1
-(Hermes-3) — see base §Phase 4.1. **Not an authorization/RoE record** — per explicit
-decision, this system does not verify authorization; this table only holds the
+Scope-boundary data consumed by the Strategist and checked by Council Gate 1 (a
+deterministic Python pre-check plus `Llama-3.1-8B-Instruct`, replacing Hermes-3 per
+the C-03 resolution) — see base §Phase 4.1. **Not an authorization/RoE record** — per
+explicit decision, this system does not verify authorization; this table only holds the
 technical in/out-of-scope pattern data the scope-boundary check operates against.
 
 | Column | Type | Notes |
@@ -81,8 +99,8 @@ technical in/out-of-scope pattern data the scope-boundary check operates against
 | `proposed_command` | TEXT | full argument vector as generated |
 | `gate2_corrected_command` | TEXT, nullable | if the linter (Gate 2) corrected it |
 | `status` | TEXT | `PENDING` / `GATE1_APPROVED` / `GATE1_REJECTED` / `GATE2_BLOCKED` / `EXECUTING` / `EXECUTED` / `FOLLOWUP_GENERATED` |
-| `gate1_rationale` | TEXT | Hermes-3's stated reason |
-| `gate2_rationale` | TEXT | Qwen-3B's stated reason on block/correct |
+| `gate1_rationale` | TEXT | Stated reason from whichever Gate 1 tier acted — the deterministic pre-check (`FR-COUNCIL-03a`) or `Llama-3.1-8B-Instruct` |
+| `gate2_rationale` | TEXT | The deterministic Gate 2 validator's stated reason on block/correct (not an LLM — see `FR-COUNCIL-08`) |
 | `created_at` / `executed_at` | TEXT (ISO8601) | |
 
 ### DR-SCHEMA-06: `tool_execution_logs`
@@ -110,7 +128,7 @@ technical in/out-of-scope pattern data the scope-boundary check operates against
 | `title` | TEXT | |
 | `description` | TEXT | |
 | `cwe_id` / `cve_id` | TEXT, nullable | |
-| `cvss_version` | TEXT | e.g. `4.0` |
+| `cvss_version` | TEXT | fixed value: `3.1` (confirmed — no other version supported, FR-COUNCIL-16a) |
 | `cvss_metrics_json` | TEXT (JSON) | the LLM-proposed per-metric values + justification (FR-COUNCIL-16a) |
 | `cvss_vector` / `cvss_score` | TEXT / REAL | **computed by the deterministic calculator, never written by the LLM directly** |
 | `status` | TEXT | `CANDIDATE` / `CONFIRMED` / `DISMISSED` |
@@ -222,5 +240,5 @@ direct feasibility check rather than an assumption:
 
 | ID | Requirement |
 |----|-------------|
-| DR-BACKUP-01 | Before Phase 5 hibernation-exit completes, the system SHOULD copy `state.db` to a timestamped backup file in the same artifact tree (e.g. `artifacts/<engagement_id>/state_backup_<timestamp>.db`), so a corrupted live database from an unclean future run does not destroy the only copy of a completed engagement's findings. |
+| DR-BACKUP-01 | **(Confirmed: MUST, not SHOULD)** Before Phase 5 hibernation-exit can be considered complete, the system MUST copy `state.db` to a timestamped backup file in the same artifact tree (e.g. `artifacts/<engagement_id>/state_backup_<timestamp>.db`) — this is a mandatory step, not best-effort, so a corrupted live database from an unclean future run does not destroy the only copy of a completed engagement's findings. |
 | DR-BACKUP-02 | Backups are local-only (NVMe), consistent with the no-cloud-dependency design (NFR-SEC-02) — no remote/offsite backup is in scope for this planning phase. |
