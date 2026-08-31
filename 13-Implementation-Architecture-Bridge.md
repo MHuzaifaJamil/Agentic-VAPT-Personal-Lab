@@ -29,14 +29,14 @@ socket/RPC protocol.
 | `status` | **Read-only.** Queries SQLite directly. Never signals the orchestrator, never needs it to be responsive (OPS-MONITOR-04's "live" requirement is satisfied because every state change is committed immediately per NFR-REL-01, not because status talks to a live process). |
 | `pause` | **Cooperative.** Writes `engagements.control_intent = 'PAUSE_REQUESTED'` (IAB-SCHEMA-01), then sends `SIGUSR1` to `orchestrator_pid` purely to prompt an immediate check rather than waiting for the loop's natural per-task polling cadence. The orchestrator's `SIGUSR1` handler does nothing but set an in-memory flag — the actual pause logic runs at the next safe checkpoint (between tasks, never mid-subprocess, per FR-CTRL-02). On pausing, the orchestrator persists all in-flight state, sets `engagements.status = 'PAUSED'`, and **exits the process** — a paused engagement holds no process, consistent with this design's whole memory-efficiency philosophy (no point in a process idling for hours). |
 | `resume` | Since "paused" means no process is running, `resume` **launches a fresh orchestrator process** (same entry point as `start`), which detects `status = 'PAUSED'`, applies any updated opt-in flags (FR-TOOL-06c), records its own new PID, and continues the Phase 4.2 loop from the last committed task-queue state — this falls out naturally since all task-queue state already lives in SQLite. |
-| `abort` | **Not cooperative — a direct external kill, not a request.** Given the 20-second kill-switch budget (NFR-REL-04) and the possibility that the orchestrator itself is hung (e.g., blocked in a subprocess call or a stuck inference call), `abort` cannot rely on the orchestrator noticing a signal in time. Instead `abort` itself: (1) sets `engagements.status = 'ABORTED'` and `control_intent = 'ABORT'` immediately (atomic, per SEC-KILL-03); (2) queries `tool_execution_logs WHERE end_ts IS NULL` for any currently-running subprocess `pid` (IAB-SCHEMA-02) and sends it `SIGTERM`; (3) sends `SIGTERM` to `orchestrator_pid`; (4) waits a bounded grace period; (5) sends `SIGKILL` to anything still alive (SEC-KILL-02); (6) since the orchestrator process may now be gone, `abort` itself invokes the Phase 5 restoration routine directly (reading `suspended_processes`, IAB-SCHEMA-03, and calling the freezer helper's thaw operation) — `abort` is responsible for satisfying OPS-LIFECYCLE-03's "abort still restores apps" guarantee, not a now-dead orchestrator process. |
+| `abort` | **Not cooperative — a direct external kill, not a request.** Given the 20-second kill-switch budget (NFR-REL-04) and the possibility that the orchestrator itself is hung (e.g., blocked in a subprocess call or a stuck inference call), `abort` cannot rely on the orchestrator noticing a signal in time. Instead `abort` itself: (1) sets `engagements.status = 'ABORTED'` and `control_intent = 'ABORT'` immediately (atomic, per SEC-KILL-03); (2) queries `tool_execution_logs WHERE end_ts IS NULL` for any currently-running subprocess `pid` (IAB-SCHEMA-02) and sends `SIGTERM` to its **entire process group** (`os.killpg(os.getpgid(pid), signal.SIGTERM)`, not just the recorded PID — every subprocess is spawned with `start_new_session=True` per FR-TOOL-04a specifically so this is possible; resolves finding C-19); (3) sends `SIGTERM` to `orchestrator_pid`; (4) waits a bounded grace period; (5) sends `SIGKILL` (same process-group targeting) to anything still alive (SEC-KILL-02); (6) since the orchestrator process may now be gone, `abort` itself invokes the Phase 5 restoration routine directly (reading `suspended_processes`, IAB-SCHEMA-03, and calling the freezer helper's thaw operation) — `abort` is responsible for satisfying OPS-LIFECYCLE-03's "abort still restores apps" guarantee, not a now-dead orchestrator process. |
 
 ### Signal assignments
 
 | Signal | Meaning |
 |---|---|
 | `SIGUSR1` | "Check `control_intent` now" — sent by `pause` only, to shorten the wait for the next natural checkpoint. Never used for `abort` (which acts directly, per above). |
-| `SIGTERM` | Graceful termination request — sent by `abort` to the orchestrator and to any active tool subprocess. |
+| `SIGTERM` | Graceful termination request — sent by `abort` to the orchestrator and to any active tool subprocess **group** (finding C-19). |
 | `SIGKILL` | Forceful termination — sent by `abort` to anything that ignored `SIGTERM` within the grace period, per SEC-KILL-02. |
 
 ---
@@ -81,7 +81,8 @@ schema — required for `pause`/`abort`/Phase 5 to function at all, not new feat
 | `report_id` | INTEGER FK → `reports` | |
 | `placeholder_token` | TEXT | unique per report, e.g. `[REDACTED-1]` |
 | `source_artifact_id` | INTEGER FK → `artifacts_index` | the raw evidence artifact holding the real value |
-| `extraction_note` | TEXT | how to locate the value within that artifact (e.g. a byte offset or a regex), so `approve-report` (FR-CTRL-08) can programmatically restore it without re-deriving or approximating |
+| `start_offset` / `end_offset` | INTEGER | **(revised, resolves finding C-21)** exact byte offsets into the raw artifact, captured at redaction time — never a pattern/regex search |
+| `content_hash` | TEXT | SHA-256 of the exact byte range; `approve-report` (FR-CTRL-08) MUST verify the re-read bytes still hash to this value before substituting, failing loudly on mismatch |
 
 The real secret value is **never** duplicated into `redaction_map` itself — it's
 re-read from `source_artifact_id` at unredaction time, consistent with FR-COUNCIL-18's
@@ -131,6 +132,7 @@ resource_limits:
   e_core_thread_cap: 4              # NFR-RES-05
   model_swap_budget_s: 60           # NFR-PERF-02
   memory_settle_timeout_s: 5        # FR-GATE-10 / IR-ENGINE-06
+  sqlite_busy_timeout_ms: 5000       # DR-CONCURRENCY-03, finding C-20
 loop_bounds:
   per_target_task_cap: 30           # FR-COUNCIL-11
   zero_yield_circuit_breaker: 3     # FR-COUNCIL-11a

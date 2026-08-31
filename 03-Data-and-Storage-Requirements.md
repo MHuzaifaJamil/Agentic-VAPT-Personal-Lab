@@ -213,10 +213,15 @@ Tracks phase transitions for resumability (NFR-REL-02).
 | `report_id` | INTEGER FK → `reports` | |
 | `placeholder_token` | TEXT | unique per report, e.g. `[REDACTED-1]` |
 | `source_artifact_id` | INTEGER FK → `artifacts_index` | the raw evidence artifact holding the real value |
-| `extraction_note` | TEXT | how to locate the value within that artifact, so `approve-report` (FR-CTRL-08) can restore it without re-deriving or approximating |
+| `start_offset` / `end_offset` | INTEGER | **(revised, resolves critical-analysis finding C-21)** exact byte offsets into the raw artifact file, captured at redaction time — never a pattern/regex search, which can match the wrong occurrence if a token repeats or fail under irregular line breaks |
+| `content_hash` | TEXT | SHA-256 of the exact byte range `[start_offset, end_offset)`, computed at redaction time |
 
 The real secret value is never duplicated into this table — it is re-read from
-`source_artifact_id` at unredaction time.
+`source_artifact_id` at unredaction time, using `start_offset`/`end_offset`. Before
+substituting it into the approved report, `approve-report` (FR-CTRL-08) MUST verify
+the re-read bytes hash to `content_hash`; a mismatch (artifact truncated or modified
+since redaction) MUST fail the approval loudly rather than silently insert a
+possibly-wrong value.
 
 ### DR-SCHEMA-12: `discovered_entities` (new — required by FR-COUNCIL-11a, resolves critical-analysis finding C-17)
 
@@ -263,6 +268,15 @@ direct feasibility check rather than an assumption:
   batched, so that NFR-REL-01's "durable after every discrete step" guarantee actually
   holds — a batching strategy would silently reintroduce the crash-loses-more-than-one-step
   risk NFR-REL-01 is meant to close.
+- **DR-CONCURRENCY-03:** **(New, confirmed — resolves critical-analysis finding
+  C-20)** WAL mode alone does not prevent `sqlite3.OperationalError: database is
+  locked` when two connections attempt to write at close to the same moment (e.g.,
+  `pause`/`abort` writing `control_intent` while the orchestrator is mid-commit on a
+  large `tool_execution_logs` insert). Every connection MUST also set
+  `PRAGMA busy_timeout = 5000;` (5000ms), so a writer retries for up to 5 seconds
+  before raising, rather than failing immediately on contention — critical
+  specifically for `pause`/`abort`, which must not fail outright at the moment they
+  matter most.
 - **Conclusion:** SQLite in WAL mode is adequate for this workload's actual
   concurrency profile (low writer contention, occasional concurrent reads); a
   client-server database (Postgres, etc.) would be unjustified complexity for a

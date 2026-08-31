@@ -112,10 +112,12 @@ transferring this document set to that hardware in the first place.
 
 **Update:** the base document, `Agentic VAPT Setup (HOME).md`, was originally treated
 as an immutable historical record — every correction above was folded into `01`-`09`
-only. By explicit, later operator decision, thirteen of the findings (C-01, C-03,
-C-07, C-08, C-09, C-11, C-12, C-13, C-14, C-15, C-16, C-17, C-18, plus the unbounded
-task-queue loop) have since been corrected directly in that file too, each marked
-inline with a pointer back to `11`. See decisions #39 and #40 in
+only. By explicit, later operator decision, sixteen of the findings (C-01, C-03,
+C-07, C-08, C-09, C-11, C-12, C-13, C-14, C-15, C-16, C-17, C-18, C-19, C-20, C-21,
+plus the unbounded task-queue loop) have since been corrected directly in that file
+too, each marked inline with a pointer back to `11`. **Standing policy:** the base
+file states each correction at a high level only; `01`-`13` carry the precise
+mechanism. See decisions #39, #40, and #42 in
 `10-Decision-Log-and-Open-Questions.md` for the full before/after record.
 
 **Second update:** a further externally-sourced issue list surfaced four more

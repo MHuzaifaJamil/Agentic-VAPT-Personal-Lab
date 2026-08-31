@@ -112,6 +112,8 @@ group names its representative test cases and which IDs it covers.
 | Kill-switch timing | Test | With a running long-tier tool subprocess (e.g. a full-port `nmap`) and a model loaded, invoke `abort`; measure wall-clock to full stop. **Pass: ≤ 20 seconds**, engagement marked `ABORTED` atomically (SEC-KILL-03). |
 | Escalation | Test | Confirm a process that ignores `SIGTERM` is `SIGKILL`'d within the 20-second budget, not left running past it (SEC-KILL-02). |
 | Abort still restores apps | Test | After an `abort`, confirm Phase 5 still runs and suspended applications resume (OPS-LIFECYCLE-03). |
+| Process-group kill (no orphans) | Test | Launch a tool that spawns a child process (e.g. a wrapper script forking a worker); invoke `abort`; confirm via `ps`/`pgrep` that **no process in that group** survives, not just the recorded parent PID (FR-TOOL-04a, SEC-KILL-01, finding C-19). |
+| Spawn uses new session | Inspection | Confirm every subprocess spawn call passes `start_new_session=True` (or equivalent) — a code-level check across the Tier 1/Tier 2 bridge. |
 
 ## TP-RESOURCE — Resource Thresholds (NFR-RES, OPS-MONITOR)
 
@@ -121,6 +123,9 @@ group names its representative test cases and which IDs it covers.
 | Disk thresholds | Test (constrained environment) | Fill the artifact volume to 85%; confirm a warning is logged. Fill to 95%; confirm new artifact writes are hard-blocked. |
 | E-core thread cap | Inspection | Confirm concurrent tool subprocess scheduling is constrained to 4 threads via CPU affinity settings, leaving 4 E-core threads free (NFR-RES-05). |
 | WAL mode | Inspection | Confirm `state.db` is opened with `PRAGMA journal_mode=WAL` (DR-CONCURRENCY-01), and that a concurrent `status` read succeeds during an in-progress write. |
+| Busy-timeout under contention | Test | Hold a write transaction open on `state.db` from one connection; from a second connection, invoke `pause` or `abort`; confirm it retries (does not raise `database is locked`) and succeeds within the 5-second busy timeout (DR-CONCURRENCY-03, finding C-20). |
+| Redaction hash verification | Test | Approve a report whose `redaction_map` row's `start_offset`/`end_offset` no longer matches its `content_hash` (simulate artifact truncation); confirm `approve-report` fails loudly rather than substituting a wrong/partial value (finding C-21). |
+| Redaction round-trip on duplicate tokens | Test | Craft a raw artifact containing the same secret string twice; confirm offset-based addressing restores the correct occurrence at the correct placeholder, unlike a regex search which could match either. |
 
 ## TP-MULTI — Multi-Target Support (DR-SCHEMA-02, IR-CTRL-03)
 

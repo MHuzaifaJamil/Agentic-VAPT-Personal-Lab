@@ -42,8 +42,8 @@ test a given target is the operator's responsibility, entirely outside this tool
 
 | ID | Requirement |
 |----|-------------|
-| SEC-KILL-01 | The abort/kill-switch (FR-CTRL-04) MUST terminate, in order: (1) the currently executing tool subprocess tree, (2) any queued-but-not-yet-started subprocess, (3) the resident inference engine process, all within the 20-second budget (NFR-REL-04). |
-| SEC-KILL-02 | Kill-switch termination MUST escalate from a graceful signal (`SIGTERM`) to a forceful one (`SIGKILL`) if a process does not exit within a bounded grace period inside that 20-second budget, rather than wait indefinitely on a graceful shutdown that may not happen. |
+| SEC-KILL-01 | **(Revised, resolves critical-analysis finding C-19)** The abort/kill-switch (FR-CTRL-04) MUST terminate, in order: (1) the currently executing tool subprocess **group** (`os.killpg(os.getpgid(pid), ...)` — the whole group spawned under FR-TOOL-04a, not just the recorded parent PID), (2) any queued-but-not-yet-started subprocess, (3) the resident inference engine process, all within the 20-second budget (NFR-REL-04). |
+| SEC-KILL-02 | Kill-switch termination MUST escalate from a graceful signal (`SIGTERM`) to a forceful one (`SIGKILL`) if a process does not exit within a bounded grace period inside that 20-second budget, rather than wait indefinitely on a graceful shutdown that may not happen. Both signals target the process **group** (per SEC-KILL-01), not a single PID. |
 | SEC-KILL-03 | Invoking the kill-switch MUST mark the engagement `ABORTED` in `engagements.status` (DR-SCHEMA-01) as an atomic part of the abort sequence, not a separate manual step — an aborted engagement must never be left in `IN_PROGRESS`. |
 
 ## SEC-AUDIT — Auditability

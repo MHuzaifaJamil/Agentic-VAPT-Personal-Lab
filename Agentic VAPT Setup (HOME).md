@@ -158,6 +158,7 @@ To balance cognitive accuracy against the 15.3 GiB shared memory constraint, mod
 
 3. **Database State Initialization:**
 * Initialize local SQLite relational state store at `/home/mhj/.local/share/vapt_agent/state.db` with tables for `targets`, `attack_paths`, `task_queue`, `tool_execution_logs`, and `verified_vulnerabilities`.
+* The state store is configured to handle simultaneous reads and writes safely (e.g. a CLI status check while the engagement is actively running), rather than fail under contention. *(Added per `11-Critical-Analysis-and-Design-Challenges.md`, finding C-20 — see `03-Data-and-Storage-Requirements.md` for the precise mechanism.)*
 
 
 
@@ -205,6 +206,7 @@ To balance cognitive accuracy against the 15.3 GiB shared memory constraint, mod
 
 3. **Subprocess Sandboxing & Deterministic Sanitization:**
 * Execute all external binaries using isolated `subprocess.Popen` handles with non-shell execution (`shell=False`), explicit argument vectors, and **tiered mandatory timeouts** by tool class: Quick Probes (`ffuf`, `whatweb`, `nikto`, `wafw00f`) = 180s; Targeted Scans (`nuclei`, standard `nmap`, `sqlmap` quick mode, `gobuster`, `feroxbuster`, `testssl`) = 900s; Deep/Full-Range Scans (`nmap -p-`, `sqlmap` with tamper scripts, `masscan` subnet sweeps) = 1800s — with non-blocking output streaming to detect stalls before the hard timeout. *(A flat 180s default for every tool didn't fit long-running scans. Corrected per `11-Critical-Analysis-and-Design-Challenges.md`, finding C-08.)*
+* Every tool is launched fully isolated in its own process group, so an emergency stop cleanly terminates the entire tool invocation — including any worker processes it spawns internally — not just its main process. *(Added per `11-Critical-Analysis-and-Design-Challenges.md`, finding C-19 — see `01-Functional-Requirements.md`/`05-Security-Safety-and-Compliance-Requirements.md` for the precise mechanism.)*
 * Run raw stdout/stderr through a local Python sanitization pipe:
 * Extract open ports, service banners, responsive URLs, and HTTP status codes ($200, 301, 401, 500$).
 * Discard HTML bodies, redundant 404 responses, and binary data before context ingestion to protect the 16k context window.
@@ -269,6 +271,7 @@ To balance cognitive accuracy against the 15.3 GiB shared memory constraint, mod
 2. **Reload `DeepSeek-R1-Distill-Qwen-8B` (Q4_K_M):**
 * Ingests confirmed findings, maps CVE/CWE identifiers, deduces root causes, and drafts the technical penetration testing report.
 * Proposes CVSS 3.1 per-metric values with justification — **a separate deterministic (non-LLM) calculator computes the final numeric score and vector string; the model never emits a final CVSS score itself.**
+* Any secrets redacted in the draft report are restored to their exact original form — verified against the raw evidence, never approximated — only once the operator approves the report. *(Added per `11-Critical-Analysis-and-Design-Challenges.md`, finding C-21 — see `03-Data-and-Storage-Requirements.md` for the precise mechanism.)*
 * Model unloads completely upon task completion.
 * *(This step originally had the model calculate CVSS scores directly. Corrected per `11-Critical-Analysis-and-Design-Challenges.md`, finding C-07.)*
 

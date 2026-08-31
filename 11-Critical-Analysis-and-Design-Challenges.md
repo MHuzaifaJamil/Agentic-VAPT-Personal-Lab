@@ -9,16 +9,20 @@ unverified/optimistic), or **Low** (minor inaccuracy/wording issue).
 
 **Update:** for most of this document's history, it deliberately did not modify the
 source file — findings were recorded here only, and resolutions were folded into
-`01`-`09` instead. That changed by explicit operator decision: thirteen of the findings
+`01`-`09` instead. That changed by explicit operator decision: sixteen of the findings
 below — **C-01, C-03, C-07, C-08, C-09, C-11, C-12, C-13, C-14, C-15, C-16, C-17,
-C-18** — plus the previously unbounded task-queue loop (`FR-COUNCIL-11`, not itself a
-numbered C-finding) have now been corrected **directly in
-`Agentic VAPT Setup (HOME).md` itself**, each marked inline with a short note
+C-18, C-19, C-20, C-21** — plus the previously unbounded task-queue loop
+(`FR-COUNCIL-11`, not itself a numbered C-finding) have now been corrected **directly
+in `Agentic VAPT Setup (HOME).md` itself**, each marked inline with a short note
 pointing back to the relevant finding here. C-02, C-04, C-05, C-06, and C-10 were
 **not** applied to the source file (not offered / not selected for that treatment) —
-their resolutions remain only in `01`-`09`. This document remains the record of *why*
-each correction was made; `10-Decision-Log-and-Open-Questions.md` records *when* and
-*that it was an explicit decision* (see decisions #39 and #40).
+their resolutions remain only in `01`-`09`. **Standing policy (decision #42):** the
+base file carries each correction at a high level only — no Python-specific flags,
+SQLite pragmas, or schema-column detail — while `01`-`13` carry the full mechanism;
+C-19/C-20/C-21 were the first findings mirrored under this explicit altitude split.
+This document remains the record of *why* each correction was made;
+`10-Decision-Log-and-Open-Questions.md` records *when* and *that it was an explicit
+decision* (see decisions #39, #40, and #42).
 
 ---
 
@@ -369,6 +373,63 @@ after which a degraded-state alert is raised — consistent with `NFR-PERF-02`'s
 existing degraded-swap handling, not a new failure mode. See
 `04-Interface-and-Integration-Requirements.md` IR-ENGINE-06.
 
+### C-19. Kill-switch targets only the recorded parent PID, not the process group — orphaned children could survive `abort` — Severity: **High**
+
+`13-Implementation-Architecture-Bridge.md`'s `abort` design (IAB-PROC) sends `SIGTERM`/
+`SIGKILL` to the PID recorded in `tool_execution_logs.pid`. Many security tools
+(`nmap`, `hydra`, and others) spawn worker sub-processes or shell out to helper
+binaries; if the subprocess bridge spawns them in the *same* process group as the
+bridge itself (the Python default), killing only the recorded parent PID leaves any
+child process it spawned running — silently violating the 20-second kill-switch SLA
+(`NFR-REL-04`, `SEC-KILL-01`) that this whole mechanism exists to guarantee. This is a
+correctness gap in an already-confirmed MUST requirement, not a new feature request.
+
+**Resolution (operator decision):** the Tier 1/Tier 2 bridge MUST spawn every
+subprocess in its own new session (`subprocess.Popen(..., start_new_session=True)`,
+equivalent to `preexec_fn=os.setsid`), and `abort`'s kill-switch MUST target the
+**entire process group**, not just the recorded PID
+(`os.killpg(os.getpgid(pid), signal.SIGTERM)`, escalating to `SIGKILL` per
+`SEC-KILL-02`). See `01-Functional-Requirements.md` FR-TOOL-04a and
+`05-Security-Safety-and-Compliance-Requirements.md` SEC-KILL-01 (revised).
+
+### C-20. WAL mode alone doesn't prevent "database is locked" errors between concurrent CLI invocations — Severity: **Medium**
+
+`DR-CONCURRENCY-01` mandates WAL mode so a `status` read doesn't block on a writer's
+commit — but WAL mode does not by itself prevent a `sqlite3.OperationalError:
+database is locked` when two connections attempt to write at close to the same
+moment (e.g., `pause`/`abort` writing `control_intent` while the orchestrator is
+mid-commit on a large `tool_execution_logs` insert) unless a busy-wait/retry policy
+is also configured. Without one, a `pause` or `abort` invocation could fail outright
+with an unhandled exception at exactly the moment it matters most.
+
+**Resolution (operator decision):** every SQLite connection MUST set
+`PRAGMA busy_timeout = 5000;` (5000ms) alongside `PRAGMA journal_mode = WAL;`, so a
+connection retries for up to 5 seconds before raising, rather than failing
+immediately on contention. See `03-Data-and-Storage-Requirements.md` DR-CONCURRENCY-03
+and `13-Implementation-Architecture-Bridge.md` IAB-FILES (config default).
+
+### C-21. Redaction-map addressing via "byte offset or a regex" is imprecise and could restore the wrong secret — Severity: **High**
+
+`03-Data-and-Storage-Requirements.md` DR-SCHEMA-14 (added in the implementation
+bridge round) originally described `redaction_map.extraction_note` as locating a
+secret "via a byte offset or a regex." A regex-based lookup can match the wrong
+occurrence if a raw artifact contains the same token twice, or fail to match at all
+across irregular line-break normalization — either way risking the wrong value (or no
+value) being restored into what's supposed to be a verbatim, client-facing report
+(`FR-COUNCIL-18`, `12-Report-Formatting-Rules.md` §1.5's "never redacted, ever"
+guarantee for the approved report). This is a real integrity risk in a MUST
+requirement whose entire point is exactness.
+
+**Resolution (operator decision):** replace the vague "offset or regex" field with
+**exact, verifiable addressing**: `start_offset`/`end_offset` (precise byte offsets
+into the raw artifact, captured at redaction time — never a pattern search) plus a
+`content_hash` (e.g. SHA-256 of that exact byte range). At unredaction time
+(`FR-CTRL-08`), the system MUST re-read exactly that byte range and verify it hashes
+to the stored value before substituting it — if the hash doesn't match (artifact
+truncated/modified since redaction), unredaction MUST fail loudly rather than
+silently insert a possibly-wrong value. See `03-Data-and-Storage-Requirements.md`
+DR-SCHEMA-14 (revised).
+
 ## Summary Table
 
 | ID | Area | Severity |
@@ -391,6 +452,9 @@ existing degraded-swap handling, not a new failure mode. See
 | C-16 | Long `SIGSTOP` breaks network/IPC session state, not just memory | Medium |
 | C-17 | "Zero-yield" was never precisely defined; noisy tools could defeat the circuit breaker | High |
 | C-18 | Model-swap race between process teardown and next allocation | Medium |
+| C-19 | Kill-switch targets only the recorded PID, not the process group; orphaned children could survive `abort` | High |
+| C-20 | WAL mode alone doesn't prevent "database is locked" between concurrent CLI invocations | Medium |
+| C-21 | Redaction addressing via "offset or regex" is imprecise; could restore the wrong secret | High |
 
 These are analysis findings, not yet requirements — none have been folded into the
 requirement documents (`01`–`09`) as new obligations. Whether and how to act on each
