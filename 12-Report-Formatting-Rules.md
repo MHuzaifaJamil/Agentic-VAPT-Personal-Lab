@@ -70,13 +70,13 @@ much* evidence to actively go and capture during testing (minimum-necessary extr
 to prove a finding is still the right call during the hunt itself) — but whatever was
 captured must be reported in full, not sanitized after the fact.
 
-*(Note for this system's own pipeline: this rule governs the finished, human-approved
-report deliverable. It does not override `FR-COUNCIL-18` in the functional
-requirements, which restricts what the **agent's own draft/report-generation step** may
-place in the body before human approval. Reconciling those two rules — i.e., whether
-the agent's first Markdown draft should already contain unredacted evidence prior to
-operator sign-off, or redact-then-unredact-on-approval — is an open decision; do not
-assume either resolution without asking.)*
+*(Note for this system's own pipeline — resolved: this rule governs the finished,
+human-approved report deliverable only. The agent's own pending-approval Markdown
+draft (`FR-COUNCIL-18`) redacts captured secrets by default, using a reversible
+mapping back to the raw evidence artifact. Approving a report via `FR-CTRL-08`
+programmatically restores the full, verbatim evidence throughout before HTML/PDF
+rendering, so the rendered HTML/PDF this section governs is always fully unredacted,
+exactly as required above.)*
 
 ## 2. Cover Page (page 1)
 

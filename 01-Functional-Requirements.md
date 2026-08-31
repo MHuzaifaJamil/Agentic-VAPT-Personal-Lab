@@ -22,6 +22,7 @@ before memory is committed or a target is touched.
 | FR-PRE-05 | The system MUST verify the NVMe artifact path (`/home/mhj/.local/share/vapt_agent/artifacts/`) exists, is writable, and is not itself a `tmpfs` mount. | M |
 | FR-PRE-06 | The system MUST record current available RAM, swap utilization, and disk free space as a pre-flight baseline snapshot in the state database before Phase 1 hibernation actions begin. | M |
 | FR-PRE-07 | Pre-flight MUST produce a single pass/fail report; any failed check MUST block progression to Phase 1 unless the operator explicitly overrides with a logged justification. | M |
+| FR-PRE-08 | **(New, confirmed — resolves critical-analysis finding C-05)** Pre-flight MUST run a one-time GPU-offload benchmark: load the smallest council model via the Local Engine Client with SYCL/Level-Zero offload requested, run a short fixed-size inference, and measure tokens/sec. If offload fails outright, or completes but falls below a configurable minimum throughput floor, the **entire engagement** MUST be flagged to run CPU-only from the start (not discovered piecemeal mid-Phase-4 per model) — this result MUST be recorded in `engagement_phase_log` so every subsequent phase-latency expectation in `02-NonFunctional-Requirements.md` is read against the correct (GPU vs. CPU-only) baseline. | M |
 
 ---
 
@@ -41,12 +42,26 @@ Traces to base §Phase 1.
 | FR-ENV-08 | The system MUST re-measure available RAM after hibernation and MUST abort progression to Phase 2 if the resulting headroom is below the minimum required for the smallest council model (~3.8 GB) plus a safety margin (see NFR-RES-02). | M |
 | FR-ENV-09 | The system MUST initialize the SQLite state store with, at minimum, the tables `targets`, `scope_rules`, `rules_of_engagement`, `attack_paths`, `task_queue`, `tool_execution_logs`, `verified_vulnerabilities`, `model_invocation_logs`, and `engagement_state` (full schema in `03-Data-and-Storage-Requirements.md`) before Phase 2 begins. | M |
 | FR-ENV-10 | If the state database already exists with an engagement marked `IN_PROGRESS` or `PAUSED`, the system MUST offer to resume that engagement rather than silently overwrite it. | M |
+| FR-ENV-11 | **(MUST, per critical-analysis finding C-01 and operator decision)** Before triggering the memory-reclamation step that increases system-wide memory pressure (FR-ENV-07), the system MUST lower OOM-kill priority for every suspended PID it recorded in FR-ENV-05 (e.g., via `/proc/<pid>/oom_score_adj`), so that hibernated applications are the *last* candidates the kernel's OOM killer would select, not equally-eligible targets. | M |
+| FR-ENV-12 | The system MUST verify, after hibernation, that every suspended PID is still alive (not reaped by the OOM killer despite FR-ENV-11); if any were killed, this MUST be logged and reported to the operator, and the "hibernation complete" state MUST reflect a partial/degraded outcome rather than full success. | M |
 
 ---
 
 ## FR-GATE — Phase 2: Local Inference Gateway
 
 Traces to base §Phase 2.
+
+**Confirmed engine decision (resolves critical-analysis finding C-13):**
+`llama.cpp --server` is the primary production inference engine, using its native
+oneAPI/SYCL backend for direct Intel Arc iGPU acceleration. Because raw
+`llama.cpp --server` does not natively provide Ollama-style `keep_alive` hot-swap
+semantics, model lifecycle (load/unload) MUST be implemented as explicit
+controller-level process termination and respawn (or, if a future `llama.cpp` version
+exposes a multi-model management API, via that API) — never assumed as a built-in
+engine feature. All engine interaction MUST be abstracted behind a unified
+**Local Engine Client** interface so `ollama` can be substituted as an interchangeable
+backend later, contingent on independently verifying its Intel SYCL/Level-Zero
+support at deployment time (per finding C-05).
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
@@ -58,6 +73,7 @@ Traces to base §Phase 2.
 | FR-GATE-06 | The system MUST log every inference call (model, role, prompt token count, completion token count, wall-clock latency, phase/step ID) to `model_invocation_logs`. | M |
 | FR-GATE-07 | The system MUST enforce per-model context window ceilings matching each model's documented profile (8k for DeepSeek-R1/Hermes-3/Mistral-7B, 16k for Qwen2.5-Coder-7B, 4k for Qwen2.5-Coder-3B) and MUST truncate/summarize inputs rather than silently error on overflow. | M |
 | FR-GATE-08 | If the inference engine process crashes or becomes unresponsive (no token progress within a configurable timeout), the system MUST detect this, log it, attempt one restart, and escalate to a halted/`PAUSED` engagement state on repeated failure rather than hang indefinitely. | M |
+| FR-GATE-09 | The system MUST implement model load/unload exclusively through the Local Engine Client abstraction (process spawn/terminate for `llama.cpp`, or the equivalent native call for a substituted backend), and MUST verify complete OS-level process termination — not merely an API-level "unloaded" acknowledgment — before considering a model's memory reclaimed for the purposes of FR-GATE-05. | M |
 
 ---
 
@@ -69,15 +85,17 @@ Traces to base §Phase 3.
 |----|-------------|----------|
 | FR-TOOL-01 | The system MUST provide structured, schema-validated function-calling wrappers ("Tier 1") for each of: `nmap`, `masscan`, `nuclei`, `ffuf`, `feroxbuster`, `gobuster`, `sqlmap`, `nikto`, `whatweb`, `wafw00f`, `testssl`. | M |
 | FR-TOOL-02 | Each Tier 1 wrapper MUST declare, in machine-readable form, its allowed flags, required arguments, and forbidden flag combinations (e.g., destructive `sqlmap --os-shell`) so the linter (FR-COUNCIL) can validate against it. | M |
-| FR-TOOL-03 | The system MUST provide a generic Tier 2 dynamic bridge (`run_security_command`) for any other installed `/usr/bin`/`/usr/sbin` binary, gated by an explicit allowlist-by-default policy (see FR-TOOL-06). | M |
+| FR-TOOL-03 | **(Confirmed mechanism, resolves critical-analysis finding C-12)** The system MUST provide a generic Tier 2 dynamic bridge (`run_security_command`) implementing a **path-restricted dynamic allowlist**: any binary that resolves to a real file inside `/usr/bin/`, `/usr/sbin/`, or `/opt/` (the installation locations covering the full `kali-linux-everything` toolset) is eligible for execution. Within this scope, execution is **fully autonomous and non-blocking** — no per-binary operator approval is required — which is the mechanism that makes the unattended 12-hour autonomous operation in FR-COUNCIL-11 viable. A binary resolving outside these three paths MUST be refused. | M |
 | FR-TOOL-04 | All external tool invocation MUST use non-shell subprocess execution (`shell=False`) with explicit argument vectors; string-interpolated shell commands MUST NOT be constructed from model output. | M |
 | FR-TOOL-05 | Every subprocess invocation MUST have a mandatory timeout (default 180s, configurable per-tool) after which the process tree is terminated. | M |
-| FR-TOOL-06 | The Tier 2 dynamic bridge MUST check every candidate binary/argument set against a configurable denylist of destructive operations (e.g., `rm`, `dd`, `mkfs`, fork-bombs, disk-wiping utilities, anything targeting `127.0.0.1`/loopback/host-local addresses outside the declared scope) before execution, and MUST refuse execution on a match. | M |
+| FR-TOOL-06 | **(Confirmed mechanism)** Even for binaries within the allowed-path scope (FR-TOOL-03), the bridge MUST reject a candidate invocation if it matches any of: (a) a shell builtin or shell-invocation wrapper; (b) an inline-interpreter/eval invocation (e.g., `python`/`python3 -c`, `bash`/`sh -c`, `perl -e`, `ruby -e`, `node -e`, and equivalents) — these execute arbitrary, unauditable code and defeat the whole point of path-restriction; (c) any file write/delete/rename operation whose target path resolves outside the designated NVMe artifact path; (d) a fixed denylist of destructive utilities/patterns (`rm`, `dd`, `mkfs`, `shred`, fork-bomb patterns, disk-wiping utilities); or (e) any target address/host resolving to `127.0.0.1`/loopback/host-local addresses outside the declared scope. A match on any of (a)–(e) MUST cause the bridge to refuse execution, regardless of the calling binary's own location. | M |
 | FR-TOOL-07 | The system MUST sanitize raw stdout/stderr from every tool run through a parsing pipeline that extracts structured signal (open ports, banners, URLs, status codes) and discards HTML bodies, repetitive 404 noise, and binary payloads before the data enters any model's context window. | M |
 | FR-TOOL-08 | The system MUST persist the full, unsanitized raw output of every tool run to the NVMe artifact store regardless of what is summarized into context, so evidence is not lost to summarization. | M |
 | FR-TOOL-09 | The system MUST record, for every subprocess execution, the exact argument vector, start/end timestamps, exit code, and originating task ID in `tool_execution_logs`. | M |
 | FR-TOOL-10 | The system SHOULD extract and expose Burp Suite / Caido MCP server configurations and structured multi-turn assessment prompt templates as reusable methodology assets, without requiring them to be installed at planning time. | S |
 | FR-TOOL-11 | The system MUST support pointing `claude-bug-bounty`, `CyberStrike`, and `strix` at the local endpoint via `OPENAI_BASE_URL`/`OPENAI_API_KEY`/`ANTHROPIC_BASE_URL` environment overrides, without hardcoding cloud endpoints anywhere in the bridge. | S |
+| FR-TOOL-12 | **(MUST, per critical-analysis finding C-04 and operator decision)** All content originating from a scanned target (HTTP response bodies, headers, banners, page titles, DNS TXT records, any tool stdout derived from live target interaction) MUST be wrapped with explicit input-provenance tagging (e.g., a fixed delimiter/role marker identifying it as untrusted external data) before being placed into any model's context. Every council model's system-level instructions MUST state that content inside these tags is data to be analyzed, never instructions to be followed, and this instruction-hierarchy rule MUST be applied uniformly to the Strategist, Operator, Gatekeeper, and Adjudicator roles alike. | M |
+| FR-TOOL-13 | The system SHOULD run a lightweight heuristic check (e.g., pattern match for common injection phrasing: "ignore previous instructions," "system prompt," role-switch markers) over sanitized tool output before context ingestion, flagging suspected injection attempts in `tool_execution_logs` for later audit, independent of the tagging defense in FR-TOOL-12 (defense in depth — detection does not replace containment). | S |
 
 ---
 
@@ -87,25 +105,47 @@ Traces to base §Phase 4, Steps 4.1–4.3, and §2 model profiles.
 
 ### 4.1 Strategic Planning & Scope Gate
 
+**Confirmed deviation from the base document's model roster (resolves critical-analysis
+finding C-03):** Council Gate 1 is now a **two-tier gate**, not a single LLM call.
+`Hermes-3-Llama-3.1-8B` is replaced in this role by `Llama-3.1-8B-Instruct`
+(`meta-llama`, `Q4_K_M`) — chosen to restore intact refusal behavior and conservative
+instruction-following, the opposite of the "uncensored steerability" the base plan
+explicitly selected Hermes-3 for. `Mistral-7B-Instruct-v0.3` remains dedicated
+exclusively to Gate 3, unchanged, so scope-gating and false-positive triage never
+share a model (avoiding correlated evaluation failure between the two).
+
 | ID | Requirement | Priority |
 |----|-------------|----------|
 | FR-COUNCIL-01 | `DeepSeek-R1-Distill-Qwen-8B` MUST be loaded to ingest target scope, IP ranges, and Rules of Engagement from the state store and produce an ordered, hypothesis-driven attack-path task queue. | M |
 | FR-COUNCIL-02 | The Strategist's output MUST be a structured, parseable plan (task list with rationale) written to `attack_paths`/`task_queue`, not free-form prose only. | M |
 | FR-COUNCIL-03 | The Strategist model MUST be fully unloaded from RAM before the Gatekeeper model loads (single-residency, FR-GATE-02). | M |
-| FR-COUNCIL-04 | `Hermes-3-Llama-3.1-8B` (Council Gate 1) MUST evaluate every proposed task against the declared scope boundaries (`scope_rules`) and MUST reject or flag-for-revision any task that: targets an address/domain outside scope, exceeds an authorized testing window, or exceeds the authorized intrusiveness level (see `05-Security...`). | M |
-| FR-COUNCIL-05 | Council Gate 1 decisions (approve / revise / reject) and its stated rationale MUST be persisted per task, not just a final aggregate verdict. | M |
-| FR-COUNCIL-06 | A task that Council Gate 1 rejects MUST NOT reach Phase 4.2 execution under any circumstance, including operator "yolo" override modes — scope rejection is a hard gate, not a soft one. | M |
+| FR-COUNCIL-03a | **(New, confirmed)** Before either tier of Council Gate 1 runs, every proposed task MUST first pass a **deterministic, non-LLM Python scope checker** — validating target CIDR/domain-regex membership against `scope_rules`, port-range boundaries, and a fixed denylist of destructive flags — with zero model dependence. This check MUST be non-bypassable: a rejection here is as final as a Gate 1 (LLM) rejection under FR-COUNCIL-06, and it runs regardless of autonomy level. | M |
+| FR-COUNCIL-04 | `Llama-3.1-8B-Instruct` (Council Gate 1, semantic layer — runs only on tasks that already passed FR-COUNCIL-03a) MUST evaluate every proposed task against the declared scope boundaries (`scope_rules`) and MUST reject or flag-for-revision any task that: targets an address/domain outside scope, exceeds an authorized testing window, or exceeds the authorized intrusiveness level (see `05-Security...`). | M |
+| FR-COUNCIL-05 | Council Gate 1 decisions (from both the deterministic checker and the semantic layer — approve / revise / reject) and stated rationale MUST be persisted per task, not just a final aggregate verdict. | M |
+| FR-COUNCIL-06 | A task that either tier of Council Gate 1 rejects MUST NOT reach Phase 4.2 execution under any circumstance, including operator "yolo" override modes — scope rejection is a hard gate, not a soft one. | M |
 
 ### 4.2 Tool Execution, Linting & Exploitation
 
+**Confirmed deviation from the base document (resolves critical-analysis finding
+C-09):** the base plan implied per-command alternation between the 7B Operator and
+the 3B Linter, which would incur a full model-swap cost on every generated command.
+Confirmed design instead: **zero model swapping inside the active loop.**
+`Qwen2.5-Coder-7B-Instruct` loads once and stays resident for the whole per-target
+task loop; Council Gate 2 (command/argument validation) is performed by a
+**deterministic, non-LLM Python validation layer**, not by `Qwen2.5-Coder-3B`.
+`Qwen2.5-Coder-3B` is reserved for offline, between-phase use only (FR-COUNCIL-09a) —
+this is consistent with the base document's own §4 resource-allocation table, which
+never actually lists a RAM/context row for the 3B linter during Phase 4.2.
+
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR-COUNCIL-07 | `Qwen2.5-Coder-7B-Instruct` MUST read the next approved task from the queue and formulate a concrete CLI invocation or exploit script consistent with the Tier 1/Tier 2 schemas in FR-TOOL. | M |
-| FR-COUNCIL-08 | `Qwen2.5-Coder-3B` (Council Gate 2) MUST validate every generated command's flags/arguments against the tool's declared schema before execution, and MUST return a corrected command or a rejection — never allow an unvalidated command to reach the subprocess bridge. | M |
-| FR-COUNCIL-09 | If Gate 2 cannot produce a valid command after a bounded number of correction attempts (default 2), the task MUST be marked `BLOCKED` with the linter's rejection reason, not silently dropped or force-executed. | M |
-| FR-COUNCIL-10 | Following execution, `Qwen2.5-Coder-7B` MUST evaluate parsed tool output and decide whether follow-on pivoting/secondary tasks are warranted, appending them to `task_queue` rather than acting outside the queue. | M |
-| FR-COUNCIL-11 | The task-queue loop MUST have a bounded iteration/time limit per engagement to prevent unbounded autonomous looping; on reaching the limit the engagement MUST pause for operator review rather than continue indefinitely. | M |
-| FR-COUNCIL-12 | The Operator model MUST be fully unloaded after the task queue for the current cycle is resolved or blocked. | M |
+| FR-COUNCIL-07 | `Qwen2.5-Coder-7B-Instruct` MUST load once at the start of Phase 4.2 for a given engagement and remain resident (no per-command unload/reload) for the duration of the per-target task loop. It reads each Gate-1-approved task and formulates a concrete CLI invocation or exploit script consistent with the Tier 1/Tier 2 schemas in FR-TOOL. | M |
+| FR-COUNCIL-08 | **(Confirmed, resolves C-09)** Council Gate 2 MUST be a deterministic, non-LLM validation layer — argparse-style flag verifiers, regex command sanitizers, and the same declarative per-tool schema referenced in IR-TOOL-01/02 — evaluated synchronously with no model-load latency. It MUST return a specific rejection reason (never a silent pass) for any command violating the schema, and MUST NOT invoke `Qwen2.5-Coder-3B` as part of this per-command loop. | M |
+| FR-COUNCIL-09 | If the deterministic Gate 2 validator rejects a command, the already-resident `Qwen2.5-Coder-7B` MUST attempt to regenerate a corrected command using the rejection reason; if no valid command is produced after a bounded number of attempts (default 2), the task MUST be marked `BLOCKED` with the validator's rejection reason, not silently dropped or force-executed. | M |
+| FR-COUNCIL-09a | **(New, confirmed)** `Qwen2.5-Coder-3B` MUST NOT be loaded during the active Phase 4.2 per-command loop. It is reserved for **offline, between-phase** validation only — specifically, multi-line custom exploit script syntax checks (e.g., a generated Python/Bash script body) that exceed what the deterministic Gate 2 validator can evaluate via flags/regex/schema alone. | S |
+| FR-COUNCIL-10 | Following execution, the still-resident `Qwen2.5-Coder-7B` MUST evaluate parsed tool output and decide whether follow-on pivoting/secondary tasks are warranted, appending them to `task_queue` rather than acting outside the queue. | M |
+| FR-COUNCIL-11 | The task-queue loop MUST be bounded by an **Autonomous Diminishing-Returns Threshold**, confirmed as: (a) a **per-target task cap** of 30 tasks — once a target hits this cap it is marked `CAPPED` and the loop moves on; (b) a **stuck/repetition circuit breaker** of 3 consecutive zero-yield tool runs against a target — once tripped the target is marked `CIRCUIT_BROKEN` and the loop moves on; and (c) a **global 12-hour wall-clock session budget** for the whole engagement. Hitting (a) or (b) MUST cause the loop to automatically pivot to the next queued target (no operator pause). Hitting (c) MUST automatically end Phase 4.2 for every remaining target and proceed directly to Phase 4.3 (reporting) and Phase 5 (hibernation exit) — not pause and wait. This is a deliberate no-pause design per operator decision; manual pause remains available at any time via FR-CTRL-02 regardless of these automatic thresholds. | M |
+| FR-COUNCIL-12 | The Operator model (`Qwen2.5-Coder-7B`) MUST be fully unloaded only when Phase 4.2 ends for the entire engagement — every target reaching `COMPLETE`/`CAPPED`/`CIRCUIT_BROKEN`, or the global 12-hour budget triggering transition to Phase 4.3 — not per-task or per-target, since it now remains resident for the whole task-queue loop per FR-COUNCIL-07. | M |
 
 ### 4.3 Evidence Adjudication & Reporting
 
@@ -114,9 +154,11 @@ Traces to base §Phase 4, Steps 4.1–4.3, and §2 model profiles.
 | FR-COUNCIL-13 | `Mistral-7B-Instruct-v0.3` (Council Gate 3) MUST independently assess every candidate finding against its raw evidence (HTTP dumps, headers, status codes, tool exit codes) and mark each `CONFIRMED` or `DISMISSED` with a stated reason. | M |
 | FR-COUNCIL-14 | Gate 3 MUST explicitly check for and dismiss common false-positive patterns: WAF block pages, rate-limit responses, generic 5xx errors, and honeypot/canary responses, before a finding can reach `CONFIRMED`. | M |
 | FR-COUNCIL-15 | Only `CONFIRMED` findings MUST be eligible for inclusion in the final report; `DISMISSED` findings MUST be retained in the state store for audit purposes but excluded from the report body (an appendix listing dismissed candidates is permitted). | M |
-| FR-COUNCIL-16 | `DeepSeek-R1-Distill-Qwen-8B` MUST be reloaded to ingest confirmed findings and produce: CWE/CVE mapping where applicable, a CVSS score (version and vector string) per finding, a root-cause narrative, and remediation guidance. | M |
-| FR-COUNCIL-17 | The generated report MUST be emitted in at least one durable, human-readable file format (Markdown at minimum) written to the NVMe artifact path, and MUST include: executive summary, scope statement, methodology, per-finding evidence references (linking to raw artifact files), CVSS, and remediation. | M |
-| FR-COUNCIL-18 | The report generation step MUST NOT include raw secrets (passwords, tokens, session cookies) in plaintext in the report body; such values MUST be redacted/truncated with a pointer to the raw evidence file for authorized reviewers. | M |
+| FR-COUNCIL-16 | `DeepSeek-R1-Distill-Qwen-8B` MUST be reloaded to ingest confirmed findings and produce: CWE/CVE mapping where applicable, a root-cause narrative, and remediation guidance. | M |
+| FR-COUNCIL-16a | **CVSS scoring MUST NOT be produced directly by the LLM as a final value** (per critical-analysis finding C-07 and operator decision). Instead: the LLM MUST propose per-metric values (Attack Vector, Attack Complexity, Privileges Required, User Interaction, Scope, Confidentiality/Integrity/Availability impact, and version-appropriate equivalents) with a one-line justification per metric, and a **deterministic, non-LLM CVSS calculator component** MUST compute the final numeric score and vector string from those proposed metric values. The LLM never emits the final score itself. | M |
+| FR-COUNCIL-17 | The generated report MUST be emitted first as Markdown, written to a `pending-approval/` area of the artifact store, and MUST include: executive summary, scope statement, methodology, per-finding evidence references (linking to raw artifact files), CVSS (per FR-COUNCIL-16a), and remediation. Markdown reports MUST accumulate in that pending area and MUST NOT be auto-converted further. | M |
+| FR-COUNCIL-17a | HTML and PDF renders of a report MUST only be generated **after** the operator explicitly approves that specific Markdown report as correct and safe to proceed with (see FR-CTRL-08). Rendering MUST follow the standard defined in `12-Report-Formatting-Rules.md`, via headless conversion tooling (e.g. `pandoc` + `wkhtmltopdf`/`weasyprint`). | M |
+| FR-COUNCIL-18 | **(Confirmed reconciliation with `12-Report-Formatting-Rules.md` §1.5)** The pending-approval Markdown draft (FR-COUNCIL-17) MUST redact/truncate raw secrets (passwords, tokens, session cookies) in the report body, replacing each with a pointer to the corresponding raw evidence artifact (`artifacts_index`). This redaction MUST be reversible: the system MUST retain a mapping from each redacted placeholder to its original captured value (sourced from the raw evidence artifact, never re-derived or approximated) so that FR-CTRL-08's approval step can programmatically restore the full, verbatim, unredacted value throughout the report before HTML/PDF rendering — satisfying the "never redact evidence" rule for the *final approved* report while keeping the *pre-review draft* redacted by default. | M |
 
 ---
 
@@ -138,7 +180,9 @@ Traces to base §Phase 5.
 
 The base document describes an end-to-end autonomous loop with no defined human
 interaction points beyond the two internal LLM gates. The following requirements add
-the missing operator-facing control layer.
+the missing operator-facing control layer. **Confirmed interface: CLI only** — no GUI
+or web dashboard is required; every action below MUST be reachable as a command-line
+operation, consistent with the rest of this Kali/terminal-based system.
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
@@ -149,3 +193,4 @@ the missing operator-facing control layer.
 | FR-CTRL-05 | The system MUST provide a **status** view showing: current phase, current resident model (if any), RAM/swap headroom, task-queue depth, and count of findings by state (`CANDIDATE`/`CONFIRMED`/`DISMISSED`). | M |
 | FR-CTRL-06 | The system MUST support configurable **autonomy levels** (e.g., paranoid / normal / yolo) that gate how much human approval is required before intrusive or exploitation-class tasks execute, consistent with the hard scope gate in FR-COUNCIL-06 which is never bypassable regardless of level. | S |
 | FR-CTRL-07 | The system MUST allow the operator to export the final report and the full audit trail (tool logs + model invocation logs + gate decisions) as a single package for offline review. | M |
+| FR-CTRL-08 | The system MUST provide an operator-invokable **approve-report** CLI action, taking a pending Markdown report identifier, that is the sole trigger for (a) reversing the redaction applied under FR-COUNCIL-18, restoring full unredacted evidence, and (b) triggering HTML/PDF rendering (FR-COUNCIL-17a). No other event (task-queue completion, session-budget expiry, engagement completion) may itself trigger unredaction or rendering. | M |

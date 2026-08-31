@@ -143,6 +143,80 @@ downgraded to "reduces, but does not eliminate" in any document that inherits it
 any acceptance test derived from it (see doc 09) should not treat "no hallucinated
 finding will ever occur" as a pass criterion, because that cannot be proven true.
 
+### C-12. Tier 2 dynamic bridge relies on a denylist, which is inherently incomplete — Severity: **High**
+
+The generic `run_security_command` bridge (base doc §Phase 3, Tier 2) is meant to let
+the Operator model invoke "any installed binary across `/usr/bin/` and `/usr/sbin/`."
+The only proposed control (`01-Functional-Requirements.md` FR-TOOL-06) is a
+**denylist** of known-destructive commands/patterns. Denylists are a fundamentally
+incomplete security control for arbitrary command execution: they only block what was
+anticipated in advance, and Linux/Kali's toolset offers many non-obvious ways to
+achieve a destructive or scope-violating outcome that a fixed denylist won't
+enumerate (e.g., `tee` writing over a system file, `curl`/`wget` exfiltrating data
+somewhere out of scope, `python3 -c "..."` running arbitrary code, `find -delete`,
+piping through `xargs`). A true allowlist (only pre-approved binaries/flag patterns
+may run) is far more robust, but directly conflicts with the base plan's explicit
+goal of letting the 7B Operator reach "any installed binary" for flexibility. This is
+a genuine, unresolved tension between flexibility and safety, not a simple bug —
+resolving it (denylist-only, allowlist-only, or a tiered risk-based hybrid) is a
+design decision, not something this analysis should silently pick a side on.
+
+**Resolution (operator decision):** a path-restricted dynamic allowlist —
+any binary resolving inside `/usr/bin/`, `/usr/sbin/`, or `/opt/` (covering the full
+`kali-linux-everything` toolset) is eligible for fully autonomous, non-blocking
+execution, with no per-binary approval — combined with a behavioral denylist inside
+that scope: shell builtins, inline-interpreter/eval invocations
+(`python -c`, `bash -c`, etc.), writes outside the artifact path, and a fixed set of
+destructive utilities/patterns are rejected regardless of location. See
+`01-Functional-Requirements.md` FR-TOOL-03/FR-TOOL-06. This closes the "any binary,
+no enumeration" gap the pure-denylist design had, while still meeting the 12-hour
+unattended-operation requirement (FR-COUNCIL-11) without a manual approval bottleneck.
+
+### C-13. Base plan treats `llama.cpp --server` and `ollama` as interchangeable; they are not, for this design — Severity: **Medium**
+
+Base doc §Phase 2 says "Deploy `llama.cpp --server` **or** `ollama`," and separately
+specifies a `keep_alive: 0` eviction policy (§Phase 2.3, §Phase 4 throughout). `keep_alive`
+is an **Ollama-specific** API parameter for its automatic multi-model load/unload
+management; a bare `llama.cpp --server` process serves a single model for its process
+lifetime and has no native concept of `keep_alive` or hot-swapping to a different
+model file without a process restart (or an external supervisor scripting that
+restart). If `llama.cpp --server` is used as literally described, the 5-model
+single-residency swap behavior central to Phase 4 (§Council Execution) must be
+built as a custom wrapper around repeated process restarts, not obtained "for free"
+from the inference engine. If `ollama` is used instead, the SYCL/Level-Zero iGPU
+offload path (C-05) needs separate verification, since Ollama's backend support for
+Intel Arc iGPUs has its own maturity/version caveats distinct from raw `llama.cpp`.
+This is a concrete implementation-blocking ambiguity, not just a wording nit — the
+choice changes what needs to be built.
+
+**Resolution (operator decision):** `llama.cpp --server` is the primary production
+engine (direct oneAPI/SYCL Intel Arc acceleration), with model lifecycle handled by
+explicit controller-level process termination/spawn rather than assumed
+`keep_alive` semantics. Engine access is abstracted behind a unified **Local Engine
+Client** interface so `ollama` can be substituted later as an interchangeable
+backend, contingent on independently verifying its Intel SYCL/Level-Zero support at
+deployment time. See `01-Functional-Requirements.md` FR-GATE (Phase 2 intro) and
+FR-GATE-09.
+
+### C-14. Path-restricted allowlist still permits nearly the entire Kali arsenal to run unattended — Severity: **Medium (residual risk, not a design error)**
+
+The resolution to C-12 (path-restricted allowlist covering `/usr/bin/`, `/usr/sbin/`,
+`/opt/`) closes the "unbounded, unenumerable binary" gap, but it is worth stating
+plainly what it does *not* do: because `kali-linux-everything` installs essentially
+the entire offensive toolset into those three paths, the allowlist by itself permits
+autonomous, non-blocking execution of highly intrusive tools (`hydra`, `hashcat`,
+Metasploit modules, `crackmapexec`/`netexec`, Impacket scripts, etc.) for up to the
+full 12-hour session. The behavioral denylist (FR-TOOL-06 a–e) only blocks a fixed set
+of destructive *patterns*, not destructive or scope-violating *outcomes* from tools
+not on that list. In this design, the **real** safety boundary for a 12-hour
+unattended run is Council Gate 1's scope check and Gate 2's argument linting — not the
+Tier 2 bridge. If either of those gates has a blind spot (most notably, a successful
+prompt-injection past Gate 1 — see C-04), there is no secondary containment layer
+between "the binary happens to live in an allowed path" and "an intrusive/exploitative
+command actually runs against a live target." This is a residual risk to carry
+forward, not a flaw in the C-12 resolution itself — the trade-off (flexibility over a
+narrower allowlist) was made deliberately.
+
 ---
 
 ## Summary Table
@@ -160,6 +234,9 @@ finding will ever occur" as a pass criterion, because that cannot be proven true
 | C-09 | Unbudgeted repeated model-swap cost in the exec loop | Medium |
 | C-10 | Thermal throttling under sustained load | Medium |
 | C-11 | "Completely mitigates hallucination" overclaim | Medium |
+| C-12 | Tier 2 denylist is inherently incomplete vs. an allowlist | High |
+| C-13 | `llama.cpp` vs. `ollama` treated as interchangeable when they aren't | Medium |
+| C-14 | Path-allowlist still permits the full Kali arsenal unattended; Gate 1/Gate 2 are the real boundary | Medium (residual, accepted trade-off) |
 
 These are analysis findings, not yet requirements — none have been folded into the
 requirement documents (`01`–`09`) as new obligations. Whether and how to act on each
