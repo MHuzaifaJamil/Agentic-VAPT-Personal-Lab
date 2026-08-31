@@ -1,0 +1,23 @@
+{
+  "_comment": "cc-bridge is a REST API extension for Burp Suite — NOT an MCP server.",
+  "_comment2": "Claude Code calls it via tools/burp_bridge.sh (curl wrapper).",
+  "_setup": [
+    "1. Load /home/vscysteam/Downloads/cc-bridge-0.1.0.jar as a Burp extension",
+    "2. Token auto-written to ~/.cc-bridge-token on first load",
+    "3. Use tools/burp_bridge.sh to call the API from Claude Code"
+  ],
+  "api": {
+    "base_url": "http://127.0.0.1:1337",
+    "port_override": "-Dccbridge.port=XXXX (JVM system property)",
+    "auth_header": "Authorization: Bearer <contents of ~/.cc-bridge-token>",
+    "endpoints": {
+      "GET /health": "check extension is alive",
+      "GET /history": "all proxy history entries",
+      "GET /history/{id}": "single history entry by index",
+      "POST /send": "send a new HTTP request through Burp",
+      "POST /repeat/{id}": "replay a history entry",
+      "POST /decode": "encode/decode data",
+      "POST /scan": "trigger active scan"
+    }
+  }
+}
