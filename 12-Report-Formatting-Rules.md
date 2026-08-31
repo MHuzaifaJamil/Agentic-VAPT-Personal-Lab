@@ -1,0 +1,492 @@
+# VAPT Client Report Formatting Standard — Independent Practice Rules
+
+**Provenance:** Cloned, with adaptation, from the "VAPT Client Report Formatting
+Standard" section of `/home/vscysteam/claude-bug-bounty/CLAUDE.md`. **The original
+file has not been modified** — this is a separate, standalone copy for the Agentic
+VAPT system's own report pipeline.
+
+**Adaptation applied to the source:**
+
+- Every mention of "Virtuosoft" (firm name, cybersecurity-practice banner text, the
+  `virtuosoft.pk` email domain, and the two-person sign-off) is replaced with the
+  independent-researcher identity:
+  - **Attribution / "Assessed By" string:** `Muhammad Huzaifa Jamil | Independent Security Researcher`
+  - **Contact email:** `muhammad.huzaifa.jamil@protonmail.com`
+  - **Cover-band firm banner:** `MUHAMMAD HUZAIFA JAMIL | INDEPENDENT SECURITY RESEARCHER` (replaces `VIRTUOSOFT CYBERSECURITY PRACTICE`)
+- **Cover-footer assessor box:** per explicit decision, collapsed from the source's
+  two-line, two-person layout (`MHJ (CYS Engr)` + `AAJ (Director CYS)`) to a **single
+  line** — there is no second reviewer in this practice:
+  `Muhammad Huzaifa Jamil | Independent Security Researcher · muhammad.huzaifa.jamil@protonmail.com`
+- Source report-ID examples (`BTSLM-*`) are generalized to a neutral `CLIENT-*` example
+  pattern.
+- Source references to Virtuosoft's own internal report corpus (`findings/myco.io/...`,
+  `findings/baitussalam.org/...`, specific `gen_mycoNNN.py` generator scripts) are
+  generalized — those exact files are Virtuosoft-internal and do not exist in this
+  practice. The underlying *rule* each reference illustrated is preserved; the dead
+  path is not.
+
+**Relationship to the VAPT system requirements:** This is the formatting standard
+referenced by `FR-COUNCIL-17` in `01-Functional-Requirements.md`. Per the report
+pipeline decision on record: the agent produces **Markdown reports first**, held in a
+pending folder until the operator (Muhammad Huzaifa Jamil) approves a report as
+correct and safe to release; only then are HTML and PDF renders produced from that
+approved Markdown, via headless conversion (`pandoc` + `wkhtmltopdf`/`weasyprint`),
+following the standard below. This document describes the target HTML/PDF standard
+that conversion step must produce — it does not itself specify the Markdown→HTML
+conversion tooling configuration, which belongs in the operational/implementation
+phase, not this planning phase.
+
+---
+
+## 1. Tone & Typography
+
+- Pure corporate-technical, objective register. No filler, no conversational framing.
+- All functional labels, metadata keys, step indicators, and phase/section headings: **ALL CAPS**.
+- Vulnerability IDs (e.g. `CLIENT-001`), CVSS vectors, HTTP methods (`GET`, `POST`), status markers (`HTTP 200 OK`): capitalized exactly as shown, never re-cased.
+
+## 1.5. Evidence Must Never Be Redacted (Mandatory — No Exceptions)
+
+If a secret, credential, private key, token, or any other sensitive value was captured
+as PoC evidence during an assessment, the report includes it **in full, verbatim** —
+never truncated, masked, replaced with `<REDACTED>`, or summarized as "N base64 chars,
+present." This applies regardless of how sensitive the value is (database passwords,
+private keys, API tokens, admin credentials — all of it, in full).
+
+**Why:** These reports are already marked `CONFIDENTIAL — DO NOT DISTRIBUTE` and go
+only to the client's own security team, who need the exact literal value to know
+precisely what to rotate, to search their own logs for that exact string, and to
+confirm remediation actually changed the value. A redacted or truncated value is
+strictly less useful to the people this report is for, and softening the evidence
+undersells the severity of what was actually found. If the underlying vulnerability
+already exposed the data to anyone who reached the same endpoint, restating it in full
+inside a confidential, access-controlled report does not create new exposure — it
+documents the exposure that already exists.
+
+**How to apply:** Any code block, JSON snippet, or table cell that shows captured
+evidence must contain the real value copied from the actual response, not a
+placeholder. This rule overrides any instinct to "redact as a matter of
+report-handling practice." It does not change the separate, upstream question of *how
+much* evidence to actively go and capture during testing (minimum-necessary extraction
+to prove a finding is still the right call during the hunt itself) — but whatever was
+captured must be reported in full, not sanitized after the fact.
+
+*(Note for this system's own pipeline: this rule governs the finished, human-approved
+report deliverable. It does not override `FR-COUNCIL-18` in the functional
+requirements, which restricts what the **agent's own draft/report-generation step** may
+place in the body before human approval. Reconciling those two rules — i.e., whether
+the agent's first Markdown draft should already contain unredacted evidence prior to
+operator sign-off, or redact-then-unredact-on-approval — is an open decision; do not
+assume either resolution without asking.)*
+
+## 2. Cover Page (page 1)
+
+Top-to-bottom, in this exact order:
+
+1. **Classification banner line** (one line, small caps, low-contrast **inside** the dark severity-colored band): `CONFIDENTIAL  ·  VAPT SECURITY ASSESSMENT REPORT  ·  MUHAMMAD HUZAIFA JAMIL | INDEPENDENT SECURITY RESEARCHER`
+2. **Report ID** — giant 46pt monospace, **WHITE text** on the dark band, e.g. `CLIENT-V-001`.
+3. **Severity + score chip** — white text on the dark band, e.g. `▶ MEDIUM  |  CVSS 3.1  5.3`.
+4. **Title** — descriptive technical title of the root flaw mechanism (in the white body below the band).
+5. **Subtitle** — asset/localization descriptor, monospace, muted (white body).
+6. **Metadata grid** (two-column, no bold header row): `TARGET`, `SCOPE`, `CVSS <version>` (score + severity chip), `VULN CLASS`, `AUTHENTICATION`, `ASSESSMENT DATE` (Month Year), `ASSESSED BY` → always the literal string **"Muhammad Huzaifa Jamil | Independent Security Researcher"**, `REPORT VERSION` (e.g. `1.0 — Initial Submission`).
+7. **Cover footer** — see spec below.
+
+> **Critical:** Items 1–3 are ALL inside a single dark `div.cover-band` — the classification text, report ID, and severity label all sit on the dark colored band as **white text**. Items 4–6 are in the white `div.cover-body` below the band. NEVER place the report ID or severity chip in the white body area as colored text. NEVER add a separate `div.cover-host` element — the target is in the metadata grid only.
+
+**Cover HTML/CSS Specification (Mandatory — do not deviate):**
+
+```html
+<!-- @page margins: 16mm 20mm 18mm 28mm. First page: margin 0 (full-bleed band) -->
+<div class="cover">                           <!-- 210mm × 297mm, overflow hidden -->
+  <div class="cover-band">                    <!-- dark background, ~35% page height -->
+    <div class="cover-classification">Confidential &nbsp;·&nbsp; VAPT Security Assessment Report &nbsp;·&nbsp; Muhammad Huzaifa Jamil | Independent Security Researcher</div>
+    <div class="cover-id">CLIENT-X-NNN</div>  <!-- 46pt, white, monospace -->
+    <div class="cover-sev-label">&#9656; SEVERITY &nbsp;|&nbsp; CVSS 3.1 &nbsp;X.X</div>
+  </div>
+  <div class="cover-body">
+    <h1 class="cover-title">Title here</h1>
+    <div class="cover-subtitle">subtitle — monospace muted</div>
+    <div class="cover-rule"></div>            <!-- 36mm wide, 2.5pt tall, accent color -->
+    <table class="cover-meta-table">
+      <tr><td class="mk">Target</td><td class="mv">domain.here</td></tr>
+      ...
+      <tr><td class="mk">CVSS 3.1</td><td class="mv"><span class="cvss-num">X.X</span> &nbsp;<span class="badge">SEVERITY</span></td></tr>
+      ...
+    </table>
+  </div>
+  <div class="cover-footer"><!-- three-box §3 --></div>
+</div>
+```
+
+**Severity color table — band background and accent color:**
+
+| Severity | Band (`cover-band` bg) | Accent (`cover-rule`, `.badge`, `.sn`, `border-bottom`) |
+|----------|------------------------|--------------------------------------------------------|
+| CRITICAL | `#4A0000` | `#B71C1C` |
+| HIGH | `#3E1F00` | `#E65100` |
+| MEDIUM | `#6D2000` | `#BF360C` |
+| LOW | `#0D2050` | `#1565C0` |
+
+**Cover meta table CSS:**
+```css
+@page { size: A4; margin: 16mm 20mm 18mm 28mm; }
+@page :first { margin: 0; }
+.cover { width: 210mm; height: 297mm; break-after: page; position: relative; overflow: hidden; }
+.cover-band { background: [BAND]; padding: 14mm 20mm 14mm 18mm; }
+.cover-classification { font-family: 'Courier New'; font-size: 7pt; color: rgba(255,255,255,0.6); letter-spacing: 0.18em; text-transform: uppercase; margin-bottom: 10mm; }
+.cover-id { font-family: 'Courier New'; font-size: 46pt; font-weight: bold; color: #FFFFFF; line-height: 0.95; letter-spacing: -0.03em; }
+.cover-sev-label { font-family: 'Courier New'; font-size: 8.5pt; color: rgba(255,255,255,0.8); letter-spacing: 0.18em; text-transform: uppercase; margin-top: 4mm; }
+.cover-body { padding: 12mm 20mm 20mm 18mm; }
+.cover-title { font-size: 18pt; font-weight: 700; line-height: 1.28; color: #0A0A0A; margin-bottom: 4mm; max-width: 152mm; }
+.cover-subtitle { font-family: 'Courier New'; font-size: 8pt; color: #888; letter-spacing: 0.04em; margin-bottom: 9mm; }
+.cover-rule { width: 36mm; height: 2.5pt; background: [ACCENT]; margin-bottom: 9mm; }
+.cover-meta-table { width: 100%; border-collapse: collapse; }
+.cover-meta-table td { padding: 2mm 3mm 2mm 0; font-size: 9pt; border-bottom: 0.5pt solid #EBEBEB; vertical-align: top; }
+.cover-meta-table td.mk { font-family: 'Courier New'; font-size: 7pt; letter-spacing: 0.12em; text-transform: uppercase; color: #999; width: 38mm; white-space: nowrap; }
+.cover-meta-table td.mv { font-size: 9.5pt; color: #191919; font-weight: 500; }
+.cover-meta-table td.mv .cvss-num { font-family: 'Courier New'; font-size: 12pt; font-weight: bold; color: [ACCENT]; }
+.cover-meta-table td.mv .badge { background: [ACCENT]; color: #fff; font-family: 'Courier New'; font-size: 7.5pt; font-weight: bold; letter-spacing: 0.12em; text-transform: uppercase; padding: 1.5mm 4mm; border-radius: 1pt; display: inline-block; vertical-align: middle; margin-left: 4pt; }
+```
+
+**Firm banner rule:** the classification-line banner (item 1 above) is always
+`MUHAMMAD HUZAIFA JAMIL | INDEPENDENT SECURITY RESEARCHER` — no abbreviated or
+alternate form. (Source rule: the equivalent Virtuosoft banner had accumulated
+inconsistent historical variants across its corpus; this practice starts with exactly
+one canonical form and no legacy drift to reconcile.)
+
+### 3. Cover-Page Footer — Three-Box Layout (Mandatory)
+
+The cover footer is a single full-width bar divided into **three invisible,
+equal-width boxes** (`flex: 1 1 0` each), every box's text **center-aligned within its
+own box**:
+
+| Box | Line 1 | Line 2 |
+|---|---|---|
+| 1 | `CONFIDENTIAL` | `FOR [CLIENT] SECURITY TEAM ONLY` |
+| 2 | `Muhammad Huzaifa Jamil \| Independent Security Researcher · muhammad.huzaifa.jamil@protonmail.com` | *(none — single line only; adapted from the source's two-person layout)* |
+| 3 | `DO NOT DISTRIBUTE` | — |
+
+Reference CSS (adapted — box 2's second line rule is unused but left defined in case a
+future co-reviewer is added; it renders nothing while `l2` is empty):
+
+```css
+.cover-footer {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  padding: 4mm 20mm;
+  background: #F4F4F2;
+  border-top: 0.5pt solid #DCDCDC;
+  display: flex;
+  align-items: center;
+}
+.cover-footer .box { flex: 1 1 0; text-align: center; font-family: 'Courier New', Consolas, monospace; }
+.cover-footer .box .l1, .cover-footer .box .l2 { font-size: 6pt; color: #999; letter-spacing: 0.08em; text-transform: uppercase; }
+.cover-footer .box.assessor .l1 {
+  font-size: 6.5pt; font-weight: bold; color: #555; text-transform: none; letter-spacing: 0; line-height: 1.5; margin-top: 0.8mm;
+}
+```
+
+> **Placement rule:** `.cover-footer` is a **direct child of `.cover`**, always
+> written AFTER the closing `</div>` of `.cover-body`. It is NEVER nested inside
+> `.cover-body`. The `position: absolute; bottom: 0` CSS ensures it sticks to the
+> bottom of the full-bleed cover regardless of body content height. Moving it inside
+> `.cover-body` is prohibited.
+
+> **Banner applies to all documents:** The
+> `MUHAMMAD HUZAIFA JAMIL | INDEPENDENT SECURITY RESEARCHER` banner rule (§2) applies
+> to VAPT reports AND the informational findings register (§9). No document may use
+> any alternate wording, abbreviation, or a bare firm/product name in the cover-band
+> classification line.
+
+### 4. Running Footer (every page after the cover)
+
+Left: `CONFIDENTIAL — FOR [CLIENT] SECURITY TEAM ONLY  |  DO NOT DISTRIBUTE` (ALL
+CAPS, 6pt mono, `#AAAAAA`, thin top border). Right: page number only. Implemented via
+CSS `@page { @bottom-left {...} @bottom-right { content: counter(page); } }`,
+suppressed on `:first` (the cover uses its own footer per §3).
+
+Use an em dash `—`, never a hyphen `-`.
+
+### 5. Section / Page-Break Rule (Mandatory)
+
+Every major numbered heading is its own page. Section `01` follows immediately after
+the cover break; sections `02` onward each carry a forced page-break-before. In CSS:
+`.pb { break-before: page; }`, applied to every section div from the second section
+onward. Never let two numbered sections share a page, and never let a numbered
+section start mid-page.
+
+**Section heading HTML/CSS Specification (Mandatory):**
+
+```html
+<!-- Section 01 — no page break before it -->
+<div class="section">
+  <div class="section-title"><span class="sn">01</span>EXECUTIVE SUMMARY</div>
+  <!-- content -->
+</div>
+
+<!-- Sections 02+ — forced page break -->
+<div class="section pb">
+  <div class="section-title"><span class="sn">02</span>VULNERABILITY DETAILS</div>
+  <!-- content -->
+</div>
+```
+
+```css
+.section { margin-bottom: 9mm; }
+.section-title {
+  font-family: 'Courier New', Consolas, monospace; font-size: 7.5pt;
+  letter-spacing: 0.18em; text-transform: uppercase; color: #888;
+  margin-bottom: 4mm; padding-bottom: 2mm;
+  border-bottom: 1.5pt solid [ACCENT_COLOR];   /* thin colored underline only */
+}
+.section-title .sn { color: [ACCENT_COLOR]; font-weight: bold; margin-right: 6pt; }
+.pb { break-before: page; }
+```
+
+> **Critical:** Section headings use a **thin border-bottom line only** — NEVER a
+> full-width colored background bar. The class is `section-title` with a child
+> `span.sn` for the number. NEVER use `div.section-heading` with `background:` set to
+> any color.
+
+**Extensibility:** the six sections below are the default and typical case. If a
+finding genuinely needs more sections (e.g. a chained/complex finding needing a
+"Cross-Reference" or "Chain Detail" section), additional numbered sections may be
+added (`07`, `08`, ...) — but they must follow every rule in this document (ALL-CAPS
+zero-padded numbering, one section per page, same callout/table/code-box
+conventions). Do not fall back to the legacy unnumbered/`h2`-based format (§8) to
+accommodate extra content.
+
+### 6. The Six Section Playbooks
+
+`01 EXECUTIVE SUMMARY` — narrative paragraph(s): how the attacker executes the
+exploit, missing mitigation/CVE, affected hosts, downstream exploitation vectors. No
+tables.
+
+`02 VULNERABILITY DETAILS` — two-column properties table (`VULNERABILITY TYPE`,
+`CVE REFERENCE`, `CVSS <version> SCORE`, `CVSS <version> VECTOR`, `AUTHENTICATION`,
+`RELATED FINDING`), followed by a bold `Affected Endpoints` sub-heading and one
+callout box per endpoint: uppercase HTTP verb chip + full URL + one-line
+response-behavior description.
+
+`03 STEPS TO REPRODUCE` — chronological `STEP X — [ACTION TITLE IN ALL CAPS]` blocks.
+Every code/text box is preceded by an uppercase type label (`HTTP REQUEST`,
+`COMMAND`, `RESPONSE — HTTP 200, NO AUTHENTICATION`). Variable placeholders in angle
+brackets (`<display name>`).
+
+`04 IMPACT ASSESSMENT` — one bold-headed threat block per risk vector with a
+scannable impact paragraph, ending in an uppercase `CROSS-REFERENCE` callout box
+summarizing estate-wide implications and related finding IDs.
+
+`05 TOOLS & METHODOLOGY` — intro sentence, then a 4-column table
+(`TOOL | VERSION | PURPOSE | PHASE`) grouped under bold full-width category separator
+rows (`RECONNAISSANCE`, `DISCOVERY`, `EXPLOITATION & VERIFICATION`, etc.).
+
+`06 RECOMMENDED REMEDIATION` — numbered list (`1.`, `2.`, ...), bold actionable
+directive per item. Server-config fixes get an uppercase software-name label
+(`NGINX`) directly above a code box with the raw config block.
+
+### 7. Prohibited Content
+
+- Internal tool/toolkit names used to generate the report (this VAPT system's own
+  name, model names, or any reference to the automation pipeline) must never appear
+  anywhere in a generated client report (cover, body, footer, or filename). The report
+  is never credited or implied to originate from the toolkit — it is attributed to
+  `Muhammad Huzaifa Jamil | Independent Security Researcher`.
+- **Exception:** crediting a genuine third-party external researcher by their real
+  title is allowed (e.g., *"originally reported by Bug Bounty Hunter Jane Example"*) —
+  this refers to the person's role, not the tool, and is not a violation.
+- Attribution for this practice's own work is always
+  **"Muhammad Huzaifa Jamil | Independent Security Researcher"** in every formal field
+  (`ASSESSED BY`, `CONFIRMED BY`, sign-off, narrative attribution sentences like
+  "Independently confirmed by ..."). No abbreviation or alternate wording substitutes
+  for this formal attribution string, and none is used in the cover banner (§2 fixes
+  that wording).
+
+### 8. Excluded / Legacy Formats — Do Not Use
+
+The source of this standard documents specific historical-drift files found in
+Virtuosoft's own report corpus (an unnumbered `<h2>`-based structure with inconsistent
+page breaks, one-off compact footers, a footer typo). Those specific files are
+internal to that other practice and do not exist here. The **rule itself is retained**:
+
+- Do not use an unnumbered `<h2>1. Finding Summary ... 9. Related Findings</h2>`
+  structure with inconsistent (or absent) page breaks for any new report — always use
+  the six-section (or extended, per §5) numbered format.
+- Do not produce a single-line compact cover footer or any footer banner wording other
+  than the one fixed in §2–3 of this document.
+- Do not create one standalone PDF per informational finding — see §9.
+
+### 9. Informational (INFO-Level) Findings — Single Consolidated Register (Mandatory)
+
+Findings that don't clear the bar for a numbered vulnerability report (no confirmed
+exploitable issue — dropped findings, unresolved leads, best-practice/config gaps,
+negative or inconclusive probes) are **INFO-level**, not separate VAPT reports.
+
+- **One file per client/engagement**, not one file per finding. Naming pattern:
+  `INFORMATIONAL_<client>_findings_register.{md,html,pdf}`.
+- **Sorted ascending by UID** — `INFO-001` through `INFO-<highest>`, no gaps, no
+  reordering.
+- When a new informational observation is found, **regenerate this one file** with the
+  next sequential `INFO-NNN` appended — never create a new standalone file for it.
+- **Document structure:**
+  - Cover page: title `Informational Findings Register`, client name, stats line
+    (`<N> informational observations  |  No exploitable vulnerability confirmed  |  <Month Year>`),
+    metadata grid (`Target Domain`, `Assessment Date`,
+    `Assessed By` → `Muhammad Huzaifa Jamil | Independent Security Researcher`,
+    `Contacts`, `Total Informational Items`, `Related VAPT Reports`), same
+    cover-footer treatment as §3.
+  - Section `00 QUICK REFERENCE — ALL INFORMATIONAL FINDINGS` — one table, columns
+    `ID | TARGET | FINDING TITLE`, every row present, sorted by ID.
+  - Section `01 DETAILED INFORMATIONAL FINDINGS` — one card per `INFO-NNN`: header bar
+    with the ID (bold mono) + bold finding title + muted target subtitle beneath it; a
+    two-column box (`WHAT WAS FOUND` / `WHY INFORMATIONAL — NOT ESCALATED`); a
+    `RECOMMENDATION` line below in the accent color. Multiple cards may share a page —
+    the one-section-per-page rule (§5) applies to `00`/`01` as sections, not to each
+    individual card — **but only when doing so doesn't break a card across the page
+    boundary:**
+    - Apply `break-inside: avoid` to the card container (`.info-card { break-inside: avoid; }`).
+      If a card doesn't fully fit in the remaining space on the current page, force it
+      to start on a fresh page rather than splitting.
+    - If a single card's content is too long to fit on one full A4 page even on its
+      own, author it as **multiple smaller cards** instead — never let generated
+      output overlap the running footer or spill across a page break mid-card.
+
+### 10. File Retention — Never Delete Generated HTML
+
+Every report is generated from an HTML source that the PDF renderer converts to PDF.
+That `.html` file must be **kept on disk next to its `.pdf`**. Never delete the
+intermediate `.html` after rendering — it is the auditable, diffable source of record
+for the PDF and is required for future edits/regeneration. *(For this system's
+pipeline specifically, the Markdown source that preceded the HTML is retained as well,
+per the "Markdown held for approval" step in the report pipeline — see the note under
+the Provenance section above.)*
+
+### 11. Code Evidence Blocks — Dark CMD Style (Mandatory)
+
+All HTTP requests, HTTP responses, commands, configuration snippets, and code
+listings inside report body sections **must** use the canonical dark-background code
+block structure. This applies to every section including §03 Steps to Reproduce, §06
+Remediation config snippets, and any extended sections.
+
+**Canonical structure:**
+```html
+<div class="code-wrap">
+  <div class="code-label">HTTP REQUEST</div>
+  <div class="code-block">GET /api/endpoint HTTP/1.1
+Host: target.domain
+User-Agent: Mozilla/5.0</div>
+</div>
+
+<div class="code-wrap">
+  <div class="code-label">RESPONSE — HTTP 200 OK — NO AUTHENTICATION REQUIRED</div>
+  <div class="code-block">{"data": "...sensitive content..."}</div>
+</div>
+```
+
+**Required CSS:**
+```css
+.code-wrap { break-inside: avoid; margin: 2mm 0 5mm; }
+.code-label {
+  font-family: 'Courier New', Consolas, monospace; font-size: 6.5pt; color: #AAA;
+  text-transform: uppercase; letter-spacing: 0.12em; background: #141414;
+  padding: 2mm 4mm 1.5mm; border-radius: 2pt 2pt 0 0;
+}
+.code-block {
+  background: #1C1C1C; color: #DDD9D2; font-family: 'Courier New', Consolas, monospace;
+  font-size: 7.5pt; line-height: 1.55; padding: 3.5mm 4.5mm; white-space: pre-wrap;
+  word-break: break-all; border-radius: 0 0 2pt 2pt;
+}
+```
+
+> **Critical:** NEVER use `<pre class="code-box">` or any light-colored variant
+> (`code-box.warn` light pink, `code-box.ok` light green, `code-box.crit` light red,
+> etc.). NEVER use `<div class="box-label">` as a standalone label element — always
+> use `.code-label` inside `.code-wrap`.
+
+**Complete prohibition table:**
+
+| Prohibited pattern | Why wrong | Canonical replacement |
+|---|---|---|
+| `<div class="code-box">...</div>` | Wrong class | `<div class="code-wrap"><div class="code-label">LABEL</div><div class="code-block">...</div></div>` |
+| `<pre class="code-box">...</pre>` | Wrong element + class | Same as above |
+| `<div class="code-box" style="font-size:7pt;">...</div>` | Wrong class AND inline style | Same — no inline `style=` ever |
+| `<div class="config-label">LABEL</div>` (standalone) | Wrong class | `<div class="code-label">LABEL</div>` inside `.code-wrap` |
+| `<div class="box-label">LABEL</div>` (standalone) | Wrong class | Same |
+| COMMAND `code-label` + RESPONSE `code-label` inside ONE `code-wrap` | Structural error — RESPONSE code-box ends up orphaned outside the wrap | Two separate `code-wrap` blocks, one per label+block pair |
+| `.code-box {{ ... }}` CSS (no space before `{{`) | Semantically wrong class name | `.code-wrap {{ ... }}\n.code-label {{ ... }}\n.code-block {{ ... }}` |
+
+**No inline `style=` on code elements — ever.** Never add `style="font-size:7pt;"`,
+`style="border-radius:2pt;"`, or any other inline override to `.code-wrap`,
+`.code-label`, or `.code-block`. All sizing, color, and spacing is fixed in the CSS
+class definitions above.
+
+**One pair per wrap — always.** Each `.code-wrap` contains exactly ONE `.code-label` +
+ONE `.code-block`. If a step shows both COMMAND and RESPONSE, use TWO separate
+`.code-wrap` divs in sequence — never two labels inside one wrap:
+
+```html
+<!-- WRONG: two labels inside one wrap, response code-box orphaned outside -->
+<div class="code-wrap">
+  <div class="code-label">COMMAND</div>
+  <div class="code-block">curl ...</div>
+  <div class="code-label">RESPONSE</div>   ← DO NOT put second label inside wrap
+</div>
+<div class="code-box">...response...</div> ← orphaned, never gets wrapped
+
+<!-- CORRECT: two separate wraps -->
+<div class="code-wrap">
+  <div class="code-label">COMMAND</div>
+  <div class="code-block">curl ...</div>
+</div>
+<div class="code-wrap">
+  <div class="code-label">RESPONSE — HTTP 200 OK</div>
+  <div class="code-block">...response...</div>
+</div>
+```
+
+**`.callout` is NOT a code block** — reserve `div.callout` (light orange border-left
+style) for informational notes, cross-reference summaries, and scope caveats only.
+HTTP request/response evidence must always use the dark `.code-block`.
+
+### 12. Pre-Render Validation — Mandatory Grep Checks Before Rendering
+
+Before running the report generator/converter for a given report, run these checks
+against the generated HTML (or the generator source, if reports are produced by a
+script rather than direct HTML). Any hit that returns output is a blocker — fix it
+before rendering.
+
+```bash
+# 1. No orphaned code-box divs (any variant — with or without style=)
+grep 'class="code-box' <report_source> && echo "FAIL: code-box found"
+
+# 2. No standalone config-label or box-label label divs
+grep 'class="config-label"\|class="box-label"' <report_source> && echo "FAIL: non-canonical label class"
+
+# 3. No inline style= on code elements
+grep 'code-label.*style=\|code-block.*style=\|code-wrap.*style=\|code-box.*style=' <report_source> && echo "FAIL: inline style on code element"
+
+# 4. Banner text is correct
+grep -i 'virtuosoft\|security team\|security appendix' <report_source> | grep -i 'cover-classification\|cover-band' && echo "FAIL: wrong or stale banner text"
+
+# 5. cover-footer is outside cover-body (not nested inside it)
+python3 -c "
+import re, sys
+t = open('<report_source>').read()
+m = re.search(r'cover-body.*?cover-footer', t, re.DOTALL)
+if m: print('FAIL: cover-footer appears to be inside cover-body')
+"
+```
+
+All five checks must return no output (no failures) before the PDF is generated.
+
+### 13. Canonical Reference Template
+
+The source standard points to a specific existing Virtuosoft report file as the
+authoritative visual reference. No equivalent file exists yet in this practice.
+**Rule for this practice:** the first report produced under this standard, once
+verified against every rule in this document (cover page structure, section headings,
+code evidence blocks, page margins, cover meta table classes), becomes this practice's
+own canonical reference template for all subsequent reports. Until that first
+verified report exists, every new report must be checked directly against the written
+rules in §1–§12 above rather than against a visual example.
+
+Deviations from the canonical reference's visual appearance (once established) are
+formatting errors — fix them before rendering the PDF.
