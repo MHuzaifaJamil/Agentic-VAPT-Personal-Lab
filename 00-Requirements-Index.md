@@ -2,7 +2,7 @@
 
 **System under specification:** The Autonomous Agentic VAPT System described in
 [`Agentic VAPT Setup (HOME).md`](./Agentic%20VAPT%20Setup%20(HOME).md) — a locally-hosted,
-5-model LLM council that plans, executes, and reports on vulnerability assessment /
+6-model LLM council that plans, executes, and reports on vulnerability assessment /
 penetration testing engagements against authorized targets, running entirely on a
 single Kali Linux host with no cloud dependency.
 
@@ -33,14 +33,56 @@ performed as part of producing this documentation set.
 | 08 | [`08-Assumptions-Constraints-Dependencies.md`](./08-Assumptions-Constraints-Dependencies.md) | What is assumed true, hard constraints, external dependencies, non-goals |
 | 09 | [`09-Acceptance-Criteria-and-Test-Plan.md`](./09-Acceptance-Criteria-and-Test-Plan.md) | Verification method and pass/fail criteria per requirement |
 | 10 | [`10-Decision-Log-and-Open-Questions.md`](./10-Decision-Log-and-Open-Questions.md) | Chronological record of every explicit operator decision behind this doc set, plus what's still genuinely open |
-| 11 | [`11-Critical-Analysis-and-Design-Challenges.md`](./11-Critical-Analysis-and-Design-Challenges.md) | Adversarial review of the base plan's technical claims (C-01 through C-14), each with a confirmed resolution |
+| 11 | [`11-Critical-Analysis-and-Design-Challenges.md`](./11-Critical-Analysis-and-Design-Challenges.md) | Adversarial review of the base plan's technical claims (C-01 through C-30), every one resolved except C-29 (genuinely open) |
 | 12 | [`12-Report-Formatting-Rules.md`](./12-Report-Formatting-Rules.md) | Independent-practice VAPT report formatting standard (cloned/adapted from `claude-bug-bounty`'s rules, referenced by `FR-COUNCIL-17a`) |
 | 13 | [`13-Implementation-Architecture-Bridge.md`](./13-Implementation-Architecture-Bridge.md) | Closes the requirements→code gap: process/daemon model, language baseline, file formats, privileged-helper contract, CLI framework, proposed module layout |
+| 14 | [`14-System-Prompt-Templates.md`](./14-System-Prompt-Templates.md) | Actual system-prompt text for every prompted council role |
+| 15 | [`15-Implementation-Milestone-Roadmap.md`](./15-Implementation-Milestone-Roadmap.md) | Build order — 9 independently-testable milestones from schema skeleton to full acceptance pass |
+| 16 | [`16-Actual-Setup-Reuse-and-Integration-Map.md`](./16-Actual-Setup-Reuse-and-Integration-Map.md) | Asset-by-asset analysis of `Actual-Setup/` (the `claude-bug-bounty` toolkit copy) — what reuses, what doesn't, what was actually mined into `01`/`14` this pass vs. flagged as future work |
+| 17 | [`17-Standalone-Engine-Reuse-and-Comparison.md`](./17-Standalone-Engine-Reuse-and-Comparison.md) | Comparison against `claude-bug-bounty`'s standalone (non-Claude-Code) `agent.py`/`brain.py`/`engine.py` — **includes a safety notice on real client data that must never be copied into this project** — plus the four gaps it surfaced (`FR-COUNCIL-17b` report grounding, `FR-COUNCIL-11b` failure circuit breaker, `FR-TOOL-14` rate limiting, and one genuinely unresolved item) |
+| 18 | [`18-Requirement-to-Test-Traceability-Matrix.md`](./18-Requirement-to-Test-Traceability-Matrix.md) | Coverage report — every requirement ID in `01`-`08`/`11`/`13` checked against `09`'s test plan for a specific, citable `TP-*` match; 316 IDs total, 143 covered, 67 N/A (not testable), 106 genuinely not-yet-covered gaps listed explicitly |
 
 **Read order for a new reader:** `00` → `11` (see what was challenged and why) → `10`
 (see how every challenge and every open design fork was actually resolved) → `01`-`09`
 (the resulting requirements, which already read as settled — the *why* lives in `10`
-and `11`, not repeated inline everywhere).
+and `11`, not repeated inline everywhere). Then `13`-`15` before writing any code —
+they're the requirements→buildable-spec bridge, not optional extras.
+
+**For a build-time coding agent — "I need to build X, which document?"** (the same
+table also lives in `CLAUDE.md` at the repo root, which a Claude Code session reads
+automatically on start; this copy is here in case that file goes missing or another
+tool is used instead):
+
+| You're working on... | Read |
+|---|---|
+| What the system must do, phase by phase (functional behavior) | `01` |
+| Performance, reliability, resource budgets (RAM/disk/timeouts) | `02` |
+| SQLite schema, table definitions, artifact file layout | `03` |
+| API contracts, CLI command surface, tool-bridge interfaces | `04` |
+| Security rules, privilege boundaries, kill-switch, redaction | `05` |
+| Day-to-day operation: startup/shutdown, monitoring, degraded-mode behavior | `06` |
+| What could go wrong and how it's mitigated, before touching a risky area | `07` |
+| What's assumed true, what's explicitly out of scope, external dependencies | `08` |
+| How to verify a requirement is actually satisfied (writing tests) | `09` |
+| **Why** a requirement reads the way it does (every decision, chronological) | `10` |
+| What was technically wrong with the original plan and how it was fixed | `11` |
+| Exact client-report formatting (HTML/CSS structure for PDF rendering) | `12` |
+| Process model, language, file formats, privileged-helper contract, module layout | `13` |
+| The actual system-prompt text to send to each LLM role | `14` |
+| What order to build things in | `15` |
+| What to actually reuse from `Actual-Setup/`, and what's Claude-Code-only | `16` |
+| What's in `Standalone-Engine-Reference/` and why (**read the safety notice first**) | `17` |
+| Whether a requirement actually has a test behind it (coverage gaps) | `18` |
+| The original high-level plan (now corrected in place — see below) | `Agentic VAPT Setup (HOME).md` |
+| Existing reusable skills/tools/agents from a prior Claude-Code-based toolkit | `Actual-Setup/` (read `16` first) |
+| A standalone, non-Claude-Code hunting engine, kept for comparison only | `Standalone-Engine-Reference/` (read `17` first) |
+
+**`Agentic VAPT Setup (HOME).md` is not the authoritative spec — `01`-`17` are.** It
+has been corrected in place for major issues (inline `*(...)*` notes, each pointing
+to a finding in `11`), but deliberately states corrections at a **high level only**;
+`01`-`17` carry full precision. If the two ever seem to disagree on a detail,
+`01`-`17` wins. `Actual-Setup/` and `Standalone-Engine-Reference/` are separate,
+already-functional reference material, not themselves the system being planned here.
 
 ---
 
@@ -75,8 +117,9 @@ are addressed by new requirements rather than left implicit:
    `05` (CLI-only control surface, confirmed). *(Note: the gate roster itself has
    since changed from the base plan's original two gate-models — see `11` findings
    C-03/C-09 and `10` decisions #34-35: Gate 1 is now a two-tier deterministic+LLM
-   check using `Llama-3.1-8B-Instruct`, and Gate 2 is fully deterministic, not an
-   LLM.)*
+   check, and Gate 2 is fully deterministic, not an LLM. The Gate 1 LLM tier's model
+   has changed twice since — see decision #55 and C-03's revised resolution — and is
+   `Hermes-3-Llama-3.1-8B` as of that decision.)*
 3. **No Phase 0 (pre-flight self-test)** — the blueprint assumes the inference engine,
    GPU drivers, and Kali tool suite are already verified working. Addressed as FR-PRE
    in `01`, including a mandatory GPU-offload benchmark (`FR-PRE-08`).
@@ -98,32 +141,43 @@ None of these gaps require code or installation to resolve at this stage — the
 resolved here as requirements the eventual implementation must satisfy.
 
 **Beyond these seven structural gaps**, a separate adversarial pass over the base
-plan's technical claims surfaced fourteen further findings (`11-Critical-Analysis...md`,
-C-01 through C-14 — memory/OOM interaction, prompt injection, CVSS scoring reliability,
-the Tier 2 tool-execution safety mechanism, the inference-engine choice, and more).
-Every one of them now has an explicit, operator-confirmed resolution folded into
-`01`-`09` — none were left as silent assumptions. The full chronological record of
-every decision behind this entire document set, including these fourteen and every
-other numeric/design fork raised along the way, is in
-`10-Decision-Log-and-Open-Questions.md`, along with the small number of items that
-genuinely cannot be closed without the real target hardware (thermal telemetry
-availability, actual driver binding, sustained-load backend stability) or without
-transferring this document set to that hardware in the first place.
+plan's technical claims — extended over several further rounds as new issues were
+found, including from an external review, from a direct comparison against related
+tooling, and from an operator-supplied model-roster revision — surfaced **30 findings
+in total** (`11-Critical-Analysis-and-Design-Challenges.md`, C-01 through C-30):
+memory/OOM interaction, prompt injection, CVSS scoring reliability, the Tier 2
+tool-execution safety mechanism, the inference-engine choice, process-privilege
+conflicts, an imprecisely-defined circuit-breaker metric, structured-output
+reliability, redaction timing, a report-schema modeling gap, missing report grounding,
+a missing failure-based circuit breaker, missing rate limiting, a memory-headroom
+consequence of a later quantization change, and more. Every one has an explicit,
+operator-confirmed resolution folded into `01`-`17` — **except C-29** (context-window
+management over a long task-queue loop), which remains genuinely open: no verified
+technique existed to adopt, and none was fabricated to fill the gap. The full
+chronological record of every decision behind this entire document set — all 30
+findings plus every other numeric/design fork raised along the way (55 decisions so
+far) — is in `10-Decision-Log-and-Open-Questions.md`, along with the items that
+genuinely cannot be closed without the real target hardware, without transferring
+this document set to it, or without further follow-up work explicitly flagged as such
+(see that document's "Open Questions Remaining" table, items A-H).
 
-**Update:** the base document, `Agentic VAPT Setup (HOME).md`, was originally treated
-as an immutable historical record — every correction above was folded into `01`-`09`
-only. By explicit, later operator decision, sixteen of the findings (C-01, C-03,
-C-07, C-08, C-09, C-11, C-12, C-13, C-14, C-15, C-16, C-17, C-18, C-19, C-20, C-21,
-plus the unbounded task-queue loop) have since been corrected directly in that file
-too, each marked inline with a pointer back to `11`. **Standing policy:** the base
-file states each correction at a high level only; `01`-`13` carry the precise
-mechanism. See decisions #39, #40, and #42 in
-`10-Decision-Log-and-Open-Questions.md` for the full before/after record.
-
-**Second update:** a further externally-sourced issue list surfaced four more
-critical-analysis findings (C-15 process-privilege conflict, C-16 stale network
-sessions, C-17 an imprecisely-defined "zero-yield" metric, C-18 a model-swap memory
-race) — each independently evaluated and confirmed genuine, not just transcribed, and
-all four resolved with concrete mechanisms (a privilege-separated helper, a reframed
-hibernation SLA, a state-delta `discovered_entities` ledger, and a `MemAvailable`
-poll gate). See decision #40.
+**On the base document itself:** `Agentic VAPT Setup (HOME).md` was originally
+treated as an immutable historical record — every correction above was folded into
+`01`-`09` only. By explicit, later operator decision, this expanded to direct
+in-place correction: **18 of the 30 findings** (C-01, C-03, C-07, C-08, C-09, C-11,
+C-12, C-13, C-14, C-15, C-16, C-17, C-18, C-19, C-20, C-21, C-25, C-30 — plus the
+previously-unbounded task-queue loop) are now corrected directly in that file, each
+marked inline with a pointer back to `11`. The remaining 12 findings' fixes live only
+in `01`-`17` — **C-02, C-04, C-05, C-06, C-10** were never offered/selected for
+base-file mirroring; **C-22, C-23, C-24, C-26, C-27, C-28, C-29** are purely additive
+new mechanisms with no existing base-file claim to correct (the same precedent that
+keeps the whole `FR-CTRL` operator control surface out of the base file too).
+**Standing policy (decision #42):** wherever the base file is corrected, it states
+the correction at a high level only — no Python/SQL/flag-level specifics — while
+`01`-`17` carry the precise mechanism. See decisions #39, #40, #42, #49, #50, and #51
+for the full before/after record of every round of this work, including the two most
+recent additions: `16-Actual-Setup-Reuse-and-Integration-Map.md` (what's reusable
+from the `claude-bug-bounty` Claude-Code toolkit copied into `Actual-Setup/`) and
+`17-Standalone-Engine-Reuse-and-Comparison.md` (comparison against that same repo's
+standalone, non-Claude-Code engine — **includes a safety notice on real client data
+that must never be copied into this project**).

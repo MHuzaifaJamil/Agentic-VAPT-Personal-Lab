@@ -90,9 +90,9 @@ non-functional properties are stated here.)*
 confirming authorization to test a target is the operator's responsibility outside this
 tool. The one compliance-adjacent requirement that remains is the scope-boundary check
 that was already part of the original plan's Council Gate 1 — now a deterministic
-Python pre-check plus `Llama-3.1-8B-Instruct` as the semantic layer, replacing
-Hermes-3 per the C-03 resolution — which is a content/technical check against
-declared scope data, not an authorization/legal check.
+Python pre-check plus `Hermes-3-Llama-3.1-8B` as the semantic layer (C-03's resolution,
+revised by decision #55) — which is a content/technical check against declared scope
+data, not an authorization/legal check.
 
 | ID | Requirement |
 |----|-------------|

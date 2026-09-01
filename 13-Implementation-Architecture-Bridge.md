@@ -136,18 +136,24 @@ resource_limits:
 loop_bounds:
   per_target_task_cap: 30           # FR-COUNCIL-11
   zero_yield_circuit_breaker: 3     # FR-COUNCIL-11a
+  failure_circuit_breaker: 3        # FR-COUNCIL-11b, finding C-27
   session_budget_hours: 12          # FR-COUNCIL-11 / NFR-PERF-05
 gate2:
   correction_attempts: 3            # FR-COUNCIL-09
 security:
   kill_switch_timeout_s: 20         # NFR-REL-04
   oom_score_adj: -900               # FR-ENV-11
+rate_limits:
+  default_category_per_s: 10        # FR-TOOL-14 / IR-BRIDGE-05, finding C-28
+  high_risk_category_per_s: 1       # FR-TOOL-14 / IR-BRIDGE-05, finding C-28
 cvss:
   version: "3.1"                    # FR-COUNCIL-16a, fixed — not meant to be overridden despite living in config
 tool_timeouts_s:
   quick_probes: 180                 # IR-TOOL-03
   targeted_scans: 900
   deep_full_range: 1800
+report:
+  grounding_max_attempts: 3          # FR-COUNCIL-17b / IR-GROUND-02, finding C-26 — TOTAL attempts (1 initial + 2 retries), not a retry count on top of 3
 ```
 
 Every value above is a **default** matching the confirmed decision — the file's
@@ -216,16 +222,19 @@ vapt_agent/
 │   ├── phase_lifecycle.py      # OPS-LIFECYCLE state machine, control_intent handling
 │   ├── engine_client.py        # Local Engine Client (IR-ENGINE-01..06)
 │   └── council/
-│       ├── strategist.py       # DeepSeek-R1 (FR-COUNCIL-01/02)
-│       ├── scope_gate.py       # Tier 0 deterministic + Tier 1 Llama-3.1-8B-Instruct (FR-COUNCIL-03a/04-06)
+│       ├── strategist.py       # DeepSeek-R1-0528-Qwen3-8B (FR-COUNCIL-01/02)
+│       ├── scope_gate.py       # Tier 0 deterministic + Tier 1 Hermes-3-Llama-3.1-8B (FR-COUNCIL-03a/04-06)
 │       ├── operator.py         # Qwen-Coder-7B (FR-COUNCIL-07/09/10)
 │       ├── gate2_validator.py  # deterministic Gate 2 (FR-COUNCIL-08/09a)
-│       ├── loop_bounds.py      # FR-COUNCIL-11/11a diminishing-returns thresholds
-│       ├── adjudicator.py      # Mistral-7B Gate 3 (FR-COUNCIL-13/14/15)
-│       └── reporter.py         # DeepSeek-R1 report draft + CVSS calculator (FR-COUNCIL-16/16a/17/18)
+│       ├── offline_linter.py   # Qwen-Coder-3B-Instruct, offline/between-phase only (FR-COUNCIL-09a)
+│       ├── loop_bounds.py      # FR-COUNCIL-11/11a/11b diminishing-returns + failure circuit breaker
+│       ├── adjudicator.py      # Mistral-7B Gate 3 (FR-COUNCIL-13/14/14a/15)
+│       └── reporter.py         # Ministral-8B-Instruct-2410 report draft + CVSS calculator (FR-COUNCIL-16/16a/17/17a/17b/18) — a distinct model from strategist.py, not a reload of it (decision #55)
 ├── bridge/
 │   ├── tier1/                  # one module per Tier 1 tool schema+wrapper
 │   ├── tier2.py                # path-allowlist + denylist + opt-in-flag gate (FR-TOOL-03/06/06a-c)
+│   ├── rate_limiter.py         # per-target/per-category spawn-rate limiting (FR-TOOL-14, IR-BRIDGE-05)
+│   ├── failure_classifier.py   # network-error/timeout classification feeding FR-COUNCIL-11b (IR-BRIDGE-06)
 │   ├── sanitize.py             # IR-SANITIZE provenance tagging + parsing pipeline
 │   └── timeouts.py             # IR-TOOL-03 tiered timeout classes
 ├── security/
@@ -234,7 +243,7 @@ vapt_agent/
 ├── freezer_helper/
 │   └── vapt_freezer_helper.py  # separately packaged/installed privileged CLI (FR-ENV-13)
 ├── data/
-│   ├── schema.sql               # DR-SCHEMA-01..12 + IAB-SCHEMA-01..04 DDL, WAL mode pragma
+│   ├── schema.sql               # DR-SCHEMA-01..14 + IAB-SCHEMA-01..04 DDL, WAL mode pragma
 │   ├── db.py
 │   └── models.py
 ├── config/
@@ -242,6 +251,7 @@ vapt_agent/
 │   └── loader.py
 ├── reports/
 │   ├── markdown_gen.py
+│   ├── grounding.py             # deterministic evidence-grounding check (FR-COUNCIL-17b, IR-GROUND-01..03)
 │   ├── render.py                # pandoc + wkhtmltopdf/weasyprint invocation (FR-COUNCIL-17a)
 │   └── redaction.py             # FR-COUNCIL-18 redact/unredact, reads redaction_map
 └── tests/                       # mirrors 09-Acceptance-Criteria-and-Test-Plan.md TP-* groups

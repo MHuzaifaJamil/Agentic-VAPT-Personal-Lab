@@ -9,14 +9,21 @@ unverified/optimistic), or **Low** (minor inaccuracy/wording issue).
 
 **Update:** for most of this document's history, it deliberately did not modify the
 source file — findings were recorded here only, and resolutions were folded into
-`01`-`09` instead. That changed by explicit operator decision: sixteen of the findings
-below — **C-01, C-03, C-07, C-08, C-09, C-11, C-12, C-13, C-14, C-15, C-16, C-17,
-C-18, C-19, C-20, C-21** — plus the previously unbounded task-queue loop
+`01`-`09` instead. That changed by explicit operator decision: eighteen of the
+findings below — **C-01, C-03, C-07, C-08, C-09, C-11, C-12, C-13, C-14, C-15, C-16,
+C-17, C-18, C-19, C-20, C-21, C-25, C-30** — plus the previously unbounded task-queue loop
 (`FR-COUNCIL-11`, not itself a numbered C-finding) have now been corrected **directly
 in `Agentic VAPT Setup (HOME).md` itself**, each marked inline with a short note
 pointing back to the relevant finding here. C-02, C-04, C-05, C-06, and C-10 were
-**not** applied to the source file (not offered / not selected for that treatment) —
-their resolutions remain only in `01`-`09`. **Standing policy (decision #42):** the
+**not** applied to the source file (not offered / not selected for that treatment).
+**C-22, C-23, and C-24 were also not mirrored** — unlike the others, these are
+purely additive new mechanisms (structured-output enforcement, redaction timing,
+Operator flag visibility) with no corresponding existing claim in the base file to
+correct, consistent with the precedent that purely-additive content (like the whole
+`FR-CTRL` operator control surface) is never mirrored, only corrections to something
+the base file already asserts. All eight of these (C-02, C-04, C-05, C-06, C-10,
+C-22, C-23, C-24) have their resolutions living only in `01`-`15`. **Standing
+policy (decision #42):** the
 base file carries each correction at a high level only — no Python-specific flags,
 SQLite pragmas, or schema-column detail — while `01`-`13` carry the full mechanism;
 C-19/C-20/C-21 were the first findings mirrored under this explicit altitude split.
@@ -43,6 +50,16 @@ mitigation (e.g., adjusting `oom_score_adj` for the frozen PIDs before hibernati
 the "zero data loss" claim needs to be walked back to "best-effort, no guarantee for
 unsaved buffers."
 
+**Resolution (operator decision):** both. Every suspended PID's OOM-kill priority is
+lowered to `oom_score_adj = -900` before the memory-pressure step runs (`FR-ENV-11`),
+performed by a narrow privileged helper since the main agent process can't hold that
+capability itself (`FR-ENV-13`, resolving finding C-15). Post-resume, the system
+verifies every suspended PID actually survived and logs a partial/degraded outcome if
+not, rather than assuming success (`FR-ENV-12`). The base document's "zero data loss"
+wording is superseded by `NFR-REL-06`'s "best-effort, OOM-hardened, not an absolute
+guarantee" framing. Finding C-16 later reframed the hibernation SLA further (process
+memory only, not network/session continuity) on top of this same fix.
+
 ### C-02. Freezing apps does not by itself free memory — Severity: **Medium**
 
 `SIGSTOP` alone reclaims 0 bytes; the ~3.5–4.5 GB gain requires the *separate*
@@ -53,6 +70,15 @@ process. The 9.5 GB → 13.0 GB delta (3.5 GB) is presented as a expected outcom
 better treated as a *measured result specific to whatever apps happen to be open at
 the time*, not a fixed constant the rest of the resource budget (§4 table) should be
 built on.
+
+**Resolution (operator decision):** confirmed as a framing fix, not a new mechanism —
+`02-NonFunctional-Requirements.md`'s introduction now states explicitly that the base
+document's §4 figures are a sample/expected-case measurement, not a guarantee the
+implementation is held to. The actual enforcement was already present in the base
+design's own logic and is unchanged: `FR-ENV-08` re-measures available RAM after
+hibernation at runtime and aborts progression if the measured headroom is
+insufficient — it is this live measurement, not the base document's illustrative
+numbers, that the rest of the system actually depends on.
 
 ### C-03. Choosing an uncensored model as the safety/scope gate is a questionable design — Severity: **High**
 
@@ -81,6 +107,24 @@ triage never share a model. See `01-Functional-Requirements.md` §4.1 intro and
 new model's actual refusal behavior has not been empirically tested, only reasoned
 about (see `10-Decision-Log-and-Open-Questions.md`, Open Item C).
 
+**Update (operator decision, 6-model roster revision, decision #55):** the Tier 1
+semantic model has been swapped back to **`Hermes-3-Llama-3.1-8B`** (`NousResearch`,
+`Q8_0`), reversing the specific model choice above — for two stated reasons: (a)
+`Llama-3.1-8B-Instruct` requires a Meta license acceptance/HF gating step the operator
+does not hold, and (b) heavier refusal-tuning risks Tier 1 over-refusing standard,
+already-in-scope pentesting commands as if they were unauthorized requests. The
+**deterministic Tier 0 pre-check remains unchanged and is still explicitly the actual
+non-bypassable safety boundary this design depends on** — Tier 1's job is now framed
+purely as a contextual/strategic sanity check on tasks that already passed Tier 0, not
+a refusal backstop. This reasoning is coherent for the narrow class of judgment Tier 0
+cannot express in code (CIDR/domain/port/flag matching): a plan that is technically
+in-scope but contextually excessive. It does **partially reopen** C-03's original
+concern for exactly that narrow class — a model selected for reduced refusals may
+under-flag "technically in-scope but excessive" tasks (`FR-COUNCIL-05`'s "semantic gate
+reasoning" duty), which is a different failure mode than the original concern (approving
+things Tier 0 alone would have caught) but a real one. Not resolved by empirical testing
+either way — Open Item C in `10` is revised, not closed, to reflect this reframing.
+
 ### C-04. No defense against prompt injection via scanned target content — Severity: **High**
 
 The sanitization pipeline (Phase 3, step 3) is designed to extract structured signal
@@ -97,6 +141,18 @@ Strategist, or the Gate 3 adjudicator. This is a materially different and more
 important threat model than "sanitize noisy HTML," and the plan does not address it
 at all.
 
+**Resolution (operator decision, confirmed MUST):** all content originating from
+live target interaction is wrapped in the fixed provenance tag
+`<tool_output_untrusted>...</tool_output_untrusted>` before ever reaching a model's
+context, with the wrapping tag itself escaped out of raw content first so a target
+can't forge a fake closing tag (`FR-TOOL-12`, `IR-SANITIZE-02`). Every council model's
+system prompt carries a fixed instruction-hierarchy clause stating that tagged
+content is data to analyze, never instructions to follow (`IR-SANITIZE-03`,
+`SEC-PROMPT-02`), applied uniformly across the Strategist, Operator, Gatekeeper, and
+Adjudicator roles (`SEC-PROMPT-01`). A lightweight heuristic detector supplements this
+as defense-in-depth, not a substitute for the containment above (`FR-TOOL-13`,
+`SEC-PROMPT-03/04`).
+
 ### C-05. iGPU/SYCL inference path is presented as settled but is the least mature backend — Severity: **Medium**
 
 Base doc §1.1/§2 assumes routine offload of all 5 models to the Arc iGPU via Level
@@ -108,6 +164,16 @@ validated by the model/backend maintainers. The plan should treat GPU offload as
 budget in §4 depends on — if it silently falls back to CPU-only, the token-throughput
 figures (e.g., "~28.5 tok/s" for the 3B linter) may not hold, and every downstream
 phase-latency expectation shifts.
+
+**Resolution (operator decision):** a mandatory Phase 0 pre-flight benchmark
+(`FR-PRE-08`) runs the same short fixed-size inference twice — once with SYCL/Level-Zero
+offload requested, once forced CPU-only — and compares the two measured throughputs
+directly, rather than asserting GPU offload works. **Confirmed bar: relative, not a
+guessed fixed number** — if GPU-offload throughput doesn't exceed the CPU-only
+measurement from the same benchmark (or offload fails outright), the entire
+engagement is flagged to run CPU-only from the start, logged in
+`engagement_phase_log` so every later phase-latency expectation is read against the
+correct baseline.
 
 ### C-06. `i915` and `xe` are alternative drivers for the same generation, not normally concurrent — Severity: **Low**
 
@@ -151,6 +217,14 @@ deterministic CVSS calculator that the LLM fills in with justification (LLM prop
 metric values, code computes the score), or an explicit human-review checkpoint before
 a CVSS score is finalized — not a bare model output.
 
+**Resolution (operator decision):** the first of the two proposed options, confirmed.
+The LLM proposes per-metric CVSS 3.1 values (Attack Vector, Attack Complexity,
+Privileges Required, User Interaction, Scope, C/I/A impact) with a one-line
+justification each; a separate, deterministic, non-LLM component — the Python `cvss`
+library, implementing the FIRST.org base-score formula — computes the final numeric
+score and vector string. The model never emits a final CVSS score itself
+(`FR-COUNCIL-16a`).
+
 ### C-08. Flat 180-second subprocess timeout does not fit the tool set it's applied to — Severity: **Medium**
 
 Base doc, Phase 3, step 3: default timeout 180s for all wrapped tools, explicitly
@@ -163,6 +237,15 @@ nothing — a false-negative risk the plan does not acknowledge. Per-tool timeou
 profiles (and a "scan still running, extend or truncate?" decision point) would be
 more defensible than one constant.
 
+**Resolution (operator decision):** tiered timeout classes, confirmed with an
+explicit tool-to-tier mapping rather than a per-scan decision point: Quick Probes
+(`ffuf`, `whatweb`, `nikto`, `wafw00f`) = 180s; Targeted Scans (`nuclei`, standard
+`nmap`, `sqlmap` quick mode, `gobuster`, `feroxbuster`, `testssl`) = 900s;
+Deep/Full-Range Scans (`nmap -p-`, `sqlmap` with tamper scripts, `masscan` subnet
+sweeps) = 1800s — paired with mandatory non-blocking output streaming so a genuine
+stall can still be detected and killed before the (now longer) hard timeout, rather
+than trading truncation risk for a different failure mode (`IR-TOOL-03`).
+
 ### C-09. Repeated model load/unload cost is not budgeted against the task-queue loop — Severity: **Medium**
 
 Step 4.2 describes the Operator (`Qwen2.5-Coder-7B`, ~5.6 GB) and Linter
@@ -174,6 +257,17 @@ The plan states a per-phase teardown policy but doesn't state the *granularity* 
 which Operator ⇄ Linter alternation happens, which materially changes whether the
 5-phase lifecycle finishes in minutes or hours for a non-trivial engagement.
 
+**Resolution (operator decision):** zero model swapping inside the active loop,
+confirmed. `Qwen2.5-Coder-7B-Instruct` loads once and stays resident for the entire
+per-target task loop (`FR-COUNCIL-07`); Council Gate 2 (command/argument validation)
+is performed by a deterministic, non-LLM Python validator consuming the same
+declarative tool schemas, not by `Qwen2.5-Coder-3B` (`FR-COUNCIL-08`). The 3B model is
+demoted to an offline, between-phase role only — multi-line custom-script syntax
+checks the deterministic validator can't evaluate — and is never loaded during the
+active loop (`FR-COUNCIL-09a`). This is consistent with the base document's own §4
+resource table, which never listed a RAM/context row for the 3B linter during
+Phase 4.2 in the first place.
+
 ### C-10. Sustained AVX2/AVX-VNNI inference load on a mobile CPU risks thermal throttling — Severity: **Medium**
 
 §1.1 lists full vector-acceleration support and thread-pinning to 4 P-cores, but the
@@ -182,6 +276,17 @@ Lake-P is a mobile/thin-and-light part; sustained multi-model, multi-hour autono
 engagements are a materially different thermal profile than a quick benchmark run, and
 sustained throttling would invalidate the phase-latency assumptions built on the
 stated tok/s figures.
+
+**Resolution (operator decision, partial by nature of the problem):** treated as a
+feasibility check to perform at deployment, not an assumption to build the design on
+now — whether this hardware/kernel combination even exposes thermal/throttle
+telemetry at all was never verified in this planning phase. **Confirmed trigger
+condition, if telemetry is available:** monitor the CPU's own reported throttle/PROCHOT
+signal rather than a guessed fixed temperature, and log a degraded-performance flag
+when the kernel itself reports throttling (`OPS-MONITOR-03`). If no such signal is
+exposed on the real hardware, this requirement is explicitly downgraded to
+"not implementable as specified," and the phase-latency NFRs in `02` are to be read
+as best-effort rather than guaranteed.
 
 ### C-11. "Completely mitigates hallucination through multi-agent validation gates" is an overclaim — Severity: **Medium**
 
@@ -430,6 +535,192 @@ truncated/modified since redaction), unredaction MUST fail loudly rather than
 silently insert a possibly-wrong value. See `03-Data-and-Storage-Requirements.md`
 DR-SCHEMA-14 (revised).
 
+### C-22. Structured LLM output reliability was never mechanically enforced — Severity: **High**
+
+`FR-TOOL-01/02` (Tier 1 tool-call schemas), `FR-COUNCIL-16a` (CVSS metric proposals),
+and the Gate 1/Gate 3 decision flows all assume the relevant LLM reliably emits
+well-formed, schema-conforming JSON — but nothing in `01`-`13` specifies a mechanism
+to actually guarantee this. Quantized 7B-8B models under plain prompting frequently
+emit malformed JSON (trailing commas, unescaped quotes, prose wrapped around the
+payload, truncated output on a tight token budget). This affects essentially every
+LLM-to-code handoff in the system, not one isolated pathway — a foundational gap that
+should be closed before any council role is implemented, not discovered per-role.
+
+**Resolution (operator decision):** a **hybrid, backend-agnostic** enforcement,
+confirmed as: (1) every structured-output call to the Local Engine Client MUST
+request `response_format={"type": "json_object"}` — supported across `llama.cpp`'s
+server, `ollama`, and `vLLM` alike, keeping `IR-ENGINE-04`'s backend-substitutability
+intact (unlike GBNF grammars, which are `llama.cpp`-specific and would have tied the
+design to one engine); (2) the returned JSON MUST still be validated against a
+deterministic Python schema specific to that output's shape — `response_format` only
+guarantees syntactic JSON validity, not schema conformance (a valid JSON object can
+still be missing required fields or have the wrong types); (3) on validation failure,
+the system MUST retry the same call with the validator's specific error appended to
+context, bounded to **2 retries (3 attempts total)** — consistent with the
+retry-bounding pattern already established for `FR-COUNCIL-09` — before marking the
+step failed/blocked, never silently proceeding with unvalidated data. See
+`04-Interface-and-Integration-Requirements.md` IR-STRUCTURED.
+
+### C-23. Redaction mechanism timing was never specified — post-processing the Reporter's free-form prose is the wrong place for it — Severity: **High**
+
+`FR-COUNCIL-18` says the report body "MUST redact... raw secrets," and `DR-SCHEMA-14`
+(added resolving C-21) specifies exact byte-offset+hash addressing for
+*reconstructing* a redacted value later — but never said *when* or *how* the
+placeholder substitution happens in the first place. The two candidate mechanisms
+are materially different: (a) let the Reporter LLM draft freely with real secrets
+present, then have a deterministic step scan its free-form prose afterward for
+known secret strings and replace them — fragile, because an LLM can paraphrase,
+re-wrap, or reformat a secret in its own narrative in ways an exact-string scanner
+would miss (different whitespace, split across a line break, described in words);
+or (b) redact the **evidence shown to the Reporter, before it ever sees it** — the
+Reporter only ever encounters `[REDACTED-N]` placeholders in its input, and its own
+draft naturally contains only those placeholders because it never had the real
+value to begin with. `14-System-Prompt-Templates.md`'s Reporter prompt was already
+written assuming (b) ("secret values in the evidence you're shown may already be
+redacted"), but this was never stated as a formal requirement anywhere in `01`/`03`.
+
+**Resolution (confirmed by construction — this is the only mechanism consistent
+with the exactness already established for C-21):** redaction happens **before**
+the Reporter LLM is invoked, as a deterministic scan of the raw evidence about to
+be included in its prompt, using the exact known secret values already captured
+during Tier 1/2 execution (never LLM-identified). Each substitution creates its
+`redaction_map` row (`source_artifact_id`, `start_offset`/`end_offset`,
+`content_hash`) at this time — not after the Reporter drafts anything. The
+Reporter's own free-form output requires no further scanning, because it was never
+shown the real value in the first place. See `01-Functional-Requirements.md`
+FR-COUNCIL-18 (revised) and `14-System-Prompt-Templates.md` §5.
+
+### C-24. The Operator has no visibility into the engagement's opt-in flag state — could waste task budget on predictably-refused proposals — Severity: **Medium**
+
+`FR-TOOL-06a`'s three high-risk categories (brute-force, active-exploitation,
+lateral-movement) are set at `start`/`resume` and enforced at the Tier 2 bridge —
+but the Operator LLM (`14-System-Prompt-Templates.md` §3) that proposes commands
+has no way to know whether a given category is currently enabled. It could
+therefore repeatedly propose `hydra` for a target across several tasks, each one
+silently `POLICY_REFUSED` (`FR-TOOL-06b`), burning through the 30-task-per-target
+cap and contributing to the zero-yield circuit breaker for no reason a better-informed
+Operator would have avoided.
+
+**Resolution (operator decision — resolved directly, no design fork worth a
+question):** the current state of all three opt-in flags MUST be included in the
+Operator's per-task context (not just available to the bridge that enforces them),
+so it can avoid proposing categories it already knows are disabled. This does not
+weaken enforcement — the bridge still checks and refuses regardless of what the
+Operator "believes" — it only prevents predictable, avoidable waste. See
+`01-Functional-Requirements.md` FR-COUNCIL-07 (revised).
+
+### C-25. Report schema never distinguished per-finding VAPT reports from the consolidated informational register — Severity: **High**
+
+`12-Report-Formatting-Rules.md` §2 describes an individual report **per confirmed
+finding** (its own Report ID, e.g. `CLIENT-V-001`, its own cover page/CVSS/sections)
+— but §9 describes informational/dismissed findings going into **one consolidated
+register per engagement**, explicitly *not* one file per finding. `DR-SCHEMA-11`'s
+`reports` table, however, was only ever keyed by `engagement_id`, with no
+`finding_id` and no way to distinguish these two fundamentally different document
+types. As written, the schema could not actually represent "one report per
+finding" at all — a real modeling gap, not a wording issue, that would have
+surfaced the moment a multi-finding engagement tried to generate its reports.
+
+**Resolution (confirmed by construction, following `12-Report-Formatting-Rules.md`'s
+own already-established format):** `reports.finding_id` is added (nullable FK →
+`verified_vulnerabilities`) and `reports.document_type` distinguishes `VAPT_FINDING`
+(one row per `CONFIRMED` finding, `finding_id` set) from `INFO_REGISTER` (one row
+per engagement, `finding_id` NULL, regenerated in place per
+`12-Report-Formatting-Rules.md` §9 rather than creating a new row each time a new
+informational item is added). See `03-Data-and-Storage-Requirements.md` DR-SCHEMA-11
+(revised) and `01-Functional-Requirements.md` FR-COUNCIL-17 (revised).
+
+### C-26. Reporter output was never mechanically checked against its own evidence — Severity: **High**
+
+`FR-COUNCIL-17` requires "per-finding evidence references," but nothing verifies the
+Reporter's *drafted narrative* actually stays within what the evidence supports — an
+LLM can confidently cite a URL, endpoint, or detail that sounds plausible but was
+never in the evidence it was shown. `claude-bug-bounty`'s standalone `brain.py`
+(`/home/vscysteam/claude-bug-bounty`, analyzed in
+`17-Standalone-Engine-Reuse-and-Comparison.md`) has a working, purely mechanical
+answer to exactly this problem: `_ground_report_output()` regex-extracts every
+URL/path the LLM's report output references, and every URL/path present in the
+source evidence, and deletes any report content whose references aren't a subset of
+the evidence — falling back to an explicit "no groundable report" signal rather than
+emitting unverified content.
+
+**Resolution (operator decision):** the same mechanism, adapted to this system's
+pipeline: a deterministic grounding check runs on the Reporter's draft before it can
+leave `DRAFT_PENDING_APPROVAL`. See `01-Functional-Requirements.md` FR-COUNCIL-17b.
+
+### C-27. No failure-based circuit breaker — only the zero-*yield* one exists — Severity: **Medium**
+
+`FR-COUNCIL-11a`'s circuit breaker trips on 3 consecutive tool runs producing zero
+*novel information* — but says nothing about a target that's simply unreachable
+(connection refused, DNS failure, repeated timeouts). Such a target would eventually
+trip the zero-yield breaker incidentally, but only after wasting 3 task slots on
+requests that were never going to succeed, and without the operator being able to
+tell "unproductive" apart from "unreachable" in the audit trail. `agent.py`'s
+`CircuitBreaker` class implements exactly this as a distinct, separate check.
+
+**Resolution (operator decision):** a second, separate circuit breaker — 3
+consecutive tool-execution failures (network error or timeout, not merely an
+uninformative success) trips it independently of the zero-yield breaker, marking the
+target `UNREACHABLE` (distinct from `CIRCUIT_BROKEN`) and auto-pivoting, consistent
+with `FR-COUNCIL-11`'s no-pause design. Threshold set to 3 (matching the existing
+zero-yield breaker's count) rather than `agent.py`'s own value of 5, for internal
+consistency. See `01-Functional-Requirements.md` FR-COUNCIL-11b.
+
+### C-28. No rate limiting anywhere in the design — Severity: **Medium**
+
+Nothing in `01`-`16` limits how fast the Operator can spawn tool invocations against
+a target. `agent.py`'s `AutopilotGuard` includes a two-speed rate limiter
+(`recon_rps=10.0`, `test_rps=1.0`) as a standard safety control for exactly this kind
+of autonomous, unattended tool-execution loop.
+
+**Resolution (operator decision):** the same two-speed design, mapped onto this
+system's existing categories rather than introducing a new taxonomy: 10 new tool
+invocations/second for tools outside the three high-risk opt-in categories
+(`FR-TOOL-06a`), 1/second for tools inside any of them. See
+`01-Functional-Requirements.md` FR-TOOL-14.
+
+### C-29. Context-window management over a long task-queue loop — genuinely open, not resolved this pass
+
+`agent.py`'s docstring claims working memory is "compressed every 5 steps to stay
+within context window," referencing a `MEMORY_REFRESH_N = 5` constant — but the
+actual LLM-driven rewrite logic behind that constant could not be located/verified
+in the research pass that found it. This system has the same underlying problem and
+no answer for it either: `FR-COUNCIL-11`'s 30-task-per-target loop, with the
+Operator staying resident throughout (`FR-COUNCIL-07`), will accumulate context
+across many tool results against the Operator's 16k window (`FR-GATE-07`) with no
+stated summarization/eviction strategy. **This is not resolved here** — no verified
+technique exists to adopt, and fabricating one would violate this document's own
+standard of evidence. Logged as Open Item H in
+`10-Decision-Log-and-Open-Questions.md`.
+
+### C-30. Uniform Q8_0 quantization across the 6-model roster sharply tightens the RAM headroom margin — Severity: **Medium**
+
+An operator-supplied roster revision (decision #55, `10-Decision-Log-and-Open-Questions.md`)
+moved every council model to `Q8_0` quantization (from the previous mixed `Q4_K_M`/`Q5_K_M`
+scheme) and split the Reporter out as a genuinely separate 6th resident model rather than
+reusing the Strategist's weights. `Q8_0` roughly doubles a model's footprint relative to
+`Q4_K_M` for the same parameter count, and a dedicated Reporter model means a new, previously
+nonexistent memory-allocation event (Phase 4.3's second load) has to fit the same headroom
+budget the other five already share. Recomputed against the documented ~13.0 GiB
+post-hibernation ceiling (`NFR-RES-01`), the worst-case single-model RAM footprint (Operator
+at 16k context, or Reporter at 16k context) leaves roughly **~2.4-2.8 GB of headroom**, down
+from ~5.2 GB under the previous scheme — still above the confirmed 1.5 GB safety margin
+(`NFR-RES-02`), but with far less slack for KV-cache misestimation, OS memory-pressure
+spikes, or GPU-offload staging overhead than the design previously had.
+
+**Resolution (operator decision):** accepted as a documented trade-off, not silently
+absorbed. The uniform `Q8_0` choice was explicit and deliberate (full-precision-per-weight
+fidelity, avoiding any accuracy loss from more aggressive quantization), and the recomputed
+headroom still clears every existing safety threshold in this document set. No requirement
+changes on top of the existing `NFR-RES-01`/`NFR-RES-02`/`FR-GATE-10` headroom-gating
+mechanisms — they already re-measure and abort/degrade on shortfall regardless of which
+quantization is in effect, so the mechanism is unchanged, only the margin it operates
+within. If real hardware testing (`TP-FEASIBILITY`, Milestone 7/8) shows this margin is
+too tight in practice, dropping the two largest models (Operator, Reporter) to `Q6_K` or
+`Q5_K_M` is the documented fallback — left as a deployment-time tuning decision, consistent
+with how `AC-ASSUME-06` and the rest of `TP-FEASIBILITY` already defer hardware-dependent
+particulars rather than guessing them here.
+
 ## Summary Table
 
 | ID | Area | Severity |
@@ -455,8 +746,23 @@ DR-SCHEMA-14 (revised).
 | C-19 | Kill-switch targets only the recorded PID, not the process group; orphaned children could survive `abort` | High |
 | C-20 | WAL mode alone doesn't prevent "database is locked" between concurrent CLI invocations | Medium |
 | C-21 | Redaction addressing via "offset or regex" is imprecise; could restore the wrong secret | High |
+| C-22 | Structured LLM output (tool calls, CVSS metrics, gate decisions) was never mechanically guaranteed to be valid/schema-conforming | High |
+| C-23 | Redaction timing unspecified; post-processing the Reporter's free-form prose is fragile vs. pre-redacting its input | High |
+| C-24 | Operator has no visibility into opt-in flag state; could waste task budget on predictably-refused proposals | Medium |
+| C-25 | Report schema never distinguished per-finding VAPT reports from the consolidated informational register | High |
+| C-26 | Reporter output was never mechanically checked against its own evidence | High |
+| C-27 | No failure-based circuit breaker — only the zero-yield one existed | Medium |
+| C-28 | No rate limiting anywhere in the design | Medium |
+| C-29 | Context-window management over a long task-queue loop | Medium (genuinely unresolved) |
+| C-30 | Uniform Q8_0 quantization across the 6-model roster sharply tightens RAM headroom | Medium (accepted trade-off) |
 
-These are analysis findings, not yet requirements — none have been folded into the
-requirement documents (`01`–`09`) as new obligations. Whether and how to act on each
-(e.g., add an `oom_score_adj` step for C-01, add input-provenance tagging for C-04, add
-a deterministic CVSS calculator for C-07) is an open decision for the operator to make.
+**Every finding above has been resolved and folded into `01`-`17` as confirmed
+requirements, except C-29** (context-window management), which remains genuinely
+open — see its own entry above and Open Item H in
+`10-Decision-Log-and-Open-Questions.md`. This paragraph previously stated that none
+of the findings had been acted on; that was accurate only in this document's early
+history and had gone stale as resolutions were added — corrected here during the
+audit pass that also added the missing per-finding Resolution paragraphs for
+C-01/C-02/C-04/C-05/C-07/C-08/C-09/C-10 and the C-26–C-29 rows above. C-03's own
+resolution was itself later revised (not just C-29 being new) — see its "Update"
+paragraph above, following the operator-supplied 6-model roster revision.

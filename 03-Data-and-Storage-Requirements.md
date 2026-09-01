@@ -32,6 +32,7 @@ other way around.
 | `orchestrator_pid_started_at` | TEXT (ISO8601), nullable | **(new — IAB-SCHEMA-01)** paired with the PID to detect PID reuse after a crash |
 | `control_intent` | TEXT | **(new — IAB-SCHEMA-01)** `NONE` / `PAUSE_REQUESTED` / `ABORT` |
 | `control_intent_at` | TEXT (ISO8601), nullable | **(new — IAB-SCHEMA-01)** |
+| `engagement_lock_slot` | INTEGER, `GENERATED ALWAYS AS (CASE WHEN status IN ('IN_PROGRESS','PAUSED') THEN 0 END) VIRTUAL` | **(new — resolves critical-analysis finding, FR-CTRL-09)** always `0` while non-terminal, `NULL` otherwise. Paired with `CREATE UNIQUE INDEX one_active_engagement ON engagements(engagement_lock_slot);` — SQLite unique indexes ignore `NULL`, so this enforces **at most one row system-wide** with a non-terminal status, regardless of which one, without blocking unlimited `COMPLETE`/`ABORTED` history rows. A naive `UNIQUE(status) WHERE status IN (...)` would be wrong here — it would only prevent two simultaneous `IN_PROGRESS` rows (or two `PAUSED`), not one of each at once. |
 | `notes` | TEXT | free-text operator notes |
 
 ### DR-SCHEMA-01a: `engagement_flag_history` (new — required by FR-TOOL-06c)
@@ -61,14 +62,16 @@ counters used by FR-COUNCIL-11's diminishing-returns thresholds.
 | `host_or_domain` | TEXT | |
 | `added_at` | TEXT (ISO8601) | |
 | `task_count` | INTEGER DEFAULT 0 | incremented per task executed against this target; capped at **30** (FR-COUNCIL-11a) |
-| `consecutive_zero_yield_count` | INTEGER DEFAULT 0 | reset to 0 on any task whose `tool_execution_logs.novel_entities_count > 0`; circuit-breaks at **3** consecutive tasks with `novel_entities_count = 0` (FR-COUNCIL-11a/b) — **not** based on exit code or non-empty output alone |
-| `status` | TEXT | `PENDING` / `ACTIVE` / `CAPPED` / `CIRCUIT_BROKEN` / `COMPLETE` |
+| `consecutive_zero_yield_count` | INTEGER DEFAULT 0 | reset to 0 on any task whose `tool_execution_logs.novel_entities_count > 0`; circuit-breaks at **3** consecutive tasks with `novel_entities_count = 0` (FR-COUNCIL-11a) — **not** based on exit code or non-empty output alone |
+| `consecutive_failure_count` | INTEGER DEFAULT 0 | **(new, resolves critical-analysis finding C-27)** reset to 0 on any task whose execution had neither `network_error` nor `timeout_hit` set; circuit-breaks at **3** consecutive tasks with either flag set (FR-COUNCIL-11b) — independent of `consecutive_zero_yield_count`, since a failed request and a successful-but-uninformative one are different conditions |
+| `status` | TEXT | `PENDING` / `ACTIVE` / `CAPPED` / `CIRCUIT_BROKEN` / `UNREACHABLE` / `COMPLETE` |
 
 ### DR-SCHEMA-03: `scope_rules`
 
 Scope-boundary data consumed by the Strategist and checked by Council Gate 1 (a
-deterministic Python pre-check plus `Llama-3.1-8B-Instruct`, replacing Hermes-3 per
-the C-03 resolution) — see base §Phase 4.1. **Not an authorization/RoE record** — per
+deterministic Python pre-check plus `Hermes-3-Llama-3.1-8B` as the semantic layer,
+per the C-03 resolution as revised by decision #55) — see base §Phase 4.1. **Not an
+authorization/RoE record** — per
 explicit decision, this system does not verify authorization; this table only holds the
 technical in/out-of-scope pattern data the scope-boundary check operates against.
 
@@ -87,7 +90,7 @@ technical in/out-of-scope pattern data the scope-boundary check operates against
 | `path_id` | INTEGER PK | |
 | `target_id` | INTEGER FK → `targets` | |
 | `hypothesis_text` | TEXT | Strategist's rationale |
-| `created_by_model` | TEXT | e.g. `DeepSeek-R1-Distill-Qwen-8B` |
+| `created_by_model` | TEXT | e.g. `DeepSeek-R1-0528-Qwen3-8B` |
 | `created_at` | TEXT (ISO8601) | |
 | `status` | TEXT | `PROPOSED` / `GATE1_APPROVED` / `GATE1_REJECTED` |
 
@@ -103,7 +106,7 @@ technical in/out-of-scope pattern data the scope-boundary check operates against
 | `proposed_command` | TEXT | full argument vector as generated |
 | `gate2_corrected_command` | TEXT, nullable | if the linter (Gate 2) corrected it |
 | `status` | TEXT | `PENDING` / `GATE1_APPROVED` / `GATE1_REJECTED` / `GATE2_BLOCKED` / `EXECUTING` / `EXECUTED` / `FOLLOWUP_GENERATED` |
-| `gate1_rationale` | TEXT | Stated reason from whichever Gate 1 tier acted — the deterministic pre-check (`FR-COUNCIL-03a`) or `Llama-3.1-8B-Instruct` |
+| `gate1_rationale` | TEXT | Stated reason from whichever Gate 1 tier acted — the deterministic pre-check (`FR-COUNCIL-03a`) or `Hermes-3-Llama-3.1-8B` |
 | `gate2_rationale` | TEXT | The deterministic Gate 2 validator's stated reason on block/correct (not an LLM — see `FR-COUNCIL-08`) |
 | `created_at` / `executed_at` | TEXT (ISO8601) | |
 
@@ -123,6 +126,7 @@ technical in/out-of-scope pattern data the scope-boundary check operates against
 | `sanitized_summary` | TEXT | what actually entered model context (FR-TOOL-07) |
 | `suspected_injection_flag` | INTEGER (bool) DEFAULT 0 | set by the heuristic check in FR-TOOL-13 |
 | `novel_entities_count` | INTEGER DEFAULT 0 | count of new rows this run inserted into `discovered_entities` (DR-SCHEMA-12); **0 here means this run counts toward the zero-yield circuit breaker (FR-COUNCIL-11a)**, regardless of `exit_code` or whether `sanitized_summary` is non-empty |
+| `network_error` | INTEGER (bool) DEFAULT 0 | **(new, resolves critical-analysis finding C-27)** set when the bridge detects the process failed due to a network-level condition (connection refused/reset, DNS resolution failure, TLS handshake failure) rather than completing and simply finding nothing. Feeds `targets.consecutive_failure_count` (FR-COUNCIL-11b) alongside `timeout_hit`. |
 
 ### DR-SCHEMA-07: `verified_vulnerabilities`
 
@@ -181,17 +185,30 @@ Tracks phase transitions for resumability (NFR-REL-02).
 | `created_at` | TEXT (ISO8601) | |
 | `size_bytes` | INTEGER | |
 
-### DR-SCHEMA-11: `reports`
+### DR-SCHEMA-11: `reports` (revised, resolves critical-analysis finding C-25)
+
+`12-Report-Formatting-Rules.md` establishes two distinct document types — an
+individual VAPT report per `CONFIRMED` finding, and one consolidated informational
+register per engagement — which the original version of this table couldn't
+represent at all (no `finding_id`, no way to distinguish the two document types).
 
 | Column | Type | Notes |
 |---|---|---|
 | `report_id` | INTEGER PK | |
 | `engagement_id` | INTEGER FK → `engagements` | |
+| `document_type` | TEXT | **(new)** `VAPT_FINDING` (one row per `CONFIRMED` finding) or `INFO_REGISTER` (one row per engagement, regenerated in place per `12-Report-Formatting-Rules.md` §9 rather than a new row per item) |
+| `finding_id` | INTEGER FK → `verified_vulnerabilities`, nullable | **(new)** set for `VAPT_FINDING` rows; `NULL` for `INFO_REGISTER` |
 | `format` | TEXT | `markdown` / `html` / `pdf` |
-| `status` | TEXT | `DRAFT_PENDING_APPROVAL` / `APPROVED` / `REJECTED` |
+| `status` | TEXT | `DRAFT_PENDING_APPROVAL` / `BLOCKED_UNGROUNDED` / `APPROVED` / `REJECTED` — **(`BLOCKED_UNGROUNDED` new, resolves critical-analysis finding C-26)** set when the grounding check (FR-COUNCIL-17b) fails after its retry budget; requires operator review, not auto-resolved |
 | `file_path` | TEXT | |
 | `created_at` / `approved_at` | TEXT (ISO8601), nullable | |
 | `approved_by` | TEXT | fixed value: `Muhammad Huzaifa Jamil` once approved (FR-CTRL-08) |
+
+A partial unique index, `CREATE UNIQUE INDEX one_info_register ON reports(engagement_id) WHERE document_type = 'INFO_REGISTER';`,
+enforces that an engagement has at most one `INFO_REGISTER` row (per document type,
+same generated-column-free technique works here directly since the predicate
+doesn't need a shared constant value — `engagement_id` itself is what must be
+unique among `INFO_REGISTER` rows).
 
 ### DR-SCHEMA-13: `suspended_processes` (new — FR-ENV-05 required this; no table previously existed for it, closed by IAB-SCHEMA-03)
 
