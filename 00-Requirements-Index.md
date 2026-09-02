@@ -33,14 +33,16 @@ performed as part of producing this documentation set.
 | 08 | [`08-Assumptions-Constraints-Dependencies.md`](./08-Assumptions-Constraints-Dependencies.md) | What is assumed true, hard constraints, external dependencies, non-goals |
 | 09 | [`09-Acceptance-Criteria-and-Test-Plan.md`](./09-Acceptance-Criteria-and-Test-Plan.md) | Verification method and pass/fail criteria per requirement |
 | 10 | [`10-Decision-Log-and-Open-Questions.md`](./10-Decision-Log-and-Open-Questions.md) | Chronological record of every explicit operator decision behind this doc set, plus what's still genuinely open |
-| 11 | [`11-Critical-Analysis-and-Design-Challenges.md`](./11-Critical-Analysis-and-Design-Challenges.md) | Adversarial review of the base plan's technical claims (C-01 through C-30), every one resolved except C-29 (genuinely open) |
+| 11 | [`11-Critical-Analysis-and-Design-Challenges.md`](./11-Critical-Analysis-and-Design-Challenges.md) | Adversarial review of the base plan's technical claims (C-01 through C-31), every one resolved except C-29 (genuinely open) |
 | 12 | [`12-Report-Formatting-Rules.md`](./12-Report-Formatting-Rules.md) | Independent-practice VAPT report formatting standard (cloned/adapted from `claude-bug-bounty`'s rules, referenced by `FR-COUNCIL-17a`) |
 | 13 | [`13-Implementation-Architecture-Bridge.md`](./13-Implementation-Architecture-Bridge.md) | Closes the requirements→code gap: process/daemon model, language baseline, file formats, privileged-helper contract, CLI framework, proposed module layout |
 | 14 | [`14-System-Prompt-Templates.md`](./14-System-Prompt-Templates.md) | Actual system-prompt text for every prompted council role |
 | 15 | [`15-Implementation-Milestone-Roadmap.md`](./15-Implementation-Milestone-Roadmap.md) | Build order — 9 independently-testable milestones from schema skeleton to full acceptance pass |
 | 16 | [`16-Actual-Setup-Reuse-and-Integration-Map.md`](./16-Actual-Setup-Reuse-and-Integration-Map.md) | Asset-by-asset analysis of `Actual-Setup/` (the `claude-bug-bounty` toolkit copy) — what reuses, what doesn't, what was actually mined into `01`/`14` this pass vs. flagged as future work |
 | 17 | [`17-Standalone-Engine-Reuse-and-Comparison.md`](./17-Standalone-Engine-Reuse-and-Comparison.md) | Comparison against `claude-bug-bounty`'s standalone (non-Claude-Code) `agent.py`/`brain.py`/`engine.py` — **includes a safety notice on real client data that must never be copied into this project** — plus the four gaps it surfaced (`FR-COUNCIL-17b` report grounding, `FR-COUNCIL-11b` failure circuit breaker, `FR-TOOL-14` rate limiting, and one genuinely unresolved item) |
-| 18 | [`18-Requirement-to-Test-Traceability-Matrix.md`](./18-Requirement-to-Test-Traceability-Matrix.md) | Coverage report — every requirement ID in `01`-`08`/`11`/`13` checked against `09`'s test plan for a specific, citable `TP-*` match; 316 IDs total, 143 covered, 67 N/A (not testable), 106 genuinely not-yet-covered gaps listed explicitly |
+| 18 | [`18-Requirement-to-Test-Traceability-Matrix.md`](./18-Requirement-to-Test-Traceability-Matrix.md) | Coverage report — every requirement ID in `01`-`08`/`11`/`13` checked against `09`'s test plan for a specific, citable `TP-*` match; 316 IDs total as of its own writing (later closed to zero genuinely-uncovered gaps — see decision #56/`09`'s later revision; this document's own ID-by-ID rows were not re-walked afterward, so treat its per-ID verdicts as a point-in-time snapshot, not a live-updated ledger) |
+| 19 | [`19-Extended-Capability-Domains.md`](./19-Extended-Capability-Domains.md) | Formalizes 19 specialized skill domains from `Actual-Setup/skills/` (web3/smart-contract, mobile, meme-coin, GraphQL, CI/CD, credential-attack, source-code-access, and more) as explicit in-scope capability, built on a full deep-mine of each — includes the schema generalization for non-network target types and the new Human Checkpoint Gate this required |
+| 20 | [`20-Human-Checkpoint-and-Escalation-Safety-Catalog.md`](./20-Human-Checkpoint-and-Escalation-Safety-Catalog.md) | Full rationale for the four action classes that hard-stop for live operator confirmation (anti-forensics, live credential-spray, CI/CD external artifacts, dependency-confusion publish) — the *why*, at a depth `19`'s individual domain sections didn't have room for |
 
 **Read order for a new reader:** `00` → `11` (see what was challenged and why) → `10`
 (see how every challenge and every open design fork was actually resolved) → `01`-`09`
@@ -73,16 +75,19 @@ tool is used instead):
 | What to actually reuse from `Actual-Setup/`, and what's Claude-Code-only | `16` |
 | What's in `Standalone-Engine-Reference/` and why (**read the safety notice first**) | `17` |
 | Whether a requirement actually has a test behind it (coverage gaps) | `18` |
+| Web3/mobile/GraphQL/CI-CD/credential-attack/source-code-access capability domains | `19` |
+| Why four specific actions require a live human checkpoint, not just a config flag | `20` |
 | The original high-level plan (now corrected in place — see below) | `Agentic VAPT Setup (HOME).md` |
 | Existing reusable skills/tools/agents from a prior Claude-Code-based toolkit | `Actual-Setup/` (read `16` first) |
 | A standalone, non-Claude-Code hunting engine, kept for comparison only | `Standalone-Engine-Reference/` (read `17` first) |
 
-**`Agentic VAPT Setup (HOME).md` is not the authoritative spec — `01`-`17` are.** It
+**`Agentic VAPT Setup (HOME).md` is not the authoritative spec — `01`-`20` are.** It
 has been corrected in place for major issues (inline `*(...)*` notes, each pointing
-to a finding in `11`), but deliberately states corrections at a **high level only**;
-`01`-`17` carry full precision. If the two ever seem to disagree on a detail,
-`01`-`17` wins. `Actual-Setup/` and `Standalone-Engine-Reference/` are separate,
-already-functional reference material, not themselves the system being planned here.
+to a finding in `11`), but deliberately states corrections at a **high level only**
+and predates the `19`/`20` capability expansion entirely; `01`-`20` carry full
+precision. If the two ever seem to disagree on a detail, `01`-`20` wins. `Actual-Setup/`
+and `Standalone-Engine-Reference/` are separate, already-functional reference
+material, not themselves the system being planned here.
 
 ---
 
@@ -143,8 +148,9 @@ resolved here as requirements the eventual implementation must satisfy.
 **Beyond these seven structural gaps**, a separate adversarial pass over the base
 plan's technical claims — extended over several further rounds as new issues were
 found, including from an external review, from a direct comparison against related
-tooling, and from an operator-supplied model-roster revision — surfaced **30 findings
-in total** (`11-Critical-Analysis-and-Design-Challenges.md`, C-01 through C-30):
+tooling, from an operator-supplied model-roster revision, and from a follow-up
+"fetch everything useful" mining sweep — surfaced **31 findings
+in total** (`11-Critical-Analysis-and-Design-Challenges.md`, C-01 through C-31):
 memory/OOM interaction, prompt injection, CVSS scoring reliability, the Tier 2
 tool-execution safety mechanism, the inference-engine choice, process-privilege
 conflicts, an imprecisely-defined circuit-breaker metric, structured-output
@@ -164,14 +170,15 @@ this document set to it, or without further follow-up work explicitly flagged as
 **On the base document itself:** `Agentic VAPT Setup (HOME).md` was originally
 treated as an immutable historical record — every correction above was folded into
 `01`-`09` only. By explicit, later operator decision, this expanded to direct
-in-place correction: **18 of the 30 findings** (C-01, C-03, C-07, C-08, C-09, C-11,
+in-place correction: **18 of the 31 findings** (C-01, C-03, C-07, C-08, C-09, C-11,
 C-12, C-13, C-14, C-15, C-16, C-17, C-18, C-19, C-20, C-21, C-25, C-30 — plus the
 previously-unbounded task-queue loop) are now corrected directly in that file, each
-marked inline with a pointer back to `11`. The remaining 12 findings' fixes live only
+marked inline with a pointer back to `11`. The remaining 13 findings' fixes live only
 in `01`-`17` — **C-02, C-04, C-05, C-06, C-10** were never offered/selected for
-base-file mirroring; **C-22, C-23, C-24, C-26, C-27, C-28, C-29** are purely additive
-new mechanisms with no existing base-file claim to correct (the same precedent that
-keeps the whole `FR-CTRL` operator control surface out of the base file too).
+base-file mirroring; **C-22, C-23, C-24, C-26, C-27, C-28, C-29, C-31** are purely
+additive new mechanisms with no existing base-file claim to correct (the same
+precedent that keeps the whole `FR-CTRL` operator control surface out of the base
+file too).
 **Standing policy (decision #42):** wherever the base file is corrected, it states
 the correction at a high level only — no Python/SQL/flag-level specifics — while
 `01`-`17` carry the precise mechanism. See decisions #39, #40, #42, #49, #50, and #51

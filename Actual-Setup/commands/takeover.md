@@ -36,5 +36,5 @@ Before submitting:
 
 ## Output
 
-`findings/takeover/<timestamp>/` with raw scanner JSON / text plus a
+`recon/takeover/<timestamp>/` with raw scanner JSON / text plus a
 `fingerprint_grep.txt` summary of suspicious responses.

@@ -33,7 +33,7 @@ done
 
 [ -z "$URL" ] && [ -z "$LIST" ] && { err "url or -l <file> required"; exit 2; }
 
-OUT_DIR="${BYPASS_OUT_DIR:-$(pwd)/findings/bypass/$(date +%Y%m%d_%H%M%S)}"
+OUT_DIR="${BYPASS_OUT_DIR:-$(pwd)/recon/bypass/$(date +%Y%m%d_%H%M%S)}"
 mkdir -p "$OUT_DIR"
 
 # shellcheck source=banner.sh

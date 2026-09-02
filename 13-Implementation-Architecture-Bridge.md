@@ -30,6 +30,8 @@ socket/RPC protocol.
 | `pause` | **Cooperative.** Writes `engagements.control_intent = 'PAUSE_REQUESTED'` (IAB-SCHEMA-01), then sends `SIGUSR1` to `orchestrator_pid` purely to prompt an immediate check rather than waiting for the loop's natural per-task polling cadence. The orchestrator's `SIGUSR1` handler does nothing but set an in-memory flag — the actual pause logic runs at the next safe checkpoint (between tasks, never mid-subprocess, per FR-CTRL-02). On pausing, the orchestrator persists all in-flight state, sets `engagements.status = 'PAUSED'`, and **exits the process** — a paused engagement holds no process, consistent with this design's whole memory-efficiency philosophy (no point in a process idling for hours). |
 | `resume` | Since "paused" means no process is running, `resume` **launches a fresh orchestrator process** (same entry point as `start`), which detects `status = 'PAUSED'`, applies any updated opt-in flags (FR-TOOL-06c), records its own new PID, and continues the Phase 4.2 loop from the last committed task-queue state — this falls out naturally since all task-queue state already lives in SQLite. |
 | `abort` | **Not cooperative — a direct external kill, not a request.** Given the 20-second kill-switch budget (NFR-REL-04) and the possibility that the orchestrator itself is hung (e.g., blocked in a subprocess call or a stuck inference call), `abort` cannot rely on the orchestrator noticing a signal in time. Instead `abort` itself: (1) sets `engagements.status = 'ABORTED'` and `control_intent = 'ABORT'` immediately (atomic, per SEC-KILL-03); (2) queries `tool_execution_logs WHERE end_ts IS NULL` for any currently-running subprocess `pid` (IAB-SCHEMA-02) and sends `SIGTERM` to its **entire process group** (`os.killpg(os.getpgid(pid), signal.SIGTERM)`, not just the recorded PID — every subprocess is spawned with `start_new_session=True` per FR-TOOL-04a specifically so this is possible; resolves finding C-19); (3) sends `SIGTERM` to `orchestrator_pid`; (4) waits a bounded grace period; (5) sends `SIGKILL` (same process-group targeting) to anything still alive (SEC-KILL-02); (6) since the orchestrator process may now be gone, `abort` itself invokes the Phase 5 restoration routine directly (reading `suspended_processes`, IAB-SCHEMA-03, and calling the freezer helper's thaw operation) — `abort` is responsible for satisfying OPS-LIFECYCLE-03's "abort still restores apps" guarantee, not a now-dead orchestrator process. |
+| `approve-checkpoint` / `deny-checkpoint` | **Cooperative, same shape as `resume`.** Reaching a checkpoint action class (`FR-CHECKPOINT-03`) makes the orchestrator persist the `checkpoint_events` row, set `engagements.status = 'PAUSED_AWAITING_CHECKPOINT'`, and **exit the process** — same "no process idles waiting" philosophy as `pause`. `approve-checkpoint <id>` marks that row `APPROVED` and launches a fresh orchestrator (same entry point as `resume`), which detects `PAUSED_AWAITING_CHECKPOINT`, executes exactly the one approved task, and continues the Phase 4.2 loop. `deny-checkpoint <id>` marks the row `DENIED`, marks that task `BLOCKED_BY_OPERATOR`, and launches a fresh orchestrator that skips it and continues. |
+| `monitor` | **Not part of the `start`/`pause`/`resume`/`abort` engagement lifecycle at all** (`FR-MONITOR-01..04`). A short-lived, deterministic, model-free process: reads an existing `engagement_id`'s registered targets, runs the fixed recon subset, diffs against `monitoring_baseline` (`DR-SCHEMA-17`), writes any diff to `discovered_entities`, and exits — no orchestrator PID, no hibernation, no engagement-lock interaction (`FR-MONITOR-04`). Intended to be invoked by an external cron/systemd-timer entry the operator configures directly; this system never schedules its own recurrence. |
 
 ### Signal assignments
 
@@ -199,14 +201,29 @@ convention, trivially renamed; not a deep decision). Command group maps directly
 
 ```
 vaptctl start   --targets <list> --scope-rules scope.yaml [--config vapt_agent.config.yaml] \
-                 [--allow-brute-force] [--allow-active-exploitation] [--allow-lateral-movement]
+                 [--mode assess|monitor] \
+                 [--allow-brute-force] [--allow-active-exploitation] [--allow-lateral-movement] \
+                 [--allow-anti-forensics --white-cell-contact <text> --attest-disclosure] \
+                 [--allow-live-credential-spray] [--allow-cicd-external-artifact] \
+                 [--allow-dependency-confusion-publish]
 vaptctl pause    [--engagement-id <id>]
 vaptctl resume   [--engagement-id <id>] [--allow-brute-force] [--allow-active-exploitation] [--allow-lateral-movement]
 vaptctl abort    [--engagement-id <id>]
 vaptctl status   [--engagement-id <id>] [--json]
 vaptctl export   --engagement-id <id> --out <path>
 vaptctl approve-report --report-id <id>
+vaptctl approve-checkpoint --checkpoint-id <id>
+vaptctl deny-checkpoint    --checkpoint-id <id>
+vaptctl monitor  --engagement-id <id>
 ```
+
+The four new `--allow-*` flags on `start` (`FR-CHECKPOINT-02`) are deliberately
+separate from the three existing high-risk categories (`--allow-brute-force`, etc.)
+— they gate the ability to *propose* a checkpoint-class task at all, not the
+checkpoint pause itself (`FR-CHECKPOINT-03`'s live approval is a separate, later
+step regardless of these flags). `--allow-anti-forensics` additionally requires both
+`--white-cell-contact` and `--attest-disclosure` in the same invocation
+(`FR-CHECKPOINT-05`) — `start` MUST reject the flag combination otherwise.
 
 ---
 
@@ -216,6 +233,9 @@ vaptctl approve-report --report-id <id>
 vapt_agent/
 ├── cli/                        # Click commands — one module per IR-CTRL action
 │   ├── start.py  pause.py  resume.py  abort.py  status.py  export.py  approve_report.py
+│   ├── approve_checkpoint.py   # FR-CHECKPOINT-04
+│   ├── deny_checkpoint.py      # FR-CHECKPOINT-04
+│   └── monitor.py              # FR-MONITOR-01..04, deliberately outside the engagement lifecycle
 ├── orchestrator/
 │   ├── preflight.py            # FR-PRE (incl. FR-PRE-08 GPU benchmark)
 │   ├── hibernation.py          # FR-ENV, calls freezer_helper client
@@ -239,11 +259,19 @@ vapt_agent/
 │   └── timeouts.py             # IR-TOOL-03 tiered timeout classes
 ├── security/
 │   ├── kill_switch.py          # abort's direct-kill implementation (SEC-KILL)
-│   └── audit.py                # SEC-AUDIT export packaging
+│   ├── audit.py                # SEC-AUDIT export packaging
+│   └── checkpoint_gate.py      # FR-CHECKPOINT-01..05 classifier + pause/approve/deny logic
+├── monitor/
+│   └── monitor_engine.py       # FR-MONITOR-01..04, invoked by cli/monitor.py; deterministic, no model load
+├── domains/                    # 19-Extended-Capability-Domains.md — one module per new target type's scope-check + tool integration
+│   ├── contract_scope.py       # EXACT_IDENTIFIER matching for CONTRACT targets (DR-SCHEMA-15/16), web3/meme-coin
+│   ├── mobile_scope.py         # MOBILE_BINARY target handling, backend_target_id linkage
+│   ├── repo_scope.py           # CODE_REPO target handling, PATH_GLOB matching (diff-review/whitebox-code-recon/CI-CD)
+│   └── graphql_bridge.py       # GraphQL-specific Tier 2 tool integration (graphw00f/clairvoyance/graphql-cop/gqlmap)
 ├── freezer_helper/
 │   └── vapt_freezer_helper.py  # separately packaged/installed privileged CLI (FR-ENV-13)
 ├── data/
-│   ├── schema.sql               # DR-SCHEMA-01..14 + IAB-SCHEMA-01..04 DDL, WAL mode pragma
+│   ├── schema.sql               # DR-SCHEMA-01..18 + IAB-SCHEMA-01..04 DDL, WAL mode pragma
 │   ├── db.py
 │   └── models.py
 ├── config/

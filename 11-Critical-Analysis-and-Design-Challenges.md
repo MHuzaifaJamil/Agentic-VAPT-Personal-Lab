@@ -721,6 +721,31 @@ too tight in practice, dropping the two largest models (Operator, Reporter) to `
 with how `AC-ASSUME-06` and the rest of `TP-FEASIBILITY` already defer hardware-dependent
 particulars rather than guessing them here.
 
+### C-31. FR-TOOL-13's heuristic injection detector had no named patterns for current LLM/MCP-specific attack techniques — Severity: **Medium**
+
+A follow-up mining sweep of `/home/vscysteam/claude-bug-bounty` (prompted by the
+operator's "fetch everything useful" instruction) read `skills/web2-vuln-classes/
+SKILL.md` §11 ("LLM/AI Features → MCP & RAG-Specific Attacks") in full. It documents
+current, named techniques distinct from the plain-English injection phrasing
+`FR-TOOL-13` already checked for: MCP tool-description "line jumping" (an
+instruction hidden in a tool's own description/metadata, not its output), invisible
+Unicode Tag-block ASCII-smuggling, indirect RAG-document injection, and
+system-prompt extraction via role/scenario escape. This system is itself an LLM-based
+agent processing untrusted tool/target output through the same category of pipeline
+these techniques target — a genuine, previously-undocumented gap in what the
+heuristic detector was specified to look for, not a hypothetical concern.
+
+**Resolution (operator decision, mined from external evidence, not fabricated):**
+`FR-TOOL-13` revised to explicitly name Unicode Tag-block smuggling, MCP
+tool-description line-jumping, and split/obfuscated-instruction patterns alongside
+the existing plain-English phrasing list. This remains detection-only and SHOULD-level
+— it does not change the actual safety boundary, which is still `IR-SANITIZE-02/03`'s
+instruction-hierarchy clause (content-agnostic: it doesn't matter whether the model
+*noticed* an injection attempt, only whether it *acted* on one). The remaining 31
+vulnerability classes in the same source file were not individually read/verified
+against this system's own defenses — flagged as a real limitation of this pass, not
+claimed as complete coverage.
+
 ## Summary Table
 
 | ID | Area | Severity |
@@ -755,6 +780,7 @@ particulars rather than guessing them here.
 | C-28 | No rate limiting anywhere in the design | Medium |
 | C-29 | Context-window management over a long task-queue loop | Medium (genuinely unresolved) |
 | C-30 | Uniform Q8_0 quantization across the 6-model roster sharply tightens RAM headroom | Medium (accepted trade-off) |
+| C-31 | FR-TOOL-13's heuristic injection detector had no named patterns for current LLM/MCP attack techniques | Medium |
 
 **Every finding above has been resolved and folded into `01`-`17` as confirmed
 requirements, except C-29** (context-window management), which remains genuinely
@@ -765,4 +791,5 @@ history and had gone stale as resolutions were added — corrected here during t
 audit pass that also added the missing per-finding Resolution paragraphs for
 C-01/C-02/C-04/C-05/C-07/C-08/C-09/C-10 and the C-26–C-29 rows above. C-03's own
 resolution was itself later revised (not just C-29 being new) — see its "Update"
-paragraph above, following the operator-supplied 6-model roster revision.
+paragraph above, following the operator-supplied 6-model roster revision. C-31 was
+added in a still-later follow-up mining sweep of `claude-bug-bounty`.

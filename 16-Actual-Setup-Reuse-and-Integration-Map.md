@@ -164,24 +164,64 @@ bounty program would pay for it. What **does** transfer directly:
 
 These three have been folded into `FR-COUNCIL-14` (revised) and the Gate 3
 Adjudicator prompt in `14-System-Prompt-Templates.md` §4 — see those files for the
-actual applied text. This is the one methodology-mining item actually implemented in
-this pass; everything below is identified but not yet drafted.
+actual applied text.
 
-### 4b. Identified as high-value, not yet mined (recommend as follow-up work)
+### 4a-continued. Mined in a later follow-up sweep (fully read, not skimmed)
 
-| Skill | Target | Why (from its own `CLAUDE.md` description, not yet fully read) |
-|---|---|---|
-| `skills/web2-vuln-classes/SKILL.md` | Strategist prompt (`14` §1) | 32 documented bug classes with root causes, bypass tables, and bug-specific checklists (SSRF's 11 IP-bypass techniques, IDOR's backward-taint procedure, etc.) — would give the Strategist a far more specific hypothesis vocabulary than its current generic "propose a specific, testable hypothesis" instruction. |
-| `skills/bb-methodology/SKILL.md` | Strategist prompt (`14` §1) | Describes a 5-phase non-linear workflow + a "developer psychology / anomaly detection / what-if experiments" critical-thinking framework for deciding what to test next — directly relevant to how the Strategist should reason about attack-path ordering. |
-| `skills/report-writing/SKILL.md` | Reporter prompt (`14` §5) | Impact-first writing rules, a title formula, an impact-statement formula, a "never write 'could potentially'" rule, a reproduction-capsule convention — all directly applicable to strengthening the Reporter's narrative-drafting instructions. |
-| `skills/security-arsenal/SKILL.md` | Operator prompt (`14` §3) | Payloads/bypass tables and a "submittable vs. always-rejected" table — could inform what the Operator considers worth proposing as a follow-on task (`FR-COUNCIL-10`). |
+**`skills/bb-methodology/SKILL.md`** (457 lines, fully read) — its assumption-breaking
+checklist (trust boundary / state-timing-TOCTOU / parse-normalize ordering / boundary
+values / incidental capability / uniqueness) has been folded into the Strategist
+prompt, `14-System-Prompt-Templates.md` §1, as a concrete technique for generating
+novel hypotheses once standard scans run dry. Its escalation decision trees
+(XSS→session hijack, IDOR→PII scraping, SSRF→cloud metadata→RCE) were reviewed but
+not separately drafted in — they're closer to Operator follow-on-task judgment
+(`FR-COUNCIL-10`) than Strategist planning, and the Operator model is a strong coding
+model that already reasons about escalation paths without needing a scripted
+decision tree. Its 20-minute rotation / 45-minute rabbit-hole rule was cross-checked
+against `FR-COUNCIL-11`'s thresholds — no change needed, ours is already more precise
+(state-delta-based, not just a wall-clock timer).
 
-**Why these weren't drafted into `14` in this pass:** each of `01`'s prompts was
-written to be exact and traceable to a verified source, not "plausible-sounding."
-`4a` was implemented because the source was read in full first. `4b`'s entries were
-only skimmed via their own frontmatter description — mining them properly means
-reading each in full first, the same discipline applied to `4a`, not summarizing
-from a one-line description into a rewritten prompt.
+**`skills/report-writing/SKILL.md`** (532 lines, fully read) — its title formula,
+"never write 'could potentially'" hard rule, and human-tone avoid-list have been
+folded into the Reporter prompt, `14-System-Prompt-Templates.md` §5. Its 60-second,
+12-item pre-submit checklist and its bug-bounty-platform (H1/Bugcrowd/Intigriti/
+Immunefi) report templates were **not** adopted — the platform templates are the
+wrong deliverable shape for a client VAPT report (already governed by
+`12-Report-Formatting-Rules.md`), and the pre-submit checklist mixes bounty-specific
+items (two test accounts, a bounty-platform-style reproduction capsule) with items
+already covered elsewhere in this design (CVSS is already mandatory via
+`FR-COUNCIL-16a`; grounding is already mechanically checked via `IR-GROUND-01..03`,
+stronger than a self-checklist item). Flagged, not silently adopted as a new gate.
+
+**`skills/security-arsenal/SKILL.md`** (1,668 lines, fully read) — a payload/bypass-table
+reference (XSS, SSRF, SQLi, XXE, path traversal, IDOR, JWT/OAuth, NoSQLi, command
+injection, SSTI, HTTP smuggling, WAF bypass, WebSocket, MFA bypass, SAML). Assessed
+as **not directly transferable into any of `14`'s prompts**: the Operator is a strong
+coding-tuned model (`Qwen2.5-Coder-7B-Instruct`) that already has this class of
+payload knowledge from its own training — embedding a static payload reference into
+its system prompt would bloat context (`FR-GATE-07`'s 16k ceiling) for marginal
+benefit, and risks the prompt going stale as bypass techniques evolve faster than
+this document set. Its WAF-bypass decision tree's "5 min total, still blocked → kill"
+rule was cross-checked against `FR-COUNCIL-11`/`FR-COUNCIL-09` the same way
+`bb-methodology`'s rotation rule was — no change needed.
+
+**`skills/web2-vuln-classes/SKILL.md`** (2,447 lines — sampled by section structure,
+§11 "LLM/AI Features → MCP & RAG-Specific Attacks" read in full; the other 31 vuln
+classes were not read cover-to-cover). §11 documents current, named techniques —
+MCP tool-description "line jumping," prefix-match path-traversal sandbox escapes
+(with named CVEs), ASCII-smuggling via invisible Unicode tag characters, indirect
+RAG-document injection, and system-prompt extraction via role/scenario escape. This
+is **dual-use for this system**: as a target-vuln-class reference, but also as a
+direct threat description of attacks against *our own* council, since this system is
+itself an LLM-based agent processing untrusted tool output through `IR-SANITIZE`/
+`SEC-PROMPT`/`FR-TOOL-13`. The current heuristic-detector requirement (`FR-TOOL-13`)
+has no documented awareness of Unicode-tag-character smuggling or split/base64-encoded
+instruction evasion specifically — this is flagged as worth an operator decision on
+whether to fold these named techniques into `FR-TOOL-13`'s detection patterns, not
+silently added here. The remaining 31 vuln classes are believed to be adequately
+covered by `FR-COUNCIL-01/02`'s existing general hypothesis-generation instruction
+plus the Operator's own training-time knowledge, but were not individually verified
+class-by-class — a genuine limitation of this pass, not a claim of completeness.
 
 ---
 

@@ -262,6 +262,94 @@ actually inserted (not attempted) by a given task's parsing step is exactly its
 contributes 0 to `novel_entities_count`, correctly reflecting that the finding wasn't
 novel, even if the tool run itself succeeded and returned data.
 
+### DR-SCHEMA-15: `targets` generalized for non-network target types (revised — required by `19-Extended-Capability-Domains.md`)
+
+**Confirmed decision (full schema design, not deferred):** several extended capability
+domains (web3/smart-contract auditing, mobile app pentesting, CI/CD & source-code-access
+auditing) need a target identity that isn't a host/domain/CIDR at all. Rather than a
+parallel table per domain, `targets` (`DR-SCHEMA-02`) gains a discriminator column and
+a set of nullable, type-specific columns — a single wide table, consistent with this
+schema's existing style, not a fully normalized per-type design (revisit at
+implementation time if the column count becomes unwieldy).
+
+| Column | Type | Notes |
+|---|---|---|
+| `target_type` | TEXT NOT NULL DEFAULT `'NETWORK'` | `NETWORK` (existing host/domain/CIDR — default, fully backward compatible) / `CONTRACT` (web3/meme-coin) / `MOBILE_BINARY` (mobile-pentest) / `CODE_REPO` (CI/CD, diff-review, whitebox-code-recon) |
+| `host_or_domain` | TEXT, **now nullable** | unchanged meaning for `NETWORK` rows; NULL for the other three types |
+| `chain_id` | TEXT, nullable | `CONTRACT` only — e.g. `1` (Ethereum mainnet), `solana-mainnet`, or a local Anvil/Foundry fork identifier |
+| `contract_address` | TEXT, nullable | `CONTRACT` only |
+| `contract_abi_path` | TEXT, nullable | `CONTRACT` only — path to a verified ABI/source artifact, if supplied |
+| `contract_investigation_mode` | TEXT, nullable | `CONTRACT` only — `CLIENT_OWNED` (a client's own contract, normal VAPT engagement posture) or `PUBLIC_RESEARCH` (public-token due-diligence mode, no client relationship — see `19`'s meme-coin-audit section); both modes kept per operator decision |
+| `platform` | TEXT, nullable | `MOBILE_BINARY` only — `ANDROID` / `IOS` |
+| `package_name` | TEXT, nullable | `MOBILE_BINARY` only |
+| `binary_path` | TEXT, nullable | `MOBILE_BINARY` only — local path to the supplied APK/IPA artifact |
+| `binary_hash` | TEXT, nullable | `MOBILE_BINARY` only — SHA-256 of the supplied binary, for provenance |
+| `backend_target_id` | INTEGER FK → `targets(target_id)`, nullable | `MOBILE_BINARY` only — once the app's backend API is discovered (per the mobile-pentest methodology: "recover the backend, then test it like any web target"), it is registered as its own `NETWORK`-type row and linked here, rather than inventing a separate mobile-specific network-testing path |
+| `repo_url_or_path` | TEXT, nullable | `CODE_REPO` only |
+| `repo_ref` | TEXT, nullable | `CODE_REPO` only — branch, commit SHA, or PR number |
+| `repo_diff_scope` | TEXT, nullable | `CODE_REPO` only — set for `diff-review`'s PR/commit-scoped mode; NULL for `whitebox-code-recon`'s full-checkout mode |
+
+All existing `FR-COUNCIL-11`/`11a`/`11b` per-target counters (`task_count`,
+`consecutive_zero_yield_count`, `consecutive_failure_count`) and `status` apply
+identically regardless of `target_type` — the diminishing-returns loop bound is a
+property of "a target," not of what kind of target it is.
+
+### DR-SCHEMA-16: `scope_rules` extended with a pattern-kind discriminator (revised)
+
+The existing `pattern`/`rule_type` (allow/deny) columns don't say *how* to match
+`pattern` — for `NETWORK` targets this was always inferred (CIDR vs. domain vs.
+wildcard). Non-network target types need genuinely different matching semantics, so
+this gets an explicit discriminator rather than more inference:
+
+| Column | Type | Notes |
+|---|---|---|
+| `pattern_kind` | TEXT NOT NULL DEFAULT `'NETWORK'` | `NETWORK` (existing CIDR/domain/wildcard inference, unchanged) / `EXACT_IDENTIFIER` (literal-match allow/deny — a `chain_id:contract_address` pair, a mobile `package_name`, or a `repo_url_or_path`) / `PATH_GLOB` (glob-style path pattern, `CODE_REPO` only — marks in-scope vs. out-of-scope directories *within* an already-in-scope repo, e.g. deny `**/node_modules/**`, `**/vendor/**` — per `whitebox-code-recon`'s finding that vendored/third-party dependency code is a different authorization posture than the client's own code) |
+
+`FR-COUNCIL-03a`'s deterministic pre-check MUST branch on `pattern_kind`: CIDR/regex
+matching for `NETWORK`, exact string equality for `EXACT_IDENTIFIER`, glob matching
+for `PATH_GLOB`. This is a new code path per kind, not a generalization of the
+existing CIDR/regex matcher — treat as a distinct implementation task at Milestone
+time, not an incremental tweak to the existing checker.
+
+### DR-SCHEMA-17: `monitoring_baseline` (new — required by `19`'s continuous-monitoring capability, `FR-MONITOR-01`)
+
+Supports the scheduled/cron re-invocation mode (see `13`'s new `IAB-PROC` addendum) —
+a lightweight, non-hibernating, discovery-only re-check against a baseline, distinct
+from a full Phase 1-5 engagement run.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER PK | |
+| `target_id` | INTEGER FK → `targets` | |
+| `baseline_type` | TEXT | `SUBDOMAIN_SET` / `REPO_COMMIT_HEAD` (extensible) |
+| `baseline_value` | TEXT | e.g. a newline-joined sorted subdomain list, or a commit SHA |
+| `last_checked_at` | TEXT (ISO8601) | |
+| `last_diff_detected_at` | TEXT (ISO8601), nullable | set when a monitor run's value differs from `baseline_value`; NULL if never diffed |
+
+A monitor run that detects a diff updates `baseline_value` to the new state, logs the
+diff to `discovered_entities` (`entity_type = 'monitor_diff'`) the same way a live
+scan would, and stops there — it does **not** autonomously escalate into active
+testing of the new finding without a fresh, explicitly-started engagement (`FR-MONITOR-02`).
+
+### DR-SCHEMA-18: `checkpoint_events` (new — required by the Human Checkpoint Gate, `FR-CHECKPOINT-01..05`)
+
+The audit trail for the new hard-stop mechanism (see `01`'s `FR-CHECKPOINT` section
+and the safety-mechanism catalog in `20-Human-Checkpoint-and-Escalation-Safety-Catalog.md`).
+Distinct from `engagement_flag_history` (which logs pre-engagement config-time opt-in
+flag changes) — this logs live, in-engagement pause/approval events.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER PK | |
+| `engagement_id` | INTEGER FK → `engagements` | |
+| `task_id` | INTEGER FK → `task_queue`, nullable | the specific task that triggered the checkpoint, if applicable |
+| `action_class` | TEXT | the specific named action class that triggered the pause — `ANTI_FORENSICS` / `LIVE_CREDENTIAL_SPRAY` / `CICD_EXTERNAL_ARTIFACT` / `DEPENDENCY_CONFUSION_PUBLISH` (fixed, closed list — see `20`) |
+| `triggered_at` | TEXT (ISO8601) | |
+| `status` | TEXT | `AWAITING_APPROVAL` / `APPROVED` / `DENIED` / `EXPIRED` (an operator may choose to deny rather than approve; unlike the resource-safety timeouts elsewhere in this system, there is no auto-approve-on-timeout — silence means the engagement stays paused) |
+| `approved_at` | TEXT (ISO8601), nullable | |
+| `approved_via` | TEXT, nullable | records the specific `vaptctl` invocation that approved it (`FR-CHECKPOINT-03`) |
+| `rationale_shown_to_operator` | TEXT | the specific, human-readable reason this task was classified into `action_class`, logged verbatim so the approval decision is informed, not a blind rubber-stamp |
+
 ---
 
 ## DR-CONCURRENCY — Feasibility Check: Is SQLite Adequate?

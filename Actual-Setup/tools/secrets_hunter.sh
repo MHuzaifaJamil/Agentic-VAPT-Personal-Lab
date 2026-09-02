@@ -27,7 +27,7 @@ warn() { echo -e "${YELLOW}[!]${NC} $1"; }
 hit()  { echo -e "${MAG}[SECRET]${NC} $1"; }
 err()  { echo -e "${RED}[-]${NC} $1" >&2; }
 
-MODE=""; TARGET=""; OUT_DIR="${SECRETS_OUT_DIR:-$(pwd)/findings/secrets/$(date +%Y%m%d_%H%M%S)}"
+MODE=""; TARGET=""; OUT_DIR="${SECRETS_OUT_DIR:-$(pwd)/recon/secrets/$(date +%Y%m%d_%H%M%S)}"
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --filesystem)  MODE="fs";   shift; TARGET="${1:-}" ;;

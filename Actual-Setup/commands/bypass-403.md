@@ -33,7 +33,7 @@ built-in fallback runs the same set with `curl`.
 
 The script auto-detects WAF vendor from response headers and cookies, then applies vendor-specific tricks automatically. Uses `wafw00f` when installed; falls back to header/cookie signature match.
 
-Fingerprint saved to `findings/bypass/<ts>/waf_fingerprint.txt`.
+Fingerprint saved to `recon/bypass/<ts>/waf_fingerprint.txt`.
 
 ## Payload Encoding (separate tool)
 
@@ -80,7 +80,7 @@ startup to learn what blocked responses look like for this target.
 Previously these were incorrectly discarded as failures.
 
 **WAF Log IDs:** When a block page contains a Log/Support/Incident ID, the tool extracts it
-and logs it to `findings/bypass/<ts>/waf_fingerprint.txt`. Include these IDs in bug reports —
+and logs it to `recon/bypass/<ts>/waf_fingerprint.txt`. Include these IDs in bug reports —
 triage can look up the exact WAF rule that fired.
 
 For more sophisticated analysis (baseline calibration + weighted score engine + log ID extraction):
@@ -100,7 +100,7 @@ tools/waf_response_analyzer.py --classify --status 200 --body /tmp/resp.html \
 
 ## Output
 
-`findings/bypass/<timestamp>/`:
+`recon/bypass/<timestamp>/`:
 - `byp4xx.txt` — full upstream-tool output, OR
 - `bypass_hits.txt` — `method|url|header|status|bodylen|verdict_json` lines for bypassed probes
 - `bypass_uncertain.txt` — probes that need manual review (ambiguous response)

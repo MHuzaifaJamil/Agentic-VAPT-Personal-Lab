@@ -39,18 +39,27 @@ orientation; `00` is the authoritative one.
 | What to actually reuse from `Actual-Setup/`, and what's Claude-Code-only | `16-Actual-Setup-Reuse-and-Integration-Map.md` |
 | What's in `Standalone-Engine-Reference/` and why (**read the safety notice first**) | `17-Standalone-Engine-Reuse-and-Comparison.md` |
 | Whether a requirement actually has a test behind it (coverage gaps) | `18-Requirement-to-Test-Traceability-Matrix.md` |
+| Web3/mobile/GraphQL/CI-CD/credential-attack/source-code-access capability domains | `19-Extended-Capability-Domains.md` |
+| Why certain actions (anti-forensics, live credential-spray, etc.) require a live human checkpoint, not just a config flag | `20-Human-Checkpoint-and-Escalation-Safety-Catalog.md` |
 | The original high-level plan (now corrected in place — see below) | `Agentic VAPT Setup (HOME).md` |
 | Existing reusable skills/tools/agents from a prior Claude-Code-based toolkit | `Actual-Setup/` (read `16` first — most of it is NOT directly reusable) |
 | A standalone, non-Claude-Code hunting engine, kept for comparison only | `Standalone-Engine-Reference/` (read `17` first — its multi-cloud-provider and Ollama-first design conflicts with decisions already made here; mine techniques, don't import code) |
 
 ## Things that would otherwise be easy to get wrong
 
-- **`Agentic VAPT Setup (HOME).md` is not the authoritative spec — `01`-`17` are.**
+- **`Agentic VAPT Setup (HOME).md` is not the authoritative spec — `01`-`20` are.**
   The base file has been corrected in place for major issues (see its inline
   `*(...)*` notes, each pointing to a specific finding in `11`), but it deliberately
-  states corrections at a **high level only** (no code-level specifics) while
-  `01`-`17` carry full precision. If the two ever seem to disagree on a detail,
-  `01`-`17` wins.
+  states corrections at a **high level only** (no code-level specifics) and predates
+  the `19`/`20` extended-capability-domain expansion entirely. `01`-`20` carry full
+  precision. If the two ever seem to disagree on a detail, `01`-`20` wins.
+- **This system is fully autonomous with no pause — except four specific action
+  classes.** Anti-forensics, live credential-spray execution, CI/CD actions that
+  create a real external artifact (opening a PR, etc.), and dependency-confusion
+  package-publish all hard-stop for a live human `approve-checkpoint`/`deny-checkpoint`
+  (`01`'s `FR-CHECKPOINT-01..05`) — this is a deliberate, narrow exception to the
+  no-pause design (decision #13), not an oversight to "fix" by removing it. See `20`
+  for the full rationale on each.
 - **Nothing has been installed or downloaded.** Model `.gguf` files, Python
   dependencies, and the `kali-linux-everything` toolset are all prerequisites this
   planning phase deliberately left untouched — see `08` and `10`'s Open Questions

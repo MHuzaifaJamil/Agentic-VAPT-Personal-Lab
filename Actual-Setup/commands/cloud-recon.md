@@ -37,7 +37,7 @@ typical origin-IP leak symptom.
 
 ## Output
 
-`findings/cloud/<timestamp>/` with:
+`recon/cloud/<timestamp>/` with:
 - `s3scanner.txt` — buckets that exist + their permission bits
 - `cloud_enum.txt` — multi-cloud OSINT hits
 - `cloudfail.txt` or `non_cf_ips.txt` — origin-IP candidates

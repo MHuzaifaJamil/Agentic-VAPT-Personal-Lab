@@ -39,7 +39,7 @@ done
 
 [ -z "$KEYWORD" ] && [ -z "$CF_TARGET" ] && { err "--keyword or --cf-bypass required"; exit 2; }
 
-OUT_DIR="${CLOUD_OUT_DIR:-$(pwd)/findings/cloud/$(date +%Y%m%d_%H%M%S)}"
+OUT_DIR="${CLOUD_OUT_DIR:-$(pwd)/recon/cloud/$(date +%Y%m%d_%H%M%S)}"
 mkdir -p "$OUT_DIR"
 
 # shellcheck source=banner.sh

@@ -184,5 +184,41 @@ failure-based-circuit-breaker and rate-limiting tests) — never real infrastruc
 (`08-Assumptions-Constraints-Dependencies.md` AC-ASSUME-06; exact composition is an
 implementation-time detail, not fixed by this planning phase). Anything that fails
 here is a bug in the build, not a gap in the requirements —
-by this point every requirement in `01`-`17` should already be traceable to code
-written in a specific earlier milestone.
+by this point every requirement in `01`-`18` (the core system) should already be
+traceable to code written in a specific earlier milestone.
+
+## Milestone 9 — Extended Capability Domains (`19-Extended-Capability-Domains.md`)
+
+Deliberately sequenced **after** the core system is proven end-to-end, not
+alongside it — every domain here builds on the core council/bridge/gate
+architecture rather than replacing any part of it. Suggested internal order,
+easiest/most-isolated first:
+1. **Schema generalization first** (`DR-SCHEMA-15/16`) — the `target_type`/
+   `pattern_kind` discriminators everything else in this milestone depends on.
+2. **The Human Checkpoint Gate** (`FR-CHECKPOINT-01..05`, `checkpoint_gate.py`) —
+   build and test this in isolation (a synthetic checkpoint-class task is enough)
+   before any domain that needs it.
+3. **`FR-GRAPHQL`/`FR-ARGUS`** — fit the existing `NETWORK` schema unmodified, no
+   new target type, lowest integration risk.
+4. **`FR-CODEACCESS`** (`diff-review`/`whitebox-code-recon`) — needs the new
+   `PATH_GLOB` scope-check but not the checkpoint gate; the most architecturally
+   awkward fit (`FR-CODEACCESS-03`), budget real design time here, not a quick port.
+5. **`FR-WEB3`** — needs the `CONTRACT` target type and the new Foundry/RPC
+   dependency, but not the checkpoint gate (mainnet-fork PoCs are non-destructive).
+6. **`FR-MOBILE`** — needs the `MOBILE_BINARY` target type; confirm the physical-device
+   default (`FR-MOBILE-06`) against actual measured headroom before assuming an
+   emulator is off the table.
+7. **`FR-CICD`/`FR-CRED`/anti-forensics** — needs both the checkpoint gate (step 2)
+   and, for anti-forensics specifically, the `FR-CHECKPOINT-05` attestation fields;
+   build last, since these carry the highest stakes if the checkpoint gate itself
+   has a bug.
+8. **`FR-MONITOR`** — independent of everything else in this milestone; can be
+   built any time after step 1.
+
+Acceptance for this milestone is `TP-CHECKPOINT`/`TP-MONITOR` (`09`) plus each
+domain's own rows, run against the same test lab as Milestone 8 where a domain's
+target type allows it — `FR-WEB3`/`FR-MOBILE`/`FR-CICD`/`FR-CODEACCESS` need their
+own disposable equivalents (a local Anvil fork with a deliberately-vulnerable test
+contract, a deliberately-vulnerable test APK, a throwaway Git repo/CI config, a
+deliberately-vulnerable local checkout) — not fixed by this planning phase, same
+spirit as `AC-ASSUME-06`.

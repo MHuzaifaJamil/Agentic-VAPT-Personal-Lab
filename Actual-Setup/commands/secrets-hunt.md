@@ -46,7 +46,7 @@ When a hit comes back, verify the key works the right way before submitting:
 
 ## Output
 
-`findings/secrets/<timestamp>/` containing:
+`recon/secrets/<timestamp>/` containing:
 - `trufflehog.jsonl` — verified hits (high-confidence)
 - `noseyparker.jsonl` — match groups across the history
 - `gitleaks.json` — opinionated default-rule hits
