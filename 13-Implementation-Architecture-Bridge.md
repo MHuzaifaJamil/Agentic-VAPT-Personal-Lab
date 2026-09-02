@@ -215,6 +215,7 @@ vaptctl approve-report --report-id <id>
 vaptctl approve-checkpoint --checkpoint-id <id>
 vaptctl deny-checkpoint    --checkpoint-id <id>
 vaptctl monitor  --engagement-id <id>
+vaptctl dashboard [--rate 1.0] [--db <path>]
 ```
 
 The four new `--allow-*` flags on `start` (`FR-CHECKPOINT-02`) are deliberately
@@ -235,7 +236,8 @@ vapt_agent/
 │   ├── start.py  pause.py  resume.py  abort.py  status.py  export.py  approve_report.py
 │   ├── approve_checkpoint.py   # FR-CHECKPOINT-04
 │   ├── deny_checkpoint.py      # FR-CHECKPOINT-04
-│   └── monitor.py              # FR-MONITOR-01..04, deliberately outside the engagement lifecycle
+│   ├── monitor.py              # FR-MONITOR-01..04, deliberately outside the engagement lifecycle
+│   └── dashboard.py            # 22-VAPT-Monitoring-Dashboard-Specification.md — read-only, independent of the orchestrator lifecycle
 ├── orchestrator/
 │   ├── preflight.py            # FR-PRE (incl. FR-PRE-08 GPU benchmark)
 │   ├── hibernation.py          # FR-ENV, calls freezer_helper client

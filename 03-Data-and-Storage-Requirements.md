@@ -146,18 +146,19 @@ technical in/out-of-scope pattern data the scope-boundary check operates against
 | `evidence_artifact_ids` | TEXT (JSON array) | FKs into `artifacts_index` |
 | `discovered_at` / `confirmed_at` | TEXT (ISO8601) | |
 
-### DR-SCHEMA-08: `model_invocation_logs`
+### DR-SCHEMA-08: `model_invocation_logs` (revised — `turn_number` added, `role` enum corrected)
 
 | Column | Type | Notes |
 |---|---|---|
 | `invocation_id` | INTEGER PK | |
 | `engagement_id` | INTEGER FK → `engagements` | |
 | `model_name` | TEXT | |
-| `role` | TEXT | Strategist / Operator / Gatekeeper / Linter / Adjudicator |
+| `role` | TEXT | **(Corrected — was missing `Reporter` entirely, a stale gap from before decision #55 split Reporter into its own model)** `Strategist` / `Operator` / `Gatekeeper` / `Linter` / `Adjudicator` / `Reporter` |
 | `phase` / `step_id` | TEXT | e.g. `4.1`, `4.2`, `4.3` |
+| `turn_number` | INTEGER DEFAULT 0 | **(New — required by `22-VAPT-Monitoring-Dashboard-Specification.md`)** Monotonically increasing per `(engagement_id, role)`, assigned as `COALESCE(MAX(turn_number), 0) + 1` immediately before each invocation. Indexed: `CREATE INDEX idx_invocations_turn ON model_invocation_logs(engagement_id, role, turn_number);` |
 | `prompt_tokens` / `completion_tokens` | INTEGER | |
 | `latency_ms` | INTEGER | |
-| `started_at` / `ended_at` | TEXT (ISO8601) | |
+| `started_at` / `ended_at` | TEXT (ISO8601), **`ended_at` now load-bearing for live state** | **(Revised)** An unfinalized row (`ended_at IS NULL`, `started_at` set) is written at the *start* of an invocation, before generation begins — this is what lets a read-only observer (the dashboard) distinguish "currently generating" from "already finished" without any new table. The row is updated in place (`ended_at`, `prompt_tokens`, `completion_tokens`, `latency_ms`) once the invocation completes. |
 | `status` | TEXT | `OK` / `TIMEOUT` / `CRASHED` / `CONTEXT_TRUNCATED` |
 
 ### DR-SCHEMA-09: `engagement_phase_log`

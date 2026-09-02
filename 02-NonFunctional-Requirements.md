@@ -26,7 +26,7 @@ illustrative figures.
 | NFR-RES-03 | The system MUST NOT write working data to `tmpfs` (`/tmp`, 7.7 GB max) as a matter of policy, regardless of available capacity, per the storage-safety constraint in base §1.2. |
 | NFR-RES-04 | The system MUST monitor NVMe root partition usage and MUST warn the operator at **85%** utilization and hard-block new artifact writes at **95%** utilization of the 185 GB root volume. **[CONFIRMED]** |
 | NFR-RES-05 | The system MUST pin LLM inference threads to the 4 P-Cores (8 threads) and MUST NOT consume more than **4** of the 8 E-core-scheduled threads for concurrent tool subprocesses, to preserve responsiveness of the linter/orchestrator loop and leave headroom for OS/network/JSON parsing. **[CONFIRMED]** |
-| NFR-RES-06 | Swap utilization used for application hibernation MUST NOT be allowed to grow unbounded; the system MUST track cumulative bytes paged to `/dev/nvme0n1p8` and `/swapfile` per session and flag abnormal growth (see NFR-REL-05 on SSD wear). |
+| NFR-RES-06 | Swap utilization used for application hibernation MUST NOT be allowed to grow unbounded; the system MUST track cumulative bytes paged to `/dev/nvme0n1p8` and `/swapfile` per session and flag abnormal growth (see NFR-REL-05 on SSD wear). **[CONFIRMED — resolves the "no numeric threshold" gap `09`'s `TP-RESOURCE` note flagged]** "Abnormal growth" MUST be defined as a swap-in-use figure exceeding **2 GiB** within a single session — this is the confirmed threshold surfaced and adopted during `22-VAPT-Monitoring-Dashboard-Specification.md`'s design pass, not a pre-existing value this document set had already settled. |
 
 ## NFR-PERF — Performance & Latency
 
