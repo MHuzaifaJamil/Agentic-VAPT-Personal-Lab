@@ -43,6 +43,7 @@ performed as part of producing this documentation set.
 | 18 | [`18-Requirement-to-Test-Traceability-Matrix.md`](./18-Requirement-to-Test-Traceability-Matrix.md) | Coverage report — every requirement ID in `01`-`08`/`11`/`13` checked against `09`'s test plan for a specific, citable `TP-*` match; 316 IDs total as of its own writing (later closed to zero genuinely-uncovered gaps — see decision #56/`09`'s later revision; this document's own ID-by-ID rows were not re-walked afterward, so treat its per-ID verdicts as a point-in-time snapshot, not a live-updated ledger) |
 | 19 | [`19-Extended-Capability-Domains.md`](./19-Extended-Capability-Domains.md) | Formalizes 19 specialized skill domains from `Actual-Setup/skills/` (web3/smart-contract, mobile, meme-coin, GraphQL, CI/CD, credential-attack, source-code-access, and more) as explicit in-scope capability, built on a full deep-mine of each — includes the schema generalization for non-network target types and the new Human Checkpoint Gate this required |
 | 20 | [`20-Human-Checkpoint-and-Escalation-Safety-Catalog.md`](./20-Human-Checkpoint-and-Escalation-Safety-Catalog.md) | Full rationale for the four action classes that hard-stop for live operator confirmation (anti-forensics, live credential-spray, CI/CD external artifacts, dependency-confusion publish) — the *why*, at a depth `19`'s individual domain sections didn't have room for |
+| 21 | [`21-Safety-Ethics-and-Misuse-Prevention-Control-Inventory.md`](./21-Safety-Ethics-and-Misuse-Prevention-Control-Inventory.md) | The complete catalog of every control that keeps this system acting as an authorized ethical-hacking tool rather than an uncontrolled offensive agent — location, purpose, and impact for each, across `01`-`21` |
 
 **Read order for a new reader:** `00` → `11` (see what was challenged and why) → `10`
 (see how every challenge and every open design fork was actually resolved) → `01`-`09`
@@ -81,11 +82,11 @@ tool is used instead):
 | Existing reusable skills/tools/agents from a prior Claude-Code-based toolkit | `Actual-Setup/` (read `16` first) |
 | A standalone, non-Claude-Code hunting engine, kept for comparison only | `Standalone-Engine-Reference/` (read `17` first) |
 
-**`Agentic VAPT Setup (HOME).md` is not the authoritative spec — `01`-`20` are.** It
+**`Agentic VAPT Setup (HOME).md` is not the authoritative spec — `01`-`21` are.** It
 has been corrected in place for major issues (inline `*(...)*` notes, each pointing
 to a finding in `11`), but deliberately states corrections at a **high level only**
-and predates the `19`/`20` capability expansion entirely; `01`-`20` carry full
-precision. If the two ever seem to disagree on a detail, `01`-`20` wins. `Actual-Setup/`
+and predates the `19`/`20` capability expansion entirely; `01`-`21` carry full
+precision. If the two ever seem to disagree on a detail, `01`-`21` wins. `Actual-Setup/`
 and `Standalone-Engine-Reference/` are separate, already-functional reference
 material, not themselves the system being planned here.
 

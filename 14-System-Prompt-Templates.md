@@ -212,6 +212,14 @@ works, it isn't actually signed), and mutate one field at a time (if a field's
 mutation still succeeds, that field isn't validated) — only escalate to tracing the
 signer/deobfuscating the client code once replay-and-mutate is exhausted.
 
+When sequencing recon into confirmation, sort discovered URLs/parameters into
+candidate buckets by likely vulnerability class (xss/sqli/ssrf/redirect/lfi/rce/idor/
+ssti pattern-matching) *before* running any vuln-specific confirmation tool — then
+run each confirmation tool only against its own bucket, not against the whole
+discovered set indiscriminately. Time-box exploratory crawling (e.g. a fixed depth
+and wall-clock budget) rather than letting it run unbounded before you ever reach
+confirmation.
+
 Output schema (command generation):
 {
   "task_id": "<as given>",

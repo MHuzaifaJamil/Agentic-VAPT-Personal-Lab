@@ -41,18 +41,19 @@ orientation; `00` is the authoritative one.
 | Whether a requirement actually has a test behind it (coverage gaps) | `18-Requirement-to-Test-Traceability-Matrix.md` |
 | Web3/mobile/GraphQL/CI-CD/credential-attack/source-code-access capability domains | `19-Extended-Capability-Domains.md` |
 | Why certain actions (anti-forensics, live credential-spray, etc.) require a live human checkpoint, not just a config flag | `20-Human-Checkpoint-and-Escalation-Safety-Catalog.md` |
+| The complete inventory of every misuse-prevention/ethics control (location, purpose, impact) | `21-Safety-Ethics-and-Misuse-Prevention-Control-Inventory.md` |
 | The original high-level plan (now corrected in place — see below) | `Agentic VAPT Setup (HOME).md` |
 | Existing reusable skills/tools/agents from a prior Claude-Code-based toolkit | `Actual-Setup/` (read `16` first — most of it is NOT directly reusable) |
 | A standalone, non-Claude-Code hunting engine, kept for comparison only | `Standalone-Engine-Reference/` (read `17` first — its multi-cloud-provider and Ollama-first design conflicts with decisions already made here; mine techniques, don't import code) |
 
 ## Things that would otherwise be easy to get wrong
 
-- **`Agentic VAPT Setup (HOME).md` is not the authoritative spec — `01`-`20` are.**
+- **`Agentic VAPT Setup (HOME).md` is not the authoritative spec — `01`-`21` are.**
   The base file has been corrected in place for major issues (see its inline
   `*(...)*` notes, each pointing to a specific finding in `11`), but it deliberately
   states corrections at a **high level only** (no code-level specifics) and predates
-  the `19`/`20` extended-capability-domain expansion entirely. `01`-`20` carry full
-  precision. If the two ever seem to disagree on a detail, `01`-`20` wins.
+  the `19`/`20` extended-capability-domain expansion entirely. `01`-`21` carry full
+  precision. If the two ever seem to disagree on a detail, `01`-`21` wins.
 - **This system is fully autonomous with no pause — except four specific action
   classes.** Anti-forensics, live credential-spray execution, CI/CD actions that
   create a real external artifact (opening a PR, etc.), and dependency-confusion

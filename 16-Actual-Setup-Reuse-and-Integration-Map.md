@@ -79,7 +79,7 @@ logic, don't import the package."
 | `jwt_scanner.py` | New Tier 1 tool (JWT attack testing) | Not currently in our Tier 1 list (`nmap`/`masscan`/`nuclei`/`ffuf`/`feroxbuster`/`gobuster`/`sqlmap`/`nikto`/`whatweb`/`wafw00f`/`testssl`). Candidate addition if JWT-based auth testing is in scope for a given engagement. |
 | `port_scanner.py` | Overlaps `nmap`/`masscan` (already Tier 1) | Likely redundant with existing Tier 1 tools — evaluate whether it adds non-HTTP service-specific value (per its `CLAUDE.md` description: SSH/DB/Redis/Docker-API/RDP discovery) before adding as a separate tool. |
 | `dom_xss_harness.py`, `oob_listener.py` | New Tier 1 tools (headless-browser DOM XSS confirmation, OAST/blind-vuln confirmation) | Both describe capabilities (headless browser rendering, out-of-band callback listening) our current Tier 1 list has no equivalent for at all — genuinely additive, not overlapping. |
-| `sast_scan.py` | Out of scope for this system as specified | Wraps Semgrep over fetched JS/source for static analysis — `01-Functional-Requirements.md` never defines a source-code-access mode (this system is a black-box/grey-box network VAPT tool per its whole design). Note but don't adopt unless the system's scope is deliberately expanded later. |
+| `sast_scan.py` | **(Revised — no longer out of scope)** `FR-CODEACCESS-02` (`19-Extended-Capability-Domains.md`) | Wraps Semgrep over fetched JS/source for static analysis. Originally flagged out of scope since this system had no source-code-access mode — that changed with the `19` capability expansion (`diff-review`/`whitebox-code-recon`), which explicitly names `tools/sast_scan.py` as the Operator's static-analysis tool for that domain. Adopt directly (verified standalone, 2a). |
 
 **Not yet classified individually:** the remaining standalone scripts (`banner.py`,
 `dashboard.py`, `mindmap.py`, `prompt_safety.py`, `safe_http.py`, `waf_encoder.py`,
@@ -87,6 +87,46 @@ logic, don't import the package."
 classification pass over the full `tools/` directory belongs in
 `15-Implementation-Milestone-Roadmap.md` Milestone 1 (Tool Bridge), not fabricated
 here without reading each file.
+
+### 2d-2. `Actual-Setup/scripts/full_hunt.sh` and `dork_runner.py` — the master pipeline (added in a later mining sweep, per explicit operator emphasis that pipeline/orchestration logic is the highest-value category to fetch)
+
+Both verified standalone (no `memory.`/`tools.` package coupling — pure shell/Python
+using only generic `$TARGET`/`$TARGETURL` variables, no hardcoded real target) and
+copied into `Actual-Setup/scripts/`.
+
+**`full_hunt.sh`'s actual 3-phase pipeline** — the concrete tool-chaining sequence,
+not just a list of tools, is the valuable part:
+
+1. **Phase 1 — passive recon:** `subfinder`/`amass`/`crt.sh` subdomain enumeration →
+   `httpx` live-host probe → `gau`/`waybackurls` historical URL collection → tech
+   fingerprinting.
+2. **Phase 2 — content discovery:** `katana` crawl, deliberately time-boxed to
+   **5 minutes at crawl depth 3** (not left unbounded) → `ffuf` directory/file-
+   extension fuzzing → JS extraction (+ optional LinkFinder endpoint mining) →
+   `gf`-pattern filtering that sorts every discovered URL into **8 named
+   vuln-candidate buckets** (xss/sqli/ssrf/redirect/lfi/rce/idor/ssti) *before* any
+   vuln-specific tool runs.
+3. **Phase 3 — vuln scanning:** `nuclei` (critical/high/medium severity only) →
+   `dalfox` XSS confirmation run **specifically against the `xss` bucket from
+   Phase 2's gf-filtering**, not against the whole URL set → a basic
+   reflected-Origin CORS check → `subzy` subdomain-takeover scan → `dork_runner.py`
+   invoked for a Google-dork report as a final pass.
+
+**Why this sequencing matters, not just the tool list:** the gf-filter-then-target
+pattern (Phase 2 sorts candidates into buckets; Phase 3's `dalfox` call only touches
+the `xss` bucket) is a concrete, reusable prioritization method for this system's own
+Operator — proposing a targeted confirmation tool against a *pre-filtered* candidate
+set, rather than running every vuln-specific tool against every URL indiscriminately.
+This is the same spirit as `FR-COUNCIL-10`'s follow-on-task logic but demonstrated as
+a real, working pipeline rather than an abstract instruction — worth citing directly
+in the Operator prompt (`14` §3) as a concrete sequencing example, alongside the
+already-folded-in A→B chain-hunting guidance.
+
+`dork_runner.py` is a template generator (not a search executor) across 12 dork
+categories — the `microsoft365` (tenant/SharePoint/Power BI/OneDrive enumeration via
+dork) and `compliance` (leaked ISO 27001/SOC 2/PCI/DPA/incident-response documents)
+categories are concrete and specific enough to be worth Operator-level awareness, not
+generic Google-dorking knowledge a coding model already has by default.
 
 ### 2d. Deployment path — no requirements change needed
 
@@ -240,6 +280,8 @@ class-by-class — a genuine limitation of this pass, not a claim of completenes
 | Item | Action needed |
 |---|---|
 | `rules/vapt_report_format.md` vs `12-Report-Formatting-Rules.md` | `12` was cloned from an earlier version of this toolkit's `CLAUDE.md`. `Actual-Setup/rules/vapt_report_format.md` is a separate, likely-evolved file under the same lineage — diff the two before implementation; `12` should be re-verified against whichever is more current, not assumed still accurate. |
-| `mcp/caido-mcp-client/` | Unverified — check whether it's genuine MCP or another REST wrapper (§3) before assuming either. |
-| Full `tools/` classification | 15 files beyond §2c were named but not individually read — a classification pass belongs in Milestone 1 of `15-Implementation-Milestone-Roadmap.md`. |
-| §4b methodology mining | Reading `web2-vuln-classes`, `bb-methodology`, `report-writing`, and `security-arsenal` in full and drafting the resulting prompt revisions — recommended as its own follow-up pass, not rushed here. |
+| Full `tools/` classification | 15 coupled files plus the remaining unclassified standalone ones were named but not individually read — a classification pass belongs in Milestone 1 of `15-Implementation-Milestone-Roadmap.md`. |
+| ~~`mcp/caido-mcp-client/`~~ | **Resolved** — decision #54: confirmed genuinely real MCP, see `16` §3. |
+| ~~§4b methodology mining~~ | **Resolved** — `web2-vuln-classes`, `bb-methodology`, `report-writing`, `security-arsenal` all fully read and mined; see §4a-continued above and `19-Extended-Capability-Domains.md`. |
+| `Actual-Setup/web3/08-ai-tools.md`'s third-party autonomous-agent comparisons | **New, not yet acted on.** Four third-party autonomous-pentest/audit agents are named and briefly described (Shannon, LuaN1ao, CAI Framework, a multi-agent Solidity auditor called SmartGuard) — the same genre as `17`'s `agent.py`/`brain.py` comparison, potentially relevant to `13`'s process-model design, but a real comparison pass (read each in full, compare against confirmed decisions) hasn't been done. Flagged, not assumed either way. |
+| `Actual-Setup/web3/07-case-study-role-misconfiguration.md`, `09-live-hunt-zksync.md` | Copied and verified safe (07 is explicitly self-labeled "Anonymized," grep-confirmed no real names; 09 documents a zero-finding audit of ZKsync Era, a public open-source protocol under a public Immunefi program) — but their actual technical *content* wasn't separately mined into any requirement, only their safety was determined. Low priority given `02-bug-classes.md`'s existing per-class real-example tables likely already cover the same ground. |
