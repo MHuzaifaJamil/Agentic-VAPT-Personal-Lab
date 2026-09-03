@@ -15,15 +15,29 @@ standing operator instruction.
 | `a051df6` | — (operator, direct) | Removed `Standalone-Engine-Reference/report-generators/*.py` as unneeded |
 | `15efa13` | #58, #59 | Second-round `claude-bug-bounty` mining sweep (`docs/`, `web3/` deep files, `scripts/full_hunt.sh` pipeline, `demo/`, `hooks/`) + new safety-control inventory (`21`); folded in the same push as the final top-level completeness check (`LICENSE`/`TERMS.md`/`serve.py`/etc., `FR-CICD-01`'s AI-agent sub-class, `FR-COUNCIL-10a`) |
 | `31d9fbe` | — (follow-up) | One fix for the `a051df6` removal (doc 17's now-stale reference) |
-| *(pending)* | #60 | VAPT Monitoring Dashboard formalized (`22`) |
+| `2a3f608` | #60 | VAPT Monitoring Dashboard formalized (`22`) |
+| *(pending)* | #61 | `Agentic VAPT Setup (HOME).md` full retroactive mirroring pass |
 
-## By decision (this push: #60)
+## By decision (this push: #61)
+
+| Decision | Files touched |
+|---|---|
+| [#61](10-Decision-Log-and-Open-Questions.md) — HOME.md full retroactive mirroring pass | `Agentic VAPT Setup (HOME).md` (4 new §5-8 sections + a multi-target clarification), `10` |
+
+## By file (this push)
+
+| File | Status | Decision(s) |
+|---|---|---|
+| `Agentic VAPT Setup (HOME).md` | modified | #61 |
+| `10-Decision-Log-and-Open-Questions.md` | modified | #61 |
+
+## By decision (prior push, #60)
 
 | Decision | Files touched |
 |---|---|
 | [#60](10-Decision-Log-and-Open-Questions.md) — VAPT Monitoring Dashboard | `22` (new), `00`, `02` (`NFR-RES-06`), `03` (`DR-SCHEMA-08`), `08` (`AC-DEPENDENCY-20`), `09` (`TP-DASHBOARD`), `10`, `13` (CLI + module layout), `CLAUDE.md` |
 
-## By file (this push)
+## By file (prior push, #60)
 
 | File | Status | Decision(s) |
 |---|---|---|

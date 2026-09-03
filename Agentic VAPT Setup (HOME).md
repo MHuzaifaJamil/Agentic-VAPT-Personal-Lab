@@ -172,6 +172,7 @@ revised C-03 resolution for the Gate 1 reasoning.)*
 
 3. **Database State Initialization:**
 * Initialize local SQLite relational state store at `/home/mhj/.local/share/vapt_agent/state.db` with tables for `targets`, `attack_paths`, `task_queue`, `tool_execution_logs`, and `verified_vulnerabilities`.
+* One engagement MAY scope multiple targets (hosts/domains, or — per §7 below — a smart contract, mobile binary, or repository) — each target tracked and diminishing-returns-bounded independently, so one target running dry or capping out doesn't affect any other target in the same engagement. *(Added — this was already a confirmed design decision, never previously reflected here; see `03-Data-and-Storage-Requirements.md`'s `targets` table.)*
 * The state store is configured to handle simultaneous reads and writes safely (e.g. a CLI status check while the engagement is actively running), rather than fail under contention. *(Added per `11-Critical-Analysis-and-Design-Challenges.md`, finding C-20 — see `03-Data-and-Storage-Requirements.md` for the precise mechanism.)*
 
 
@@ -343,3 +344,103 @@ figure from §2.1, not the raw disk footprint shown above.)
   ├── Mistral-7B-Instruct-v0.3 (Strict Adjudicator) ──► Adversarial False-Positive Gatekeeper
   └── Ministral-8B-Instruct-2410 (Reporter) ──► Assesses Confirmed Findings & Deduces Root Cause (proposes CVSS 3.1 metrics; deterministic calculator computes final score)
   (Corrected per 11-Critical-Analysis-and-Design-Challenges.md, findings C-03/C-07/C-09/C-30; roster updated per decision #55, 10-Decision-Log-and-Open-Questions.md.)
+
+---
+
+## 5. Operator Control Surface & Emergency Stop
+
+*(Added — this entire section was previously absent from this file. HOME.md is meant
+to be a complete high-level blueprint of the whole system, not just the autonomous
+loop; per operator decision, every control-surface/safety mechanism below is now
+reflected here at a summary level, with `01-Functional-Requirements.md`'s `FR-CTRL`
+section and `05-Security-Safety-and-Compliance-Requirements.md`'s `SEC-KILL` carrying
+full precision.)*
+
+* **CLI-only control, no GUI/web dashboard required:** the operator interacts with the
+  system exclusively through a command-line tool (`vaptctl`) — `start`, `pause`,
+  `resume`, `abort`, `status`, `export`, and `approve-report`, plus two later additions
+  (§7's `approve-checkpoint`/`deny-checkpoint`, §8's `monitor`/`dashboard`).
+* **No built-in authorization check:** `start` seeds an engagement from a target list
+  and scope rules, but the system never itself verifies that the operator actually
+  holds legal permission to test those targets — obtaining and confirming
+  authorization is the operator's own responsibility, entirely outside this tool.
+* **Emergency stop (kill-switch):** `abort` immediately and forcefully terminates
+  every in-flight tool subprocess (and anything it spawned), unloads any resident
+  model, and marks the engagement stopped — all within a **20-second** bound,
+  regardless of what the system is doing at the moment it's invoked.
+* **Single-engagement lock:** only one engagement may be actively running (or paused)
+  at a time system-wide, since Phase 1's hibernation freezes the operator's own
+  desktop — a second engagement cannot safely hibernate on top of the first.
+
+## 6. Defense-in-Depth Safeguards
+
+*(Added — five mechanisms that were each individually addressed in `01`/`04`/`05` but
+never summarized here, on the same "complete blueprint" principle as §5.)*
+
+* **Prompt-injection containment:** anything the system reads back from a scanned
+  target (an HTTP response, a banner, a page title) is treated as data to analyze,
+  never as an instruction — every council model is told this explicitly, and a
+  lightweight heuristic scan additionally flags suspicious patterns (including
+  hidden-Unicode tricks and injection attempts hidden in tool/plugin metadata) for
+  audit review, though that scan is a detection aid, not the actual containment.
+* **Structured-output enforcement:** every model-to-code handoff (a tool call, a CVSS
+  proposal, a gate decision) is schema-validated by ordinary code before anything acts
+  on it — a malformed or hallucinated structure gets a bounded number of corrective
+  retries, then the step is marked failed rather than silently proceeding on bad data.
+* **Report grounding:** before a draft report can reach the operator for approval, a
+  mechanical check confirms every URL/endpoint it cites actually appears in that
+  finding's real evidence — a reference that isn't backed by evidence is not allowed
+  through silently.
+* **Rate limiting:** the Operator's tool-invocation rate is capped (a lower, stricter
+  cap for the three high-risk opt-in categories than for everything else), so an
+  unattended run can't hammer a target faster than a real assessment ever should.
+* **Failure-based circuit breaker:** distinct from the zero-yield breaker already
+  described in Phase 4.2 above, a *separate* breaker trips after repeated
+  network-level failures (timeouts, connection errors) against one target, marking it
+  unreachable and auto-pivoting — so "the target stopped responding" and "the target
+  responded but nothing new was found" are never confused with each other.
+
+## 7. Extended Capability Domains & the Human Checkpoint Gate
+
+*(Added — formalized later, in `19-Extended-Capability-Domains.md` and
+`20-Human-Checkpoint-and-Escalation-Safety-Catalog.md`, after a deep-mining pass over
+a comparable open-source toolkit surfaced these as genuinely valuable additional
+scope. Summarized here only at the level of "what exists," not "how it works.")*
+
+Beyond general web/network VAPT, this system also covers: Web3/smart-contract
+auditing, mobile app pentesting, GraphQL API auditing, CI/CD pipeline security,
+credential-attack/password-spray methodology, source-code-access auditing (reviewing
+a diff or a whole repository rather than a live network target), and a handful of
+narrower automated-scanner and reference-vulnerability-class additions. Each of these
+new target types (a smart contract, a mobile app binary, a source repository) needed
+its own identity concept, since none of them is a hostname or IP address the way
+every other target in this system is.
+
+A small number of specific actions across these new domains — deliberately
+anti-forensic techniques against a client's own logging, live password-spray
+execution, an action that opens a real pull request or triggers a workflow run
+against a client's CI/CD system, and publishing a package to a public registry to
+prove a dependency-confusion finding — turned out to have a real safety mechanism, in
+the reference material they were drawn from, that was a **human confirming something
+in real time**, not just a pre-engagement setting. Rather than silently drop that
+safeguard to fit this system's otherwise fully-autonomous design, a narrow, explicit
+exception was added: for exactly these action classes, the engagement pauses and
+waits — indefinitely, no automatic timeout — for the operator to explicitly approve
+or deny that one specific action, before continuing.
+
+## 8. Live Monitoring & Scheduled Checks
+
+*(Added — formalized in `22-VAPT-Monitoring-Dashboard-Specification.md`, plus a
+smaller scheduled-recon addition alongside the `19` capability expansion.)*
+
+* **`vaptctl dashboard`** — a live, continuously-refreshing terminal view (not a
+  browser/GUI dashboard) showing which model is currently active, a rolling
+  tokens-per-second trace per model, the memory-safety margin, the diminishing-returns
+  breaker states, and a projected finish time against the 12-hour session budget —
+  entirely read-only, so it never competes with the running engagement for control.
+* **Scheduled monitoring (`vaptctl monitor`)** — a lightweight, separate check
+  (subdomain changes, new commits to a watched repository) that an operator can wire
+  up to an external scheduler (e.g. a cron job) to run between full engagements. It
+  only ever logs a detected change — it never starts new active testing on its own;
+  acting on a finding still requires the operator to explicitly start a new
+  engagement.
