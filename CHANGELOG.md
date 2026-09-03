@@ -17,7 +17,7 @@ standing operator instruction.
 | `31d9fbe` | — (follow-up) | One fix for the `a051df6` removal (doc 17's now-stale reference) |
 | `2a3f608` | #60 | VAPT Monitoring Dashboard formalized (`22`) |
 | `d2e9126` | #61 | `Agentic VAPT Setup (HOME).md` full retroactive mirroring pass |
-| *(pending)* | #62, #63, #64 | Interactive TUI Console & Intervention Pipeline formalized (`23`); Gate 1 semantic-tier bypass for manual-operator-origin tasks (amends `23`); Historical State Inheritance & Deduplication Subsystem formalized (`24`) |
+| `97e9018` | #62, #63, #64 | Interactive TUI Console & Intervention Pipeline formalized (`23`); Gate 1 semantic-tier bypass for manual-operator-origin tasks (amends `23`); Historical State Inheritance & Deduplication Subsystem formalized (`24`) |
 
 ## By decision (this push: #62, #63, #64)
 
