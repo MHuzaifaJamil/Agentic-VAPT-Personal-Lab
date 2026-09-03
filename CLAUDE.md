@@ -43,18 +43,20 @@ orientation; `00` is the authoritative one.
 | Why certain actions (anti-forensics, live credential-spray, etc.) require a live human checkpoint, not just a config flag | `20-Human-Checkpoint-and-Escalation-Safety-Catalog.md` |
 | The complete inventory of every misuse-prevention/ethics control (location, purpose, impact) | `21-Safety-Ethics-and-Misuse-Prevention-Control-Inventory.md` |
 | The live terminal monitoring dashboard (`vaptctl dashboard`) | `22-VAPT-Monitoring-Dashboard-Specification.md` |
+| The interactive console (`vaptctl console`) + operator mid-engagement intervention pipeline | `23-Interactive-TUI-Console-and-Intervention-Pipeline-Specification.md` |
+| Preventing duplicate scans/re-proposed attack paths/re-reported findings across repeat engagements against the same target | `24-Historical-State-Inheritance-and-Deduplication-Specification.md` |
 | The original high-level plan (now corrected in place — see below) | `Agentic VAPT Setup (HOME).md` |
 | Existing reusable skills/tools/agents from a prior Claude-Code-based toolkit | `Actual-Setup/` (read `16` first — most of it is NOT directly reusable) |
 | A standalone, non-Claude-Code hunting engine, kept for comparison only | `Standalone-Engine-Reference/` (read `17` first — its multi-cloud-provider and Ollama-first design conflicts with decisions already made here; mine techniques, don't import code) |
 
 ## Things that would otherwise be easy to get wrong
 
-- **`Agentic VAPT Setup (HOME).md` is not the authoritative spec — `01`-`22` are.**
+- **`Agentic VAPT Setup (HOME).md` is not the authoritative spec — `01`-`24` are.**
   The base file has been corrected in place for major issues (see its inline
   `*(...)*` notes, each pointing to a specific finding in `11`), but it deliberately
   states corrections at a **high level only** (no code-level specifics) and predates
-  the `19`/`20` extended-capability-domain expansion entirely. `01`-`22` carry full
-  precision. If the two ever seem to disagree on a detail, `01`-`22` wins.
+  the `19`/`20` extended-capability-domain expansion entirely. `01`-`24` carry full
+  precision. If the two ever seem to disagree on a detail, `01`-`24` wins.
 - **This system is fully autonomous with no pause — except four specific action
   classes.** Anti-forensics, live credential-spray execution, CI/CD actions that
   create a real external artifact (opening a PR, etc.), and dependency-confusion

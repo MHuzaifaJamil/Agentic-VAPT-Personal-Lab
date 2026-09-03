@@ -201,7 +201,7 @@ convention, trivially renamed; not a deep decision). Command group maps directly
 
 ```
 vaptctl start   --targets <list> --scope-rules scope.yaml [--config vapt_agent.config.yaml] \
-                 [--mode assess|monitor] \
+                 [--assessment-mode initial|retest] \
                  [--allow-brute-force] [--allow-active-exploitation] [--allow-lateral-movement] \
                  [--allow-anti-forensics --white-cell-contact <text> --attest-disclosure] \
                  [--allow-live-credential-spray] [--allow-cicd-external-artifact] \
@@ -216,6 +216,7 @@ vaptctl approve-checkpoint --checkpoint-id <id>
 vaptctl deny-checkpoint    --checkpoint-id <id>
 vaptctl monitor  --engagement-id <id>
 vaptctl dashboard [--rate 1.0] [--db <path>]
+vaptctl console   [--engagement-id <id>] [--tail-lines <int>] [--no-stream]
 ```
 
 The four new `--allow-*` flags on `start` (`FR-CHECKPOINT-02`) are deliberately
@@ -237,7 +238,8 @@ vapt_agent/
 │   ├── approve_checkpoint.py   # FR-CHECKPOINT-04
 │   ├── deny_checkpoint.py      # FR-CHECKPOINT-04
 │   ├── monitor.py              # FR-MONITOR-01..04, deliberately outside the engagement lifecycle
-│   └── dashboard.py            # 22-VAPT-Monitoring-Dashboard-Specification.md — read-only, independent of the orchestrator lifecycle
+│   ├── dashboard.py            # 22-VAPT-Monitoring-Dashboard-Specification.md — read-only, independent of the orchestrator lifecycle
+│   └── console.py              # 23-Interactive-TUI-Console-and-Intervention-Pipeline-Specification.md — read-write (operator_command_queue), also independent of the orchestrator lifecycle
 ├── orchestrator/
 │   ├── preflight.py            # FR-PRE (incl. FR-PRE-08 GPU benchmark)
 │   ├── hibernation.py          # FR-ENV, calls freezer_helper client
@@ -245,9 +247,10 @@ vapt_agent/
 │   ├── engine_client.py        # Local Engine Client (IR-ENGINE-01..06)
 │   └── council/
 │       ├── strategist.py       # DeepSeek-R1-0528-Qwen3-8B (FR-COUNCIL-01/02)
-│       ├── scope_gate.py       # Tier 0 deterministic + Tier 1 Hermes-3-Llama-3.1-8B (FR-COUNCIL-03a/04-06)
+│       ├── scope_gate.py       # Tier 0 deterministic (all origins) + Tier 1 Hermes-3-Llama-3.1-8B (AUTONOMOUS_COUNCIL and HISTORICAL_REGRESSION origins only, decisions #63/#64) (FR-COUNCIL-03a/04-06, FR-INTERVENE-06a, FR-DEDUP-05)
 │       ├── operator.py         # Qwen-Coder-7B (FR-COUNCIL-07/09/10)
-│       ├── gate2_validator.py  # deterministic Gate 2 (FR-COUNCIL-08/09a)
+│       ├── gate2_validator.py  # deterministic Gate 2, incl. DUPLICATE_COMMAND hash check (FR-COUNCIL-08/09a, FR-DEDUP-02)
+│       ├── dedup.py            # decision #64: command-hash canonicalization, historical-context queries, regression seeding (FR-DEDUP-01/03/04, `24`)
 │       ├── offline_linter.py   # Qwen-Coder-3B-Instruct, offline/between-phase only (FR-COUNCIL-09a)
 │       ├── loop_bounds.py      # FR-COUNCIL-11/11a/11b diminishing-returns + failure circuit breaker
 │       ├── adjudicator.py      # Mistral-7B Gate 3 (FR-COUNCIL-13/14/14a/15)
@@ -273,7 +276,7 @@ vapt_agent/
 ├── freezer_helper/
 │   └── vapt_freezer_helper.py  # separately packaged/installed privileged CLI (FR-ENV-13)
 ├── data/
-│   ├── schema.sql               # DR-SCHEMA-01..18 + IAB-SCHEMA-01..04 DDL, WAL mode pragma
+│   ├── schema.sql               # DR-SCHEMA-01..20 + IAB-SCHEMA-01..04 DDL, WAL mode pragma
 │   ├── db.py
 │   └── models.py
 ├── config/
@@ -286,3 +289,8 @@ vapt_agent/
 │   └── redaction.py             # FR-COUNCIL-18 redact/unredact, reads redaction_map
 └── tests/                       # mirrors 09-Acceptance-Criteria-and-Test-Plan.md TP-* groups
 ```
+
+Each `council/` module above MUST fetch its unconsumed `operator_command_queue` rows
+before invocation, per `23-Interactive-TUI-Console-and-Intervention-Pipeline-
+Specification.md`'s `FR-INTERVENE-07` — a change to all six existing modules, not
+just new code introduced by `23` itself.

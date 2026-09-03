@@ -34,6 +34,7 @@ other way around.
 | `control_intent_at` | TEXT (ISO8601), nullable | **(new — IAB-SCHEMA-01)** |
 | `engagement_lock_slot` | INTEGER, `GENERATED ALWAYS AS (CASE WHEN status IN ('IN_PROGRESS','PAUSED') THEN 0 END) VIRTUAL` | **(new — resolves critical-analysis finding, FR-CTRL-09)** always `0` while non-terminal, `NULL` otherwise. Paired with `CREATE UNIQUE INDEX one_active_engagement ON engagements(engagement_lock_slot);` — SQLite unique indexes ignore `NULL`, so this enforces **at most one row system-wide** with a non-terminal status, regardless of which one, without blocking unlimited `COMPLETE`/`ABORTED` history rows. A naive `UNIQUE(status) WHERE status IN (...)` would be wrong here — it would only prevent two simultaneous `IN_PROGRESS` rows (or two `PAUSED`), not one of each at once. |
 | `notes` | TEXT | free-text operator notes |
+| `assessment_mode` | TEXT NOT NULL DEFAULT `'INITIAL'`, CHECK (`assessment_mode IN ('INITIAL','RETEST')`) | **(New — decision #64, `24`)** `RETEST` seeds and prioritizes regression-verification of prior `CONFIRMED` findings per target before that target's fresh Phase 4.1 exploration; see `24-Historical-State-Inheritance-and-Deduplication-Specification.md`. |
 
 ### DR-SCHEMA-01a: `engagement_flag_history` (new — required by FR-TOOL-06c)
 
@@ -106,8 +107,11 @@ technical in/out-of-scope pattern data the scope-boundary check operates against
 | `proposed_command` | TEXT | full argument vector as generated |
 | `gate2_corrected_command` | TEXT, nullable | if the linter (Gate 2) corrected it |
 | `status` | TEXT | `PENDING` / `GATE1_APPROVED` / `GATE1_REJECTED` / `GATE2_BLOCKED` / `EXECUTING` / `EXECUTED` / `FOLLOWUP_GENERATED` |
-| `gate1_rationale` | TEXT | Stated reason from whichever Gate 1 tier acted — the deterministic pre-check (`FR-COUNCIL-03a`) or `Hermes-3-Llama-3.1-8B` |
+| `gate1_rationale` | TEXT | Stated reason from whichever Gate 1 tier acted — the deterministic pre-check (`FR-COUNCIL-03a`) or `Hermes-3-Llama-3.1-8B`. For a `MANUAL_OPERATOR`-origin task this always names the deterministic tier only, since the semantic tier never ran (`FR-COUNCIL-04`/`05`) |
 | `gate2_rationale` | TEXT | The deterministic Gate 2 validator's stated reason on block/correct (not an LLM — see `FR-COUNCIL-08`) |
+| `origin` | TEXT NOT NULL DEFAULT `'AUTONOMOUS_COUNCIL'`, CHECK (`origin IN ('AUTONOMOUS_COUNCIL','MANUAL_OPERATOR','HISTORICAL_REGRESSION')`) | **(New — decision #63; extended — decision #64, `24`)** `'MANUAL_OPERATOR'` only when `source_command_id` is set (below); governs the Gate 1 semantic-tier skip (`FR-INTERVENE-06a`). `'HISTORICAL_REGRESSION'` only when `source_finding_id` is set (below) — a regression-verification task seeded from a prior `CONFIRMED` finding (`FR-DEDUP-04`/`05`, `24`); unlike `MANUAL_OPERATOR`, this value confers **no** gate exception at all — full two-tier Gate 1, full Gate 2, full opt-in-flag gate. Purely a task-origin record otherwise — carries no exception for `FR-COUNCIL-03a`, `FR-TOOL-06`/`06a`, or `FR-TOOL-14`, all of which apply identically regardless of this value. |
+| `source_command_id` | INTEGER FK → `operator_command_queue(command_id)`, nullable | **(New — decision #63)** Set only when this task's `proposed_command` traces back to an operator directive whose own text explicitly and specifically named the resulting action — the same specificity bar `FR-INTERVENE-10` already uses for checkpoint auto-attestation. A directive too vague for the model to lift a literal command from leaves this `NULL` and `origin = 'AUTONOMOUS_COUNCIL'`, even if an operator directive was present in context (`FR-INTERVENE-07`). |
+| `source_finding_id` | INTEGER FK → `verified_vulnerabilities(finding_id)`, nullable | **(New — decision #64, `24`)** Set only when `origin = 'HISTORICAL_REGRESSION'` — the original prior-engagement finding this task is re-verifying. Parallels `source_command_id`'s provenance-tracking role. |
 | `created_at` / `executed_at` | TEXT (ISO8601) | |
 
 ### DR-SCHEMA-06: `tool_execution_logs`
@@ -127,6 +131,7 @@ technical in/out-of-scope pattern data the scope-boundary check operates against
 | `suspected_injection_flag` | INTEGER (bool) DEFAULT 0 | set by the heuristic check in FR-TOOL-13 |
 | `novel_entities_count` | INTEGER DEFAULT 0 | count of new rows this run inserted into `discovered_entities` (DR-SCHEMA-12); **0 here means this run counts toward the zero-yield circuit breaker (FR-COUNCIL-11a)**, regardless of `exit_code` or whether `sanitized_summary` is non-empty |
 | `network_error` | INTEGER (bool) DEFAULT 0 | **(new, resolves critical-analysis finding C-27)** set when the bridge detects the process failed due to a network-level condition (connection refused/reset, DNS resolution failure, TLS handshake failure) rather than completing and simply finding nothing. Feeds `targets.consecutive_failure_count` (FR-COUNCIL-11b) alongside `timeout_hit`. |
+| `command_hash` | TEXT | **(New — decision #64, `24`)** Pair-aware canonical SHA256 of `resolved_binary_path` + its flag/value pairs (flags grouped with their values before sorting, never a flat sorted token list — a naive flat sort would hash `-p 80 -oN 443` and `-p 443 -oN 80` identically, a false-positive dedup). Feeds Council Gate 2's `DUPLICATE_COMMAND` check (`FR-DEDUP-02`). Indexed: `CREATE INDEX idx_tool_cmd_hash ON tool_execution_logs(resolved_binary_path, command_hash);` |
 
 ### DR-SCHEMA-07: `verified_vulnerabilities`
 
@@ -141,9 +146,14 @@ technical in/out-of-scope pattern data the scope-boundary check operates against
 | `cvss_version` | TEXT | fixed value: `3.1` (confirmed — no other version supported, FR-COUNCIL-16a) |
 | `cvss_metrics_json` | TEXT (JSON) | the LLM-proposed per-metric values + justification (FR-COUNCIL-16a) |
 | `cvss_vector` / `cvss_score` | TEXT / REAL | **computed by the deterministic calculator, never written by the LLM directly** |
-| `status` | TEXT | `CANDIDATE` / `CONFIRMED` / `DISMISSED` |
+| `status` | TEXT | `CANDIDATE` / `CONFIRMED` / `DISMISSED` / `REMEDIATED` **(4th value new — decision #64, `24`; reachable only when `finding_origin = 'REGRESSION_CHECK'` and the stored reproduction no longer triggers the original impact)** |
 | `gate3_rationale` | TEXT | Mistral-7B's stated reason |
 | `evidence_artifact_ids` | TEXT (JSON array) | FKs into `artifacts_index` |
+| `target_endpoint` | TEXT, nullable | **(New — decision #64, `24`)** structured field feeding `finding_fingerprint`, not just embedded in free-text `description` |
+| `affected_parameter` | TEXT, nullable | **(New — decision #64, `24`)** structured field feeding `finding_fingerprint` |
+| `finding_fingerprint` | TEXT | **(New — decision #64, `24`)** `SHA256(cwe_id \|\| target_endpoint \|\| affected_parameter)`, computed deterministically (non-LLM) when Gate 3 confirms a finding (`FR-DEDUP-03`). Indexed alone — `CREATE INDEX idx_vuln_fingerprint ON verified_vulnerabilities(finding_fingerprint);` — deliberately **not** composite with `target_id`, since `target_id` is engagement-scoped (`DR-SCHEMA-02`) and useless for a cross-engagement lookup; queries join through `targets.host_or_domain` instead. |
+| `finding_origin` | TEXT NOT NULL DEFAULT `'NEW'`, CHECK (`finding_origin IN ('NEW','REGRESSION_CHECK')`) | **(New — decision #64, `24`)** `'REGRESSION_CHECK'` only for a `HISTORICAL_REGRESSION`-origin task's outcome; governs report routing (`FR-DEDUP-06`). |
+| `retests_finding_id` | INTEGER FK → `verified_vulnerabilities(finding_id)`, nullable | **(New — decision #64, `24`)** Set only when `finding_origin = 'REGRESSION_CHECK'` — the original finding this row is re-verifying. |
 | `discovered_at` / `confirmed_at` | TEXT (ISO8601) | |
 
 ### DR-SCHEMA-08: `model_invocation_logs` (revised — `turn_number` added, `role` enum corrected)
@@ -348,8 +358,56 @@ flag changes) — this logs live, in-engagement pause/approval events.
 | `triggered_at` | TEXT (ISO8601) | |
 | `status` | TEXT | `AWAITING_APPROVAL` / `APPROVED` / `DENIED` / `EXPIRED` (an operator may choose to deny rather than approve; unlike the resource-safety timeouts elsewhere in this system, there is no auto-approve-on-timeout — silence means the engagement stays paused) |
 | `approved_at` | TEXT (ISO8601), nullable | |
-| `approved_via` | TEXT, nullable | records the specific `vaptctl` invocation that approved it (`FR-CHECKPOINT-03`) |
+| `approved_via` | TEXT, nullable | records the specific `vaptctl` invocation that approved it (`FR-CHECKPOINT-03`), **or** the literal value `'CONSOLE_DISPATCH'` when an explicit, specific operator console directive itself served as the live attestation (`23`'s `FR-INTERVENE-10`) — the interactive pause is skipped only in that case, never `FR-CHECKPOINT-02`'s pre-engagement flag gate |
 | `rationale_shown_to_operator` | TEXT | the specific, human-readable reason this task was classified into `action_class`, logged verbatim so the approval decision is informed, not a blind rubber-stamp |
+
+### DR-SCHEMA-19: `operator_command_queue` (new — required by `23-Interactive-TUI-Console-and-Intervention-Pipeline-Specification.md`)
+
+Persists role-directed operator guidance for asynchronous injection into council
+model context (`FR-INTERVENE-01..11`). Distinct from `checkpoint_events` — this
+queue is for *steering* guidance the model weighs in its own reasoning, never a
+mechanism that itself bypasses any gate.
+
+```sql
+CREATE TABLE IF NOT EXISTS operator_command_queue (
+    command_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    engagement_id INTEGER NOT NULL REFERENCES engagements(engagement_id),
+    target_role TEXT NOT NULL CHECK (
+        target_role IN ('Strategist', 'Operator', 'Gatekeeper', 'Linter', 'Adjudicator', 'Reporter', 'GLOBAL')
+    ),
+    raw_command TEXT NOT NULL,
+    parsed_intent TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'QUEUED' CHECK (
+        status IN ('QUEUED', 'INJECTED', 'DISCARDED', 'EXPIRED')
+    ),
+    failure_reason TEXT,
+    queued_at TEXT NOT NULL,
+    consumed_at TEXT,
+    consumed_by_invocation_id INTEGER REFERENCES model_invocation_logs(invocation_id),
+    FOREIGN KEY (engagement_id) REFERENCES engagements(engagement_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_operator_queue_lookup
+ON operator_command_queue (engagement_id, target_role, status);
+```
+
+`failure_reason` MUST be populated whenever `status` transitions to `DISCARDED` or
+`EXPIRED` — no directive may vanish from operator visibility without an explicit,
+specific reason (`FR-INTERVENE-11`). `target_role` includes `Linter` for the Offline
+Script Linter (the system's 6th model) alongside the other five prompted roles, plus
+a `GLOBAL` value for directives not tied to a specific council seat.
+
+### DR-SCHEMA-20: `live_audit_trail.md` layout (new — required by `23`)
+
+A per-engagement, append-only Markdown journal at
+`<artifact_root>/<engagement_id>/live_audit_trail.md` (`DR-ARTIFACT-01`'s existing
+artifact layout, not a new path convention) — one block per pipeline transition
+(Tool Dispatch / Output Sanitization / Model Ingestion / Model Output). Full template
+in `23`'s original draft specification; not duplicated here since the layout itself
+needed no correction. This journal is **not** part of `FR-COUNCIL-18`'s redaction
+pipeline — it shows the same unredacted raw signal already stored in
+`tool_execution_logs`/`artifacts_index`, the same trust boundary as any other raw
+artifact on disk.
 
 ---
 

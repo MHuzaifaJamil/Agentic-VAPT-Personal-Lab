@@ -16,15 +16,39 @@ standing operator instruction.
 | `15efa13` | #58, #59 | Second-round `claude-bug-bounty` mining sweep (`docs/`, `web3/` deep files, `scripts/full_hunt.sh` pipeline, `demo/`, `hooks/`) + new safety-control inventory (`21`); folded in the same push as the final top-level completeness check (`LICENSE`/`TERMS.md`/`serve.py`/etc., `FR-CICD-01`'s AI-agent sub-class, `FR-COUNCIL-10a`) |
 | `31d9fbe` | — (follow-up) | One fix for the `a051df6` removal (doc 17's now-stale reference) |
 | `2a3f608` | #60 | VAPT Monitoring Dashboard formalized (`22`) |
-| *(pending)* | #61 | `Agentic VAPT Setup (HOME).md` full retroactive mirroring pass |
+| `d2e9126` | #61 | `Agentic VAPT Setup (HOME).md` full retroactive mirroring pass |
+| *(pending)* | #62, #63, #64 | Interactive TUI Console & Intervention Pipeline formalized (`23`); Gate 1 semantic-tier bypass for manual-operator-origin tasks (amends `23`); Historical State Inheritance & Deduplication Subsystem formalized (`24`) |
 
-## By decision (this push: #61)
+## By decision (this push: #62, #63, #64)
+
+| Decision | Files touched |
+|---|---|
+| [#62](10-Decision-Log-and-Open-Questions.md) — Interactive TUI Console & Intervention Pipeline | `23` (new), `00`, `01` (`FR-CHECKPOINT-03` cross-ref), `03` (`DR-SCHEMA-19/20`, `DR-SCHEMA-18` amendment), `08` (`AC-DEPENDENCY-21`), `09` (`TP-TUI`), `10`, `13` (CLI + module layout), `CLAUDE.md` |
+| [#63](10-Decision-Log-and-Open-Questions.md) — Gate 1 semantic-tier bypass for manual-operator-origin tasks | `23` (amendment section, `FR-INTERVENE-06a`, `DR-SCHEMA-05` amendment note, `TP-TUI` test row), `01` (`FR-COUNCIL-04`/`05`/`06` revised, `FR-COUNCIL-03a` clarified), `03` (`DR-SCHEMA-05` — `origin`/`source_command_id`), `09` (`TP-TUI` test row), `10`, `13` (module-layout comment) |
+| [#64](10-Decision-Log-and-Open-Questions.md) — Historical State Inheritance & Deduplication Subsystem | `24` (new), `00`, `01` (`FR-COUNCIL-15`/`17` extended), `03` (`DR-SCHEMA-01`/`05`/`06`/`07` amendments), `09` (`TP-DEDUP`), `10`, `13` (CLI `--assessment-mode`, module layout), `CLAUDE.md` |
+
+## By file (this push)
+
+| File | Status | Decision(s) |
+|---|---|---|
+| `00-Requirements-Index.md` | modified | #62, #64 |
+| `01-Functional-Requirements.md` | modified | #62, #63, #64 |
+| `03-Data-and-Storage-Requirements.md` | modified | #62, #63, #64 |
+| `08-Assumptions-Constraints-Dependencies.md` | modified | #62 |
+| `09-Acceptance-Criteria-and-Test-Plan.md` | modified | #62, #63, #64 |
+| `10-Decision-Log-and-Open-Questions.md` | modified | #62, #63, #64 |
+| `13-Implementation-Architecture-Bridge.md` | modified | #62, #63, #64 |
+| `23-Interactive-TUI-Console-and-Intervention-Pipeline-Specification.md` | **new** (#62), modified (#63) | #62, #63 |
+| `24-Historical-State-Inheritance-and-Deduplication-Specification.md` | **new** | #64 |
+| `CLAUDE.md` | modified | #62, #64 |
+
+## By decision (prior push, #61)
 
 | Decision | Files touched |
 |---|---|
 | [#61](10-Decision-Log-and-Open-Questions.md) — HOME.md full retroactive mirroring pass | `Agentic VAPT Setup (HOME).md` (4 new §5-8 sections + a multi-target clarification), `10` |
 
-## By file (this push)
+## By file (prior push, #61)
 
 | File | Status | Decision(s) |
 |---|---|---|
