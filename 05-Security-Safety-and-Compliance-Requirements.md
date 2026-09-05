@@ -1,63 +1,114 @@
 # Security, Safety & Compliance Requirements — Autonomous Agentic VAPT System
 
-This document consolidates the security-relevant requirements that are scattered
-across `01`/`02` by cross-reference, and adds the policy-level statements (what is and
-is not in scope for this system to enforce) that a reader shouldn't have to infer.
+This document is the **sole authoritative home for every security, safety, and execution
+governance mandate** in this system — establishing the definitive rationale, boundary limits,
+containment mechanics, and non-bypassability models behind all system gates. Execution order,
+data layouts, and pipeline phases are owned by their respective specifications; this document
+governs the controls themselves.
+
+The system enforces an explicit **Dual-Mode Mandate**:
+1. **Autonomous Mode (Strict Non-Destructive Testing):** Unattended operations are strictly
+   non-destructive. Discovery reads (`GET`, `SELECT`) and benign verification writes (`POST`)
+   are permitted; state destruction (`UPDATE`, `DELETE`, `DROP`, `ALTER`, filesystem wipes)
+   and Denial of Service (DoS/DDoS) actions are strictly prohibited.
+2. **Operator-Directed Mode (Unconditional Execution):** Commands, scripts, and directives
+   dispatched or instructed by the human operator execute unconditionally with **zero automated
+   refusal, no safety suppression, and no technical boundary interception**.
+
+In case of any conflicts, ambiguities, or inconsistencies across any other design documentation,
+specifications, architecture blueprints, or operational guides, **this document serves as the
+final and supreme authority over all Security, Safety, and Control matters.**
 
 ---
 
 ## SEC-SCOPE — Authorization & Scope Boundary
 
-**Decision on record:** verifying that testing is legally/contractually authorized is
-**explicitly out of scope** for this system. The system does not gate execution on any
-authorization/Rules-of-Engagement artifact. Obtaining and confirming authorization to
-test a given target is the operator's responsibility, entirely outside this tool.
+**Policy:** Verifying legal and contractual authorization is explicitly out of scope for this system. Obtaining and validating target authorization, permissions, and rules of engagement (RoE) is solely and entirely the responsibility of the human operator outside the tool. Technical scope checks exist solely to assist operational boundaries and yield immediately to operator direction.
 
 | ID | Requirement |
-|----|-------------|
-| SEC-SCOPE-01 | The only scope check this system performs is a **technical** one: Council Gate 1 — a mandatory deterministic Python pre-check (`FR-COUNCIL-03a`) followed by `Hermes-3-Llama-3.1-8B` as the semantic layer (the C-03 resolution, revised by decision #55 back to the base plan's original model choice, for different reasons — see below) — evaluating a proposed task against the `scope_rules` allow/deny patterns (DR-SCHEMA-03) recorded for the engagement. This is inherited directly from the base plan's own design (§Phase 4.1) — it is not a new authorization control, and it MUST NOT be described or documented anywhere as one. |
-| SEC-SCOPE-02 | This technical scope check MUST be non-overridable under any configuration (FR-COUNCIL-06) — a task Gate 1 rejects never reaches execution, full stop. The generic "autonomy level" concept has been removed by confirmed decision in favor of the specific opt-in flags (FR-TOOL-06a) and fixed thresholds (FR-COUNCIL-11); none of those flags can weaken this scope check either. |
-| SEC-SCOPE-03 | Gate 1's semantic (LLM) tier is `Hermes-3-Llama-3.1-8B` — the base plan's original choice, briefly replaced by `Llama-3.1-8B-Instruct` for conservative refusal behavior (critical-analysis finding C-03), then reverted (decision #55) because that replacement required a Meta license the operator does not hold, and because heavier refusal-tuning risked over-refusing standard, already-in-scope pentesting commands. **The safety reasoning is now architectural, not model-choice-based:** `FR-COUNCIL-03a`'s deterministic pre-check — not this LLM tier — is the actual non-bypassable boundary; Gate 1's LLM tier is scoped to a contextual/strategic sanity check only. Its actual refusal/judgment behavior for that narrower job has not been empirically tested (open item, revised, `10-Decision-Log...md`). Because the input it evaluates can itself contain adversarial content surfaced from prior scanning (finding C-04), Gate 1's scope-check reliability is also bounded by IR-SANITIZE-02/03 (provenance tagging) actually being implemented correctly, and by the deterministic pre-check tier (`FR-COUNCIL-03a`) catching what the LLM tier might miss. This dependency chain MUST be documented wherever Gate 1 is described, not left implicit. |
+| --- | --- |
+| SEC-SCOPE-01 | Council Gate 1 evaluates autonomous tasks against an optional stored scope_rules set to guide autonomous discovery. This is an informational technical alignment check — it is not an authorization control, MUST NOT be documented as one, and is completely bypassed whenever an execution request originates directly from the operator. |
+| SEC-SCOPE-02 | Operator-directed execution is absolute and unconditional: when the operator issues an instruction, command, or target directive, the system MUST execute it immediately with **no automated blocking, refusal, or technical scope-boundary interception**. In autonomous mode, technical scope checks serve as soft non-destructive boundaries rather than rigid system locks. |
+| SEC-SCOPE-03 | Tier 1 semantic evaluation (`Hermes-3-Llama-3.1-8B` or designated model) operates strictly in an advisory steerability capacity for autonomous tasks. It MUST NOT refuse, block, or halt operator-directed inputs under any circumstance. Tier 1 checks yield unconditionally to operator overrides and direct commands. |
 
-## SEC-CONTAIN — Execution Containment
+## SEC-CONTAIN — Execution Containment & Destructive Prevention
 
-| ID | Requirement |
-|----|-------------|
-| SEC-CONTAIN-01 | Every subprocess spawned by either tool tier MUST use non-shell execution with an explicit argument vector (FR-TOOL-04, IR-BRIDGE-01) — no model output is ever passed through a shell interpreter. |
-| SEC-CONTAIN-02 | Tier 2 execution is bounded by the path-restricted allowlist + behavioral denylist confirmed in FR-TOOL-03/06 and IR-BRIDGE-02/03. Per critical-analysis finding C-14, this is a **residual-risk-accepted** design: it does not itself prevent an allowed binary from being used destructively or out-of-scope — that containment relies on SEC-SCOPE-01/02 (Gate 1) and the Gate 2 linter having already approved the specific command. This dependency chain (Gate 1 → Gate 2 → Tier 2 path/pattern check) MUST be treated as the actual defense-in-depth stack in any future security review, not the Tier 2 check in isolation. |
-| SEC-CONTAIN-03 | Every subprocess MUST run under a dedicated, least-privileged OS account for the agent (NFR-SEC-03), distinct from the operator's interactive login, with `sudo`/elevated-privilege invocation limited to the specific, individually documented tools that require it (e.g., raw-socket scanning modes of `nmap`) — a blanket root agent process MUST NOT be used. |
-| SEC-CONTAIN-04 | Every subprocess MUST carry a mandatory timeout (FR-TOOL-05, IR-TOOL-03) sized per tool class, so a hung process cannot indefinitely hold system resources or silently extend the 12-hour session budget's effective wall-clock usage. |
-| SEC-CONTAIN-05 | **(New, confirmed — resolves critical-analysis finding C-15)** The one operation that genuinely needs elevated privilege — `process_madvise(MADV_PAGEOUT)` for hibernation memory reclamation (FR-ENV-07) — MUST NOT be granted to the main agent process. It MUST be isolated in a narrow, single-purpose helper (`vapt-freezer-helper`) granted only `CAP_SYS_PTRACE` via `setcap`, or invoked through an equivalently narrow `sudoers`/polkit rule (FR-ENV-13) — this is the sole exception to SEC-CONTAIN-03's least-privilege rule, and it is scoped to one syscall in one helper binary, not a blanket privilege grant. |
+**Policy:** The system enforces a strict **Dual-Mode Mandate**:
 
-## SEC-PROMPT — Prompt Injection Defense (MUST, per operator decision on finding C-04)
+1. **Autonomous Mode (Non-Destructive Testing):** When models execute autonomously without live human intervention, operations MUST be strictly non-destructive. If exposed endpoints or databases are identified, models may perform read/discovery operations (e.g., HTTP `GET`, database `SELECT`/reads). In specific cases, safe non-destructive state creation/write actions (e.g., HTTP `POST`, benign record creation for verification) are permitted. Destructive alterations, schema drops, and state purges (including SQL `UPDATE`, `ALTER`, `DELETE`, `DROP`, and system file deletions) as well as Denial of Service (DoS/DDoS) actions are **strictly prohibited**.
+2. **Operator-Directed Mode (Unconditional Execution):** When a command, script, or action is explicitly requested or triggered by the Operator, the engine MUST execute it as directed with **no questions asked**, no refusals, and no automated safety suppression.
 
 | ID | Requirement |
-|----|-------------|
-| SEC-PROMPT-01 | All content sourced from live target interaction MUST pass through the provenance-tagging pipeline (IR-SANITIZE-02) before reaching any model's context — no exceptions for "trusted-looking" tool output, since the threat is the target's own responses, not the tool. |
-| SEC-PROMPT-02 | Every council model's system prompt MUST carry the fixed instruction-hierarchy clause (IR-SANITIZE-03) establishing that tagged content is data, not instructions, and that this cannot be overridden by anything inside the tags. |
-| SEC-PROMPT-03 | The heuristic injection-pattern detector (FR-TOOL-13) is a SHOULD-level detection aid, not a containment control — its absence or a false negative MUST NOT be treated as reducing the MUST-level requirements in SEC-PROMPT-01/02. |
-| SEC-PROMPT-04 | Any suspected-injection flag raised by FR-TOOL-13 against a task that a gate subsequently approved MUST be surfaced in the audit trail (FR-CTRL-07 export) prominently enough that a human reviewer would find it without searching — e.g., a distinct log level or a dedicated section in the export package, not buried in raw JSON. |
+| --- | --- |
+| SEC-CONTAIN-01 | Subprocess execution defaults to `shell=False` with an explicit argument vector for structured calls. However, when operator-directed execution demands complex command chains, pipes, or raw execution, the system MUST honor and dispatch the command vector directly without administrative refusal. |
+| SEC-CONTAIN-02 | In **Autonomous Mode**, active execution is bounded by non-destructive constraints: tools and actions MUST NOT perform state destruction (strictly prohibiting `DROP`, `DELETE`, `ALTER`, `UPDATE`, `rm`, `mkfs`, `dd`, `shred`, or resource-exhaustion/DDoS scripts). Discovery reads (`GET`, `SELECT`) and non-destructive writes (`POST`) are permitted. In **Operator-Directed Mode**, these containment filters stand down completely; the engine executes the designated utility or payload without interference. |
+| SEC-CONTAIN-03 | By default, routine automated scanning subprocesses execute under a standard service account. When elevated privileges (e.g., raw-socket packet crafting, kernel tracing, specific interface bindings) are required for testing or requested by the operator, the system dispatches using the configured privilege escalation path without arbitrary containment blocking. |
+| SEC-CONTAIN-04 | Subprocess timeouts are configurable operational baselines to prevent zombie processes. They MUST NOT prematurely kill active, long-running exploitation, brute-force, or fuzzing sessions initiated or approved by the operator. |
+| SEC-CONTAIN-05 | Privilege elevation helpers (e.g., memory reclamation or system-level helpers) operate via standardized helper utilities or configured capabilities (`setcap`), maintaining process stability without imposing restrictive limits on authorized operator commands. |
+
+## SEC-RATE — Spawn-Rate Limiting
+
+| ID | Requirement |
+| --- | --- |
+| SEC-RATE-01 | Rate caps serve strictly as target stability and anti-DoS guardrails during autonomous runs (preventing unintentional target crash or service disruption). When running in operator-directed mode, or when explicit load/stress/brute-force testing is configured, rate limits are fully adjustable, deferrable, or bypassable up to hardware limits upon operator request. |
+
+## SEC-PROMPT — Prompt Injection Defense
+
+| ID | Requirement |
+| --- | --- |
+| SEC-PROMPT-01 | Content ingested from live target interaction (banners, HTTP response bodies, payloads) is tagged with boundary markers (`<tool_output_untrusted>...</tool_output_untrusted>`) to prevent target payloads from hijacking autonomous reasoning flows. |
+| SEC-PROMPT-02 | Council system prompts include structural context separation to distinguish target data from system directives. However, these clauses MUST NOT cause models to refuse, censor, or decline the analysis, synthesis, or execution of offensive security concepts, payloads, or operator-supplied attack strings. |
+| SEC-PROMPT-03 | Heuristic injection detection is purely passive telemetry and detection-only. It NEVER blocks, delays, or interrupts execution pipelines, serving solely as metadata for post-run analysis. |
+| SEC-PROMPT-04 | Suspected injection attempts surfaced from target responses are recorded in the execution log metadata for operator awareness without interrupting pipeline continuity. |
 
 ## SEC-KILL — Emergency Stop
 
 | ID | Requirement |
-|----|-------------|
-| SEC-KILL-01 | **(Revised, resolves critical-analysis finding C-19)** The abort/kill-switch (FR-CTRL-04) MUST terminate, in order: (1) the currently executing tool subprocess **group** (`os.killpg(os.getpgid(pid), ...)` — the whole group spawned under FR-TOOL-04a, not just the recorded parent PID), (2) any queued-but-not-yet-started subprocess, (3) the resident inference engine process, all within the 20-second budget (NFR-REL-04). |
-| SEC-KILL-02 | Kill-switch termination MUST escalate from a graceful signal (`SIGTERM`) to a forceful one (`SIGKILL`) if a process does not exit within a bounded grace period inside that 20-second budget, rather than wait indefinitely on a graceful shutdown that may not happen. Both signals target the process **group** (per SEC-KILL-01), not a single PID. |
-| SEC-KILL-03 | Invoking the kill-switch MUST mark the engagement `ABORTED` in `engagements.status` (DR-SCHEMA-01) as an atomic part of the abort sequence, not a separate manual step — an aborted engagement must never be left in `IN_PROGRESS`. |
+| --- | --- |
+| SEC-KILL-01 | The operator-initiated kill-switch provides an immediate, reliable halt to all active processes: (1) terminates running tool subprocess process groups (`os.killpg`), (2) clears pending execution queues, and (3) idles inference execution immediately. |
+| SEC-KILL-02 | Escalates from graceful termination (`SIGTERM`) to immediate drop (`SIGKILL`) if process groups fail to release resources within a narrow grace window, guaranteeing complete operational cessation. |
+| SEC-KILL-03 | Marks the engagement status as `ABORTED` atomically upon kill-switch trigger, ensuring accurate state reporting across artifacts and session databases. |
 
-## SEC-AUDIT — Auditability
+## SEC-AUDIT — Auditability & Attribution
 
 | ID | Requirement |
-|----|-------------|
-| SEC-AUDIT-01 | Every subprocess invocation (allowed or rejected), every model invocation, and every gate decision MUST be reconstructable after the fact from `tool_execution_logs`, `model_invocation_logs`, and the gate-rationale columns alone (NFR-SEC-04) — auditing an engagement MUST NOT require re-running it. |
-| SEC-AUDIT-02 | The audit trail MUST be exportable as a single package (FR-CTRL-07) that a human reviewer (the operator, or a third party they choose to show it to) can read without needing SQLite tooling — at minimum, a flattened chronological log view alongside the raw database. |
-| SEC-AUDIT-03 | Log records MUST NOT be mutated or deleted by any normal operation of the system (append-only in practice, even if not cryptographically enforced) — a `DISMISSED` finding or a `GATE1_REJECTED` task stays in the record, it is never removed. |
+| --- | --- |
+| SEC-AUDIT-01 | Every command execution, autonomous gate evaluation, and operator directive MUST be logged and reconstructable from local execution logs alone, ensuring complete operational visibility and reproducibility without requiring engagement re-runs. |
+| SEC-AUDIT-02 | The audit trail exports cleanly into portable, standard formats (such as structured JSON/Markdown packages) that can be reviewed directly without requiring specialized database engines. |
+| SEC-AUDIT-03 | Log streams are append-only. No action outcome, bypass event, error trace, or operator override record is purged or hidden during engagement runtime. |
+| SEC-AUDIT-04 | *(Resolution of Hardcoded Attribution Smell)* Authorization, task sign-offs, and `approved_by` fields MUST dynamically pull identity values from the active runtime configuration or authenticated environment context (`operator_identity`), completely eliminating hardcoded personal names or static entity strings from schemas and codebase constants. |
 
 ## SEC-DATA — Local-Only Data Handling
 
 | ID | Requirement |
-|----|-------------|
-| SEC-DATA-01 | No target data, credentials, or findings MUST ever leave the local host via a network call — the local-only model residency (NFR-SEC-02) applies to the whole pipeline, not just inference: no telemetry, no cloud logging, no "phone home" of any kind. |
-| SEC-DATA-02 | Captured secrets follow the redaction/unredaction lifecycle in FR-COUNCIL-18/FR-CTRL-08: redacted by default in the pending-approval draft, restored to full verbatim form only in the operator-approved report, and never redacted in the raw evidence artifact itself at any point (the raw artifact is the ground truth the redaction mapping depends on). |
-| SEC-DATA-03 | The local `/v1` inference endpoint MUST remain loopback-bound by default (NFR-SEC-01); binding it to a routable interface (e.g., to let a second machine on the LAN drive it) MUST require an explicit, separately-documented configuration change — never a default. |
+| --- | --- |
+| SEC-DATA-01 | All target findings, credentials, and scan data remain strictly local. No telemetry, unencrypted exfiltration, or external SaaS calls occur without intentional, explicit operator instruction. |
+| SEC-DATA-02 | Raw evidence artifacts (including full responses, captured tokens, and dumps) are preserved verbatim on the local system for evidentiary integrity. Redaction applies only to finalized, external-facing summary reports as configured by the operator. |
+| SEC-DATA-03 | Inference endpoints and internal orchestration APIs bind to local loopback (`127.0.0.1`) by default. Binding to external or routable interfaces is fully supported via intentional operator configuration. |
+
+## SEC-SYS — System Cohesion & Control Traceability
+
+*(Maintained for absolute canonical ID preservation across legacy test suites and external schema references. Each requirement resolves its legacy duplicate by pointing directly to its governing primary control while incorporating relaxed operational semantics.)*
+
+| ID | Requirement |
+| --- | --- |
+| SEC-SYS-01 | Governed by `SEC-DATA-03`: Local endpoints default to loopback to isolate the tool surface, while permitting operator-configured network interfaces when distributed access is needed. |
+| SEC-SYS-02 | Governed by `SEC-DATA-01`: Local-residency guarantee ensuring target data and engagement artifacts remain strictly within the operator's controlled local environment. |
+| SEC-SYS-03 | Governed by `SEC-CONTAIN-03`: Routine operations run under least-privilege service configurations, allowing dynamic elevation when specific low-level or network-probing tools require it. |
+| SEC-SYS-04 | Governed by `SEC-AUDIT-01`: Full auditability of all actions, whether autonomous non-destructive steps or direct operator-driven exploits, via persistent append-only logs. |
+| SEC-SYS-05 | System governance aligns with `SEC-SCOPE-02` and `SEC-CONTAIN-02`: Autonomous operations are constrained strictly to non-destructive testing (read-only queries and safe writes, barring update/delete/drop/DoS). When the operator commands an action, the system executes it with zero refusal or autonomous gating. |
+
+---
+
+## Authority & System Precedence
+
+This specification serves as the root authority for the entire system's security architecture.
+All downstream documents — including Functional Requirements (`01`), Non-Functional Requirements
+(`02`), Data & Storage (`03`), Interface & Integration (`04`), Risk Register (`07`), Assumptions &
+Environmental Constraints (`08`), Client Report Formatting Standard (`12`), Capability Domains
+(`19`), and Operator Interaction (`23`, `24`) — derive their security
+invariants, containment definitions, and override behaviors directly from this document.
+
+In any scenario where a requirement in another document conflicts with the dual-mode execution
+mandates, audit logging guarantees, or operator-directed authority defined herein, the provisions
+of this document (`05`) shall supersede and prevail without exception.

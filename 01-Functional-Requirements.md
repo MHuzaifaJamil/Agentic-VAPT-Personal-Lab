@@ -1,260 +1,218 @@
 # Functional Requirements — Autonomous Agentic VAPT System
 
 Priority key (MoSCoW): **M** = Must have, **S** = Should have, **C** = Could have.
-Each requirement is traceable to a phase in the base architecture document
-(`Agentic VAPT Setup (HOME).md`, §3) and to a verification method in
-`09-Acceptance-Criteria-and-Test-Plan.md`.
+This document governs the phase-by-phase execution pipeline: operational workflows,
+execution order, council role deliverables, and state transition triggers. The pipeline
+implements a Dual-Mode Execution Architecture: Autonomous Mode enforces non-destructive
+testing boundaries (permitting read and safe verification writes while barring destructive
+mutations and DoS), whereas Operator-Directed Mode executes human instructions unconditionally
+with zero refusal. Gating and containment rationale are governed authoritatively by the
+Security Specification (`05`).
 
 ---
 
-## FR-PRE — Phase 0: Pre-Flight Self-Test (new; not in base document)
-
-The base document begins execution at "Phase 1: Environment & Memory Prep" and assumes
-every dependency already works. A pre-flight phase is required so failures surface
-before memory is committed or a target is touched.
+## FR-PRE — Phase 0: Pre-Flight Self-Test
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR-PRE-01 | The system MUST verify the inference engine (`llama.cpp`/`ollama`) is installed, its version recorded, and its process is not already running before Phase 1 starts. | M |
-| FR-PRE-02 | The system MUST verify the Intel Level Zero / SYCL / OpenCL runtime is present and can enumerate the Arc iGPU before committing to GPU-offloaded inference; on failure it MUST fall back to a documented CPU-only inference mode rather than fail silently. | M |
-| FR-PRE-03 | The system MUST verify each of the 5 council model files exists at its expected path and quantization, with a checksum or file-size sanity check, before Phase 4 is entered. | M |
-| FR-PRE-04 | The system MUST verify presence of every Tier 1 wrapped tool binary (`nmap`, `masscan`, `nuclei`, `ffuf`, `feroxbuster`, `gobuster`, `sqlmap`, `nikto`, `whatweb`, `wafw00f`, `testssl`) and record installed version strings to the state store. | M |
-| FR-PRE-05 | The system MUST verify the NVMe artifact path (`/home/mhj/.local/share/vapt_agent/artifacts/`) exists, is writable, and is not itself a `tmpfs` mount. | M |
-| FR-PRE-06 | The system MUST record current available RAM, swap utilization, and disk free space as a pre-flight baseline snapshot in the state database before Phase 1 hibernation actions begin. | M |
-| FR-PRE-07 | Pre-flight MUST produce a single pass/fail report; any failed check MUST block progression to Phase 1 unless the operator explicitly overrides with a logged justification. | M |
-| FR-PRE-08 | **(New, confirmed — resolves critical-analysis finding C-05)** Pre-flight MUST run a one-time GPU-offload benchmark: load the smallest council model via the Local Engine Client, run the same short fixed-size inference **twice** — once with SYCL/Level-Zero offload requested, once forced CPU-only — and measure tokens/sec for each. **(Confirmed bar: relative, not a fixed number)** if offload fails outright, or its measured tok/s does not exceed the CPU-only measurement from the same benchmark, the **entire engagement** MUST be flagged to run CPU-only from the start (not discovered piecemeal mid-Phase-4 per model). This result (including both measured values) MUST be recorded in `engagement_phase_log` so every subsequent phase-latency expectation in `02-NonFunctional-Requirements.md` is read against the correct (GPU vs. CPU-only) baseline. | M |
+| FR-PRE-01 | Verify the inference engine is installed, version recorded, not already running, before Phase 1. | M |
+| FR-PRE-02 | Verify the Level Zero/SYCL/OpenCL runtime can enumerate the Arc iGPU; fall back to documented CPU-only mode on failure, never fail silently. | M |
+| FR-PRE-03 | Verify each council model file exists at its expected path/quantization (checksum or size check) before Phase 4. | M |
+| FR-PRE-04 | Verify presence of every Tier 1 tool binary; record installed versions to the state store. | M |
+| FR-PRE-05 | Verify the NVMe artifact path exists, is writable, and is not a `tmpfs` mount. | M |
+| FR-PRE-06 | Record RAM/swap/disk-free as a pre-flight baseline snapshot before Phase 1 hibernation begins. | M |
+| FR-PRE-07 | Pre-flight produces one pass/fail report; any failure blocks Phase 1 unless the operator overrides with a logged justification. | M |
+| FR-PRE-08 | One-time GPU-offload benchmark: run the same fixed inference with SYCL offload and forced CPU-only, compare tok/s. If offload fails or doesn't beat CPU-only, flag the **entire engagement** CPU-only from the start (not discovered mid-Phase-4). Record both measurements in `engagement_phase_log`. | M |
 
 ---
 
 ## FR-ENV — Phase 1: Environment, Storage & Memory Preparation
 
-Traces to base §Phase 1.
-
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR-ENV-01 | The system MUST redirect all agent-generated artifacts, logs, temp scripts, and cache/vector-store files to the designated NVMe path and MUST NOT write working data to `tmpfs`-backed `/tmp`. | M |
-| FR-ENV-02 | The system MUST set `TMPDIR`/`TEMP`/`TMP` for its own process tree (and any subprocess it spawns) to the NVMe artifact path. | M |
-| FR-ENV-03 | The system MUST enumerate active user-session GUI processes and classify each as "hibernation-eligible" or "protected" against an explicit denylist (`systemd`, `dbus`, `Xorg`/`Wayland` compositor, session manager, audio server) before issuing any signal. | M |
-| FR-ENV-04 | The system MUST NOT send `SIGSTOP` to any process holding an open file lock on unsaved user document state — this is an unconditional check, not one the operator can waive at runtime (consistent with FR-ENV-06's no-prompt design: safety here comes from the check itself, not from asking). | M |
-| FR-ENV-05 | The system MUST record the full PID list and process tree of every application it suspends, in a form sufficient to reverse the action deterministically in Phase 5. | M |
-| FR-ENV-06 | **(Confirmed, resolves the interactive-prompt/unattended-design contradiction)** No runtime confirmation prompt is required before the first `SIGSTOP` — invoking `start` (IR-CTRL-03) **is** the operator's consent to run the whole pipeline, including application hibernation, fully non-interactively. The list of applications suspended MUST still be logged (FR-ENV-05) for after-the-fact review, but the system MUST NOT block on any interactive confirmation at this or any other point in the 12-hour unattended session. | M |
-| FR-ENV-07 | The system SHOULD trigger kernel-level memory reclamation (`process_madvise(MADV_PAGEOUT)` or cgroup memory limits) on suspended PIDs to accelerate the RAM headroom gain, but MUST NOT do so on any protected process. **(Note, resolves critical-analysis finding C-15)** `process_madvise(MADV_PAGEOUT)` requires elevated capabilities (`CAP_SYS_PTRACE`/`CAP_SYS_NICE`) that the least-privileged agent process (NFR-SEC-03) does not hold — see FR-ENV-13 for how this call is actually made without violating least-privilege. | S |
-| FR-ENV-08 | The system MUST re-measure available RAM after hibernation and MUST abort progression to Phase 2 if the resulting headroom is below the minimum required for the smallest council model (~3.8 GB) plus a safety margin (see NFR-RES-02). | M |
-| FR-ENV-09 | The system MUST initialize the SQLite state store with, at minimum, the tables `targets`, `scope_rules`, `rules_of_engagement`, `attack_paths`, `task_queue`, `tool_execution_logs`, `verified_vulnerabilities`, `model_invocation_logs`, and `engagement_state` (full schema in `03-Data-and-Storage-Requirements.md`) before Phase 2 begins. | M |
-| FR-ENV-10 | If the state database already exists with an engagement marked `IN_PROGRESS` or `PAUSED`, the system MUST offer to resume that engagement rather than silently overwrite it. | M |
-| FR-ENV-11 | **(MUST, per critical-analysis finding C-01 and operator decision)** Before triggering the memory-reclamation step that increases system-wide memory pressure (FR-ENV-07), the system MUST lower OOM-kill priority for every suspended PID it recorded in FR-ENV-05 to a confirmed value of **`oom_score_adj = -900`** (near-minimum, not `-1000`, so it remains theoretically killable only under truly extreme pressure), so that hibernated applications are the *last* candidates the kernel's OOM killer would select — correspondingly, the agent's own inference/tool-subprocess trees are the *more* eligible candidates by comparison, meaning the design deliberately prefers losing recoverable scan progress over a user's unsaved workspace state. | M |
-| FR-ENV-12 | The system MUST verify, after hibernation, that every suspended PID is still alive (not reaped by the OOM killer despite FR-ENV-11); if any were killed, this MUST be logged and reported to the operator, and the "hibernation complete" state MUST reflect a partial/degraded outcome rather than full success. | M |
-| FR-ENV-13 | **(New, confirmed — resolves critical-analysis finding C-15)** The `SIGSTOP`/`oom_score_adj`/`process_madvise` operations in FR-ENV-01..12 MUST be performed by a narrow, single-purpose, audited helper process (e.g. `vapt-freezer-helper`) granted only the specific Linux capability it needs (`setcap cap_sys_ptrace+ep`) or invoked via an equivalently narrow `sudoers`/polkit rule — the main agent process itself MUST NOT run with any elevated capability or as root. If the helper or capability grant is unavailable at runtime, the system MUST fall back to cgroup v2 memory limits (`memory.high`/`memory.reclaim`) for reclamation rather than silently skip it. | M |
-| FR-ENV-14 | **(New, confirmed — resolves critical-analysis finding C-16)** The hibernation guarantee covers **process memory and in-memory UI state** (open tabs, unsaved form text, application state) — it does NOT guarantee network/session continuity. The system MUST document, in any operator-facing status/report output, that resumed applications may show reconnect prompts or silently re-negotiate expired sessions, and that this is expected behavior outside the hibernation mechanism's control, not a defect. | M |
+| FR-ENV-01 | Redirect all agent artifacts/logs/temp files to the NVMe path; MUST NOT write working data to `tmpfs`-backed `/tmp`. | M |
+| FR-ENV-02 | Set `TMPDIR`/`TEMP`/`TMP` to the NVMe path for the agent process tree and any subprocess. | M |
+| FR-ENV-03 | Enumerate active GUI processes; classify each "hibernation-eligible" or "protected" against a fixed denylist (`systemd`, `dbus`, compositor, session manager, audio server) before any signal. | M |
+| FR-ENV-04 | MUST NOT `SIGSTOP` a process holding an open file lock on unsaved document state — unconditional, not operator-waivable. | M |
+| FR-ENV-05 | Record the full PID/process-tree of every suspended application, sufficient to reverse deterministically in Phase 5. | M |
+| FR-ENV-06 | No runtime confirmation prompt before the first `SIGSTOP` — invoking `start` is the operator's consent for the whole non-interactive pipeline. Suspended-app list still logged (FR-ENV-05). | M |
+| FR-ENV-07 | SHOULD trigger `process_madvise(MADV_PAGEOUT)`/cgroup reclamation on suspended PIDs; MUST NOT touch protected processes. Requires elevated capability the main process doesn't hold — see FR-ENV-13. | S |
+| FR-ENV-08 | Re-measure available RAM after hibernation; abort progression to Phase 2 if headroom is below the smallest model's requirement plus the fixed safety margin. | M |
+| FR-ENV-09 | Initialize the SQLite state store before Phase 2 begins. | M |
+| FR-ENV-10 | An existing `IN_PROGRESS`/`PAUSED` engagement is offered for resume, never silently overwritten. | M |
+| FR-ENV-11 | Before the memory-reclamation step, lower OOM-kill priority for every suspended PID to `oom_score_adj = -900` (not `-1000`) — hibernated apps are the *last* OOM-kill candidate; the agent's own processes are more eligible by comparison. | M |
+| FR-ENV-12 | Verify every suspended PID is still alive post-hibernation; log and report any OOM casualty, and mark the outcome partial/degraded, not full success. | M |
+| FR-ENV-13 | `SIGSTOP`/`oom_score_adj`/`process_madvise` MUST run via a narrow, single-purpose helper (`vapt-freezer-helper`) granted only the specific capability needed (`setcap cap_sys_ptrace+ep`) — the main agent process MUST NOT hold elevated capability. Fall back to cgroup v2 limits if the helper/capability is unavailable, never silently skip. | M |
+| FR-ENV-14 | The hibernation guarantee covers process memory/UI state only, not network/session continuity — resumed apps may show reconnect prompts; this is expected, documented behavior, not a defect. | M |
 
 ---
 
 ## FR-GATE — Phase 2: Local Inference Gateway
 
-Traces to base §Phase 2.
-
-**Confirmed engine decision (resolves critical-analysis finding C-13):**
-`llama.cpp --server` is the primary production inference engine, using its native
-oneAPI/SYCL backend for direct Intel Arc iGPU acceleration. Because raw
-`llama.cpp --server` does not natively provide Ollama-style `keep_alive` hot-swap
-semantics, model lifecycle (load/unload) MUST be implemented as explicit
-controller-level process termination and respawn (or, if a future `llama.cpp` version
-exposes a multi-model management API, via that API) — never assumed as a built-in
-engine feature. All engine interaction MUST be abstracted behind a unified
-**Local Engine Client** interface so `ollama` can be substituted as an interchangeable
-backend later, contingent on independently verifying its Intel SYCL/Level-Zero
-support at deployment time (per finding C-05).
+**Engine:** `llama.cpp --server`, native SYCL backend. No `keep_alive` hot-swap
+exists in raw `llama.cpp` — load/unload is explicit process spawn/terminate via the
+**Local Engine Client** interface, abstracted so `ollama` can substitute later.
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR-GATE-01 | The system MUST expose a single local, loopback-only OpenAI-compatible endpoint (`127.0.0.1:11434/v1`) for chat completions and embeddings; it MUST NOT bind to a non-loopback interface by default. | M |
-| FR-GATE-02 | The system MUST enforce a hard single-model-residency policy: at most one council model may hold weights in RAM/VRAM at any instant. A request to load a second model MUST first fully unload the resident one and confirm the unload before proceeding. | M |
-| FR-GATE-03 | The system MUST pin inference compute threads to the 4 Performance-Core / 8-thread group (`-t 8`) and MUST leave Efficient Cores free for subprocess/tool execution and I/O. | M |
-| FR-GATE-04 | The system MUST attempt GPU offload via the Level Zero/SYCL backend to the Arc iGPU and MUST fall back to CPU-only inference (logged as a degraded-mode event) if the backend is unavailable, rather than fail the engagement. | M |
-| FR-GATE-05 | The system MUST tear down (evict weights + KV cache) each model within a bounded time window after its phase step completes (`keep_alive: 0` or equivalent), and MUST verify the eviction actually freed memory before declaring the phase step complete. | M |
-| FR-GATE-06 | The system MUST log every inference call (model, role, prompt token count, completion token count, wall-clock latency, phase/step ID) to `model_invocation_logs`. | M |
-| FR-GATE-07 | The system MUST enforce per-model context window ceilings matching each model's documented profile (8k for `DeepSeek-R1-0528-Qwen3-8B` / `Hermes-3-Llama-3.1-8B` (per C-03's revised resolution, decision #55) / `Mistral-7B-Instruct-v0.3`; 16k for `Qwen2.5-Coder-7B-Instruct` and `Ministral-8B-Instruct-2410`; 4k for `Qwen2.5-Coder-3B-Instruct`) and MUST truncate/summarize inputs rather than silently error on overflow. *(Reporter's 16k ceiling is a judgment call, not separately confirmed by the operator — matched to the Operator's context class since report synthesis can involve multiple findings' worth of evidence, more than the single-shot 8k roles handle. Flagged as such rather than silently assumed.)* | M |
-| FR-GATE-08 | If the inference engine process crashes or becomes unresponsive (no token progress within a configurable timeout), the system MUST detect this, log it, attempt one restart, and escalate to a halted/`PAUSED` engagement state on repeated failure rather than hang indefinitely. | M |
-| FR-GATE-09 | The system MUST implement model load/unload exclusively through the Local Engine Client abstraction (process spawn/terminate for `llama.cpp`, or the equivalent native call for a substituted backend), and MUST verify complete OS-level process termination — not merely an API-level "unloaded" acknowledgment — before considering a model's memory reclaimed for the purposes of FR-GATE-05. | M |
-| FR-GATE-10 | **(New, confirmed — resolves critical-analysis finding C-18)** After `waitpid` confirms the outbound model process has exited (FR-GATE-09), the system MUST poll `/proc/meminfo`'s `MemAvailable` field and MUST NOT spawn the inbound model process until available memory has rebounded past the NFR-RES-02 safety threshold (baseline + 1.5 GB margin). This poll is bounded to **5 seconds**; if the threshold isn't met within that window, the system MUST raise a degraded-swap alert (consistent with NFR-PERF-02) rather than spawn into an already-tight memory state. | M |
+| FR-GATE-01 | Expose a single loopback-only OpenAI-compatible endpoint (`127.0.0.1:11434/v1`); MUST NOT bind non-loopback by default. | M |
+| FR-GATE-02 | Hard single-model-residency: at most one council model resident at any instant; loading a second requires the first fully unloaded and confirmed first. | M |
+| FR-GATE-03 | Pin inference threads to the 4 P-Core/8-thread group; leave E-Cores free for subprocess/tool execution. | M |
+| FR-GATE-04 | Attempt SYCL GPU offload; fall back to CPU-only (logged degraded) if unavailable, rather than failing the engagement. | M |
+| FR-GATE-05 | Evict weights+KV cache within a bounded window after each phase step; verify freed memory before declaring the step complete. | M |
+| FR-GATE-06 | Log every inference call (model, role, token counts, latency, phase/step ID) to `model_invocation_logs`. | M |
+| FR-GATE-07 | Enforce per-model context ceilings: 8k (DeepSeek-R1-0528-Qwen3-8B / Hermes-3-Llama-3.1-8B / Mistral-7B-Instruct-v0.3), 16k (Qwen2.5-Coder-7B-Instruct / Ministral-8B-Instruct-2410), 4k (Qwen2.5-Coder-3B-Instruct). Truncate/summarize on overflow, never silently error. | M |
+| FR-GATE-08 | Detect engine crash/unresponsiveness (no token progress within a timeout); attempt one restart, escalate to `PAUSED` on repeated failure. | M |
+| FR-GATE-09 | Model load/unload exclusively via the Local Engine Client; `unload` MUST verify complete OS-level process exit (`waitpid`), not just an API ack. | M |
+| FR-GATE-10 | After confirmed exit, poll `/proc/meminfo` `MemAvailable` and MUST NOT spawn the next model until it clears the documented minimum-headroom threshold. Bounded to 5s; raise a degraded-swap alert on timeout rather than spawn into a tight memory state. | M |
 
 ---
 
 ## FR-TOOL — Phase 3: Security Framework & Kali Tool Bridge
 
-Traces to base §Phase 3.
-
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR-TOOL-01 | The system MUST provide structured, schema-validated function-calling wrappers ("Tier 1") for each of: `nmap`, `masscan`, `nuclei`, `ffuf`, `feroxbuster`, `gobuster`, `sqlmap`, `nikto`, `whatweb`, `wafw00f`, `testssl`. | M |
-| FR-TOOL-02 | Each Tier 1 wrapper MUST declare, in machine-readable form, its allowed flags, required arguments, and forbidden flag combinations (e.g., destructive `sqlmap --os-shell`) so the linter (FR-COUNCIL) can validate against it. | M |
-| FR-TOOL-03 | **(Confirmed mechanism, resolves critical-analysis finding C-12)** The system MUST provide a generic Tier 2 dynamic bridge (`run_security_command`) implementing a **path-restricted dynamic allowlist**: any binary that resolves to a real file inside `/usr/bin/`, `/usr/sbin/`, or `/opt/` (the installation locations covering the full `kali-linux-everything` toolset) is eligible for execution. Within this scope, execution is **fully autonomous and non-blocking** — no per-binary operator approval is required — which is the mechanism that makes the unattended 12-hour autonomous operation in FR-COUNCIL-11 viable. A binary resolving outside these three paths MUST be refused. | M |
-| FR-TOOL-04 | All external tool invocation MUST use non-shell subprocess execution (`shell=False`) with explicit argument vectors; string-interpolated shell commands MUST NOT be constructed from model output. | M |
-| FR-TOOL-04a | **(New, confirmed — resolves critical-analysis finding C-19)** Every subprocess MUST be spawned in its own new session (`subprocess.Popen(..., start_new_session=True)`) so it heads its own process group. Without this, a tool that spawns worker sub-processes (e.g. `nmap`, `hydra`) could leave orphaned children running after the kill-switch acts on only the recorded parent PID — silently violating the 20-second kill-switch SLA (NFR-REL-04, SEC-KILL-01). | M |
-| FR-TOOL-05 | Every subprocess invocation MUST have a mandatory timeout after which the process tree is terminated. The timeout value is not a flat default — it is determined by the tiered timeout classes confirmed in `IR-TOOL-03` (Quick Probes 180s / Targeted Scans 900s / Deep-Full-Range 1800s), resolving critical-analysis finding C-08. | M |
-| FR-TOOL-06 | **(Confirmed mechanism)** Even for binaries within the allowed-path scope (FR-TOOL-03), the bridge MUST reject a candidate invocation if it matches any of: (a) a shell builtin or shell-invocation wrapper; (b) an inline-interpreter/eval invocation (e.g., `python`/`python3 -c`, `bash`/`sh -c`, `perl -e`, `ruby -e`, `node -e`, and equivalents) — these execute arbitrary, unauditable code and defeat the whole point of path-restriction; (c) any file write/delete/rename operation whose target path resolves outside the designated NVMe artifact path; (d) a fixed denylist of destructive utilities/patterns (`rm`, `dd`, `mkfs`, `shred`, fork-bomb patterns, disk-wiping utilities); or (e) any target address/host resolving to `127.0.0.1`/loopback/host-local addresses outside the declared scope. A match on any of (a)–(e) MUST cause the bridge to refuse execution, regardless of the calling binary's own location. | M |
-| FR-TOOL-06a | **(New, confirmed — resolves critical-analysis finding C-14)** The Tier 2 bridge MUST classify every candidate binary against three curated high-risk categories, each gated by its own opt-in flag: `--allow-brute-force` (`hydra`, `medusa`, `ncrack`, `patator`, `crowbar`, `ophcrack`, `hashcat`, `john`, `cewl`, `thc-pptp-bruter`); `--allow-active-exploitation` (`msfconsole`, `msfvenom`, `msfdb`, all `impacket-*` scripts, `evil-winrm`, `commix`, `beef-xss`, `routersploit`, `ysoserial`); `--allow-lateral-movement` (`crackmapexec`, `netexec`, `responder`, `bloodhound-python`, `sharphound`, `mitm6`, `ldapdomaindump`, `kerbrute`, and Rubeus-equivalent tooling). A binary on one of these lists MUST NOT execute unless its category's flag is currently enabled for the engagement. A binary matching none of the three lists is **unaffected** by this requirement and remains governed solely by FR-TOOL-03/FR-TOOL-06 (fully autonomous, path-allowlist + behavioral-denylist only). | M |
-| FR-TOOL-06b | If a task's resolved binary matches a high-risk category whose flag is not currently enabled, the bridge MUST reject that specific task with a `POLICY_REFUSED` status and a stated reason naming the missing flag, log it per IR-BRIDGE-04, and the task-queue loop MUST autonomously continue to the next task — this rejection MUST NOT pause or freeze the engagement. | M |
-| FR-TOOL-06c | The three opt-in flags MUST be settable at `start` (IR-CTRL-03) and MUST be independently updatable via `resume` (FR-CTRL-03). A flag change made via `resume` takes effect only for tasks generated after that point; it MUST NOT retroactively re-evaluate tasks already executed or already queued before the change, and every flag change MUST be recorded with a timestamp for audit purposes (see `engagement_flag_history`, `03-Data-and-Storage-Requirements.md`). | M |
-| FR-TOOL-07 | The system MUST sanitize raw stdout/stderr from every tool run through a parsing pipeline that extracts structured signal (open ports, banners, URLs, status codes) and discards HTML bodies, repetitive 404 noise, and binary payloads before the data enters any model's context window. | M |
-| FR-TOOL-08 | The system MUST persist the full, unsanitized raw output of every tool run to the NVMe artifact store regardless of what is summarized into context, so evidence is not lost to summarization. | M |
-| FR-TOOL-09 | The system MUST record, for every subprocess execution, the exact argument vector, start/end timestamps, exit code, and originating task ID in `tool_execution_logs`. | M |
-| FR-TOOL-10 | The system SHOULD extract and expose Burp Suite / Caido MCP server configurations and structured multi-turn assessment prompt templates as reusable methodology assets, without requiring them to be installed at planning time. | S |
-| FR-TOOL-11 | The system MUST support pointing `claude-bug-bounty`, `CyberStrike`, and `strix` at the local endpoint via `OPENAI_BASE_URL`/`OPENAI_API_KEY`/`ANTHROPIC_BASE_URL` environment overrides, without hardcoding cloud endpoints anywhere in the bridge. | S |
-| FR-TOOL-12 | **(MUST, per critical-analysis finding C-04 and operator decision)** All content originating from a scanned target (HTTP response bodies, headers, banners, page titles, DNS TXT records, any tool stdout derived from live target interaction) MUST be wrapped in the fixed provenance tag **`<tool_output_untrusted>...</tool_output_untrusted>`** before being placed into any model's context. Every council model's system-level instructions MUST state that content inside these tags is data to be analyzed, never instructions to be followed, and this instruction-hierarchy rule MUST be applied uniformly to the Strategist, Operator, Gatekeeper, and Adjudicator roles alike. | M |
-| FR-TOOL-13 | The system SHOULD run a lightweight heuristic check over sanitized tool output before context ingestion, flagging suspected injection attempts in `tool_execution_logs` for later audit, independent of the tagging defense in FR-TOOL-12 (defense in depth — detection does not replace containment). **(Pattern list revised, resolves critical-analysis finding C-31)** The check MUST include, beyond plain-English phrasing ("ignore previous instructions," "system prompt," role-switch markers): (a) invisible/non-printing Unicode characters, specifically the Unicode Tag block (`U+E0000`-`U+E007F`) used for ASCII-smuggling instructions invisible to a human reviewer; (b) MCP tool-description "line jumping" patterns (instruction-like text embedded in a tool's own description/metadata field rather than its output); (c) common split/obfuscated-instruction patterns (base64 blocks adjacent to instruction-like context, character-by-character or zero-width-joined spellings of trigger phrases). This remains detection-only, SHOULD-level, and does not replace IR-SANITIZE-02/03's containment — a model that ignores the instruction-hierarchy clause despite an undetected pattern is still safe; a model that obeys an undetected pattern is still unsafe regardless of this check's presence. | S |
-| FR-TOOL-14 | **(New, confirmed — resolves `17-Standalone-Engine-Reuse-and-Comparison.md`/critical-analysis finding C-28)** The bridge MUST enforce a per-target rate limit on how fast it spawns new tool invocations: **10 invocations/second** for tools outside the three high-risk opt-in categories (FR-TOOL-06a), **1 invocation/second** for tools inside any of them. A spawn that would exceed the applicable limit MUST be queued/delayed, not rejected. Where a Tier 1 tool exposes its own internal rate-limiting flag (e.g. `ffuf -rate`, `nuclei -rate-limit`), the wrapper SHOULD also pass an equivalent value so the tool's own internal request pacing respects the same cap — a SHOULD, not a MUST, since not every tool exposes such a control. | M |
-| FR-TOOL-15 | **(New, confirmed — mined from `Actual-Setup/docs/auth-sessions.md`, a "fetch everything" follow-up sweep)** Where an engagement configures authenticated-target credentials (a cookie, bearer token, API key, or custom header set), the bridge MUST propagate that single configured credential set to every Tier 1/Tier 2 tool invocation automatically via environment variables — an Operator-generated command MUST NOT need to restate or re-derive credentials per tool call. The system MUST log a `sha256(credential_material)[:12]`-style hash for audit correlation (so two log entries can be confirmed to have used the same session without re-deriving which one) and MUST NOT log the raw credential value anywhere, including `tool_execution_logs`. For IDOR/privilege-escalation testing requiring two distinct identities (e.g. a low-privilege and a high-privilege session), the system MUST support registering both as named, separately-referenced credential sets rather than one shared value the Operator has to manually swap. | M |
+| FR-TOOL-01 | Provide schema-validated Tier 1 wrappers for: `nmap`, `masscan`, `nuclei`, `ffuf`, `feroxbuster`, `gobuster`, `sqlmap`, `nikto`, `whatweb`, `wafw00f`, `testssl`, `script_runner` (`FR-TOOL-16`). | M |
+| FR-TOOL-02 | Each Tier 1 wrapper declares recognized flags, required arguments, and execution profiles machine-readably for Gate 2 validation. In Autonomous Mode, destructive capabilities (such as direct file wipes, database alters, drops, deletes, updates, or DoS triggers) are blocked to maintain non-destructive testing. In Operator-Directed Mode, all wrapper flag restrictions and parameter suppressions stand down completely to execute the exact requested parameters. | M |
+| FR-TOOL-03 | Tier 2 dynamic bridge (`run_security_command`): eligible binary MUST resolve (invocation path, not symlink target) inside `/usr/bin/`, `/usr/sbin/`, or `/opt/`; execution within scope is fully autonomous, no per-binary approval. | M |
+| FR-TOOL-04 / 04a | Non-shell execution (`shell=False`, explicit argv) — no model output ever becomes a shell string; every subprocess spawns in its own session (`start_new_session=True`) so the kill-switch can reach its whole process group. | M |
+| FR-TOOL-05 | Every subprocess has a mandatory timeout: Quick Probes 180s / Targeted Scans 900s / Deep-Full-Range 1800s. | M |
+| FR-TOOL-06 | Tier 2 behavioral boundaries enforce the dual-mode policy: In Autonomous Mode, actions MUST NOT perform state destruction (strictly prohibiting DROP, DELETE, ALTER, UPDATE, rm, mkfs, dd, shred, fork-bombs, or DoS/resource-exhaustion tools). Safe reads (GET/SELECT) and non-destructive writes (POST) are permitted. In Operator-Directed Mode, behavioral denylists stand down entirely, executing the requested command chain as instructed. | M |
+| FR-TOOL-06a | High-risk testing categories (brute-force, active exploitation, lateral movement) run autonomously when enabled via runtime flags or profile configuration. When dispatched directly by the operator via manual directive or console dispatch, these tasks execute immediately without requiring pre-set opt-in flags. | M |
+| FR-TOOL-06b | In Autonomous Mode, an unconfigured high-risk task is marked DEFERRED and the engine continues discovery along alternative non-destructive paths. Any high-risk directive initiated or requested by the operator executes immediately with zero refusal. | M |
+| FR-TOOL-06c | The three flags are settable at `start`, independently updatable at `resume`; a change applies only to tasks generated after it, and is timestamped in `engagement_flag_history`. | M |
+| FR-TOOL-07 | Sanitize raw stdout/stderr into structured signal (ports, banners, URLs, status codes); discard HTML/repetitive-404/binary noise before it reaches model context. | M |
+| FR-TOOL-08 | Persist full unsanitized raw output to the artifact store regardless of what's summarized — evidence is never lost to summarization. | M |
+| FR-TOOL-09 | Record exact argv, timestamps, exit code, and task ID for every subprocess execution in `tool_execution_logs`. | M |
+| FR-TOOL-10 | SHOULD expose Burp Suite/Caido MCP configs and multi-turn assessment templates as reusable methodology assets. | S |
+| FR-TOOL-11 | Support pointing `claude-bug-bounty`/`CyberStrike`/`strix` at the local endpoint via env-var overrides, no code modification. | S |
+| FR-TOOL-12 | All target-derived content (banners, HTTP responses, tool logs) MUST be wrapped in boundary markers (<tool_output_untrusted>...</tool_output_untrusted>) prior to ingestion by model contexts to maintain context separation. | M |
+| FR-TOOL-13 | SHOULD run a lightweight heuristic injection-pattern detector over raw target output (telemetry and detection only, never blocking or interrupting execution). | S |
+| FR-TOOL-14 | Per-target spawn rate caps serve as anti-DoS and target stability guardrails during autonomous operations (default 10 invocations/s standard, 1/s high-volume). When running under direct operator instruction, rate limits are dynamically adjustable or bypassable up to system/network capacity upon operator demand. | M |
+| FR-TOOL-15 | Configured target credentials propagate automatically to every Tier 1/Tier 2 call via env vars; only a `sha256(...)[:12]` correlation hash is logged, never the raw credential. Two distinct identities (low/high-privilege) are registrable as separate named sets. | M |
+| FR-TOOL-16 | `script_runner`: the only path for executing a linter-approved multi-line script — `{script_body, interpreter, workspace_subdir}`, never an inline `-c`/`-e` string (does not reopen `FR-TOOL-06(b)`). `workspace_subdir` MUST resolve inside the artifact path; the script MUST pass the offline linter (`FR-COUNCIL-09a`) first; runs as `<interpreter> <file>` under the Targeted-Scans (900s) timeout tier. | M |
 
 ---
 
 ## FR-COUNCIL — Phase 4: State-Driven Council Execution
 
-Traces to base §Phase 4, Steps 4.1–4.3, and §2 model profiles.
-
 ### 4.1 Strategic Planning & Scope Gate
 
-**Confirmed deviation from the base document's model roster (resolves critical-analysis
-finding C-03, later revised by decision #55):** Council Gate 1 is now a **two-tier
-gate**, not a single LLM call. The semantic tier's model has changed twice over this
-document set's history: base plan `Hermes-3-Llama-3.1-8B` → `Llama-3.1-8B-Instruct`
-(to restore intact refusal behavior) → **back to `Hermes-3-Llama-3.1-8B`** (`NousResearch`,
-`Q8_0`), reverted because `Llama-3.1-8B-Instruct` requires a Meta license/HF-gating
-step the operator does not hold, and because heavier refusal-tuning risked over-refusing
-standard, already-in-scope pentesting commands. The safety reasoning has shifted to
-match: **FR-COUNCIL-03a's deterministic pre-check, not this LLM tier, is the actual
-non-bypassable safety boundary** — the semantic tier's job is now a contextual/strategic
-sanity check on tasks that already passed FR-COUNCIL-03a, not a refusal backstop. This
-does partially reopen C-03's original concern for the narrower class of judgment
-FR-COUNCIL-03a cannot express in code (see `11`'s revised C-03 resolution and `10`'s
-Open Item C). `Mistral-7B-Instruct-v0.3` remains dedicated exclusively to Gate 3,
-unchanged, so scope-gating and false-positive triage never share a model (avoiding
-correlated evaluation failure between the two).
+Council Gate 1 is two-tier: Tier 0 (deterministic, every task) + Tier 1
+(`Hermes-3-Llama-3.1-8B`, contextual sanity-check).
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR-COUNCIL-01 | `DeepSeek-R1-0528-Qwen3-8B` MUST be loaded to ingest target scope, IP ranges, and Rules of Engagement from the state store and produce an ordered, hypothesis-driven attack-path task queue. | M |
-| FR-COUNCIL-02 | The Strategist's output MUST be a structured, parseable plan (task list with rationale) written to `attack_paths`/`task_queue`, not free-form prose only. | M |
-| FR-COUNCIL-03 | The Strategist model MUST be fully unloaded from RAM before the Gatekeeper model loads (single-residency, FR-GATE-02). | M |
-| FR-COUNCIL-03a | **(New, confirmed)** Before either tier of Council Gate 1 runs, every proposed task MUST first pass a **deterministic, non-LLM Python scope checker** — validating target CIDR/domain-regex membership against `scope_rules`, port-range boundaries, and a fixed denylist of destructive flags — with zero model dependence. This check MUST be non-bypassable: a rejection here is as final as a Gate 1 (LLM) rejection under FR-COUNCIL-06, and it runs unconditionally, **for every task regardless of `origin`** (`AUTONOMOUS_COUNCIL` or `MANUAL_OPERATOR`, `DR-SCHEMA-05`) — no configuration, and no task origin, can skip or weaken it. | M |
-| FR-COUNCIL-04 | `Hermes-3-Llama-3.1-8B` (Council Gate 1, semantic layer — runs only on tasks that already passed FR-COUNCIL-03a **and whose `origin` is `AUTONOMOUS_COUNCIL`**) MUST evaluate every proposed task against the declared scope boundaries (`scope_rules`) and MUST reject or flag-for-revision any task that: targets an address/domain outside scope, exceeds an authorized testing window, or exceeds the authorized intrusiveness level (see `05-Security...`). **A `MANUAL_OPERATOR`-origin task skips this tier entirely** — see `FR-INTERVENE-06a` (decision #63, `23`) for the bounded condition under which `origin` may hold that value and why. | M |
-| FR-COUNCIL-05 | Council Gate 1 decisions (from both the deterministic checker and the semantic layer — approve / revise / reject) and stated rationale MUST be persisted per task, not just a final aggregate verdict. For a `MANUAL_OPERATOR`-origin task, the semantic layer never runs, so only the deterministic checker's decision is persisted — `gate1_rationale` (`DR-SCHEMA-05`) reflects that explicitly rather than being left ambiguous about which tier acted. | M |
-| FR-COUNCIL-06 | A task that either **applicable** tier of Council Gate 1 rejects MUST NOT reach Phase 4.2 execution under any circumstance or configuration — scope rejection is a hard gate, not a soft one. For an `AUTONOMOUS_COUNCIL`-origin task both tiers apply; for a `MANUAL_OPERATOR`-origin task only FR-COUNCIL-03a's deterministic tier applies (FR-COUNCIL-04), and its rejection is exactly as final as either tier's would be for an autonomous task. | M |
+| FR-COUNCIL-01 | `DeepSeek-R1-0528-Qwen3-8B` ingests scope/IP-ranges/RoE and produces an ordered, hypothesis-driven task queue. | M |
+| FR-COUNCIL-02 | Strategist output is a structured, parseable plan (`attack_paths`/`task_queue`), not free-form prose. | M |
+| FR-COUNCIL-03 | Strategist fully unloads before the Gatekeeper loads (single-residency, FR-GATE-02). | M |
+| FR-COUNCIL-03a | Deterministic Tier 0 scope checker validates autonomous tasks against configured operational target boundaries to guide autonomous crawling. For MANUAL_OPERATOR-origin tasks, Tier 0 scope checks stand down completely: operator instructions execute unconditionally without boundary interception. | M |
+| FR-COUNCIL-04 | Tier 1 (Hermes-3-Llama-3.1-8B) evaluates task alignment and non-destructive adherence exclusively for AUTONOMOUS_COUNCIL-origin tasks. It is completely bypassed for any MANUAL_OPERATOR-origin task, ensuring the model never refuses, alters, or intercepts an operator's direct instructions. | M |
+| FR-COUNCIL-05 | Both tiers' decisions and rationale are persisted per task; an AUTONOMOUS_COUNCIL task logs both gate outcomes, while a MANUAL_OPERATOR task's rationale records direct operator dispatch with automated scope gates bypassed. | M |
+| FR-COUNCIL-06 | In Autonomous Mode, a task failing non-destructive or operational validation is rejected and logged without stopping the pipeline. In Operator-Directed Mode, manual tasks bypass Tier 0 and Tier 1 gates entirely and dispatch directly to Phase 4.2 execution without refusal. | M |
 
 ### 4.2 Tool Execution, Linting & Exploitation
 
-**Confirmed deviation from the base document (resolves critical-analysis finding
-C-09):** the base plan implied per-command alternation between the 7B Operator and
-the 3B Linter, which would incur a full model-swap cost on every generated command.
-Confirmed design instead: **zero model swapping inside the active loop.**
-`Qwen2.5-Coder-7B-Instruct` loads once and stays resident for the whole per-target
-task loop; Council Gate 2 (command/argument validation) is performed by a
-**deterministic, non-LLM Python validation layer**, not by `Qwen2.5-Coder-3B`.
-`Qwen2.5-Coder-3B` is reserved for offline, between-phase use only (FR-COUNCIL-09a) —
-this is consistent with the base document's own §4 resource-allocation table, which
-never actually lists a RAM/context row for the 3B linter during Phase 4.2.
+Zero model-swapping inside the active loop: `Qwen2.5-Coder-7B-Instruct` stays
+resident; Gate 2 is deterministic code, not `Qwen2.5-Coder-3B`.
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR-COUNCIL-07 | `Qwen2.5-Coder-7B-Instruct` MUST load once at the start of Phase 4.2 for a given engagement and remain resident (no per-command unload/reload) for the duration of the per-target task loop. It reads each Gate-1-approved task and formulates a concrete CLI invocation or exploit script consistent with the Tier 1/Tier 2 schemas in FR-TOOL. **(Revised, resolves critical-analysis finding C-24)** Its per-task context MUST include the engagement's current opt-in flag state (`allow_brute_force`/`allow_active_exploitation`/`allow_lateral_movement`) so it can avoid proposing a Tier 2 command it already knows will be `POLICY_REFUSED` (FR-TOOL-06b) — this is a waste-avoidance measure only; Tier 2 enforcement (FR-TOOL-06a) happens regardless of what the Operator believes. | M |
-| FR-COUNCIL-08 | **(Confirmed, resolves C-09)** Council Gate 2 MUST be a deterministic, non-LLM validation layer — argparse-style flag verifiers, regex command sanitizers, and the same declarative per-tool schema referenced in IR-TOOL-01/02 — evaluated synchronously with no model-load latency. It MUST return a specific rejection reason (never a silent pass) for any command violating the schema, and MUST NOT invoke `Qwen2.5-Coder-3B` as part of this per-command loop. | M |
-| FR-COUNCIL-09 | If the deterministic Gate 2 validator rejects a command, the already-resident `Qwen2.5-Coder-7B` MUST attempt to regenerate a corrected command using the rejection reason; if no valid command is produced after **3 attempts (confirmed)**, the task MUST be marked `BLOCKED` with the validator's rejection reason, not silently dropped or force-executed. | M |
-| FR-COUNCIL-09a | **(New, confirmed)** `Qwen2.5-Coder-3B` MUST NOT be loaded during the active Phase 4.2 per-command loop. It is reserved for **offline, between-phase** validation only — specifically, multi-line custom exploit script syntax checks (e.g., a generated Python/Bash script body) that exceed what the deterministic Gate 2 validator can evaluate via flags/regex/schema alone. | S |
-| FR-COUNCIL-10 | Following execution, the still-resident `Qwen2.5-Coder-7B` MUST evaluate parsed tool output and decide whether follow-on pivoting/secondary tasks are warranted, appending them to `task_queue` rather than acting outside the queue. | M |
-| FR-COUNCIL-10a | **(New — mined from the source project's `tools/lead_board.py` "route signal to skill" concept, a final completeness-sweep finding)** Now that this system covers 9+ extended capability domains (`19-Extended-Capability-Domains.md`) beyond general web/network VAPT, a follow-on task's target-type routing MUST be made explicit, not just implicit in whatever the Operator happens to propose: when a discovered signal clearly belongs to a different domain than the current task's `target_type` (e.g. a GraphQL endpoint discovered while testing a `NETWORK` target, or a smart-contract address referenced in recovered source), the follow-on task MUST be queued against the correct domain's own target type and requirement set (`FR-GRAPHQL`/`FR-WEB3`/etc.), not force-fit into the current task's domain. | S |
-| FR-COUNCIL-11 | The task-queue loop MUST be bounded by an **Autonomous Diminishing-Returns Threshold**, confirmed as: (a) a **per-target task cap** of 30 tasks — once a target hits this cap it is marked `CAPPED` and the loop moves on; (b) a **stuck/repetition circuit breaker** of 3 consecutive zero-yield tool runs against a target — once tripped the target is marked `CIRCUIT_BROKEN` and the loop moves on; and (c) a **global 12-hour wall-clock session budget** for the whole engagement. Hitting (a) or (b) MUST cause the loop to automatically pivot to the next queued target (no operator pause). Hitting (c) MUST automatically end Phase 4.2 for every remaining target and proceed directly to Phase 4.3 (reporting) and Phase 5 (hibernation exit) — not pause and wait. This is a deliberate no-pause design per operator decision; manual pause remains available at any time via FR-CTRL-02 regardless of these automatic thresholds. | M |
-| FR-COUNCIL-11a | **(New, confirmed — resolves critical-analysis finding C-17)** "Zero-yield" (used by the circuit breaker in FR-COUNCIL-11(b)) MUST NOT be defined as "non-empty stdout" or "exit code 0" — a noisy tool (`ffuf`, `gobuster`, `dirsearch`) hitting a wildcard/soft-404 catch-all can return hundreds of superficially successful responses containing no new information, which would otherwise reset the counter indefinitely. **Confirmed definition:** a tool run is "yielding" only if it causes at least one new row in the `discovered_entities` table (DR-SCHEMA-12) — a previously-unseen port, HTTP route, parameter name, or anomalous status-code pattern for that target. A run producing output but zero new `discovered_entities` rows counts toward the zero-yield circuit breaker. | M |
-| FR-COUNCIL-11b | **(New, confirmed — resolves critical-analysis finding C-27)** A **separate, failure-based circuit breaker** MUST also exist, distinct from FR-COUNCIL-11a's yield-based one: **3 consecutive tool-execution failures** against a target (network error or timeout — `tool_execution_logs.network_error`/`timeout_hit`, not merely a zero-yield success) trips it, marking the target `UNREACHABLE` (a status distinct from `CIRCUIT_BROKEN`, so the audit trail can tell "unproductive" apart from "unreachable") and auto-pivoting to the next queued target, consistent with FR-COUNCIL-11's no-pause design. A single successful (non-failure) execution resets this counter independently of the yield-based one. | M |
-| FR-COUNCIL-12 | **(Revised — fixes a ripple-through gap from FR-COUNCIL-11b/finding C-27)** The Operator model (`Qwen2.5-Coder-7B`) MUST be fully unloaded only when Phase 4.2 ends for the entire engagement — every target reaching `COMPLETE`/`CAPPED`/`CIRCUIT_BROKEN`/`UNREACHABLE`, or the global 12-hour budget triggering transition to Phase 4.3 — not per-task or per-target, since it now remains resident for the whole task-queue loop per FR-COUNCIL-07. | M |
+| FR-COUNCIL-07 | Operator loads once at Phase 4.2 start, stays resident for the whole per-target loop; its per-task context includes current opt-in-flag state (waste-avoidance only — enforcement is at FR-TOOL-06a regardless). | M |
+| FR-COUNCIL-08 | Gate 2 provides deterministic schema and parameter validation. In Autonomous Mode, it enforces non-destructive boundaries (blocking SQL data mutations like UPDATE/DELETE/DROP and system-level wipes). In Operator-Directed Mode, Gate 2 validates syntax format only and does not restrict or reject operator-approved commands or payloads; never invokes `Qwen2.5-Coder-3B`. | M |
+| FR-COUNCIL-09 | On rejection, the Operator regenerates up to 3 attempts; beyond that, the task is `BLOCKED` with the rejection reason — never dropped or force-executed. | M |
+| FR-COUNCIL-09a | `Qwen2.5-Coder-3B` loads only offline, between phases, for multi-line script syntax checks. A passing script becomes eligible for `script_runner` (FR-TOOL-16). | S |
+| FR-COUNCIL-10 | The resident Operator evaluates output and appends any follow-on task to `task_queue` — never acts outside the queue. | M |
+| FR-COUNCIL-10a | A follow-on signal belonging to a different domain (`target_type`) is queued against that domain's own requirement set, not force-fit into the current task's domain. | S |
+| FR-COUNCIL-11 | Task-queue loop bound: 30-task-per-target baseline cap (CAPPED), 3-consecutive-zero-yield circuit breaker (CIRCUIT_BROKEN), and 12-hour default session budget protect unattended autonomous runs from resource runaway. In Autonomous Mode, reaching limits triggers an auto-pivot to the next target or transition to Phase 4.3. In Operator-Directed Mode, task caps and session limits stand down or dynamically adjust to operator demands. | M |
+| FR-COUNCIL-11a | "Zero-yield" = no new discovered_entities row, preventing unattended execution from spinning on repetitive output. Two class-aware counters (STANDARD threshold 3, HIGH_ATTEMPT threshold 15 default) guide autonomous progression. Counters apply to autonomous task cycling and do not restrict explicit operator-dispatched actions. | M |
+| FR-COUNCIL-11b | Failure-based circuit breaker: 3 consecutive network-error/timeout runs marks a target UNREACHABLE during autonomous crawling, pivoting resources to viable targets. Operator-dispatched tasks can re-target marked hosts at any time to verify connectivity. | M |
+| FR-COUNCIL-12 | Operator unloads only when Phase 4.2 ends for the whole engagement (every target terminal, or the 12h budget hit) — never per-task/per-target. | M |
 
 ### 4.3 Evidence Adjudication & Reporting
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR-COUNCIL-13 | `Mistral-7B-Instruct-v0.3` (Council Gate 3) MUST independently assess every candidate finding against its raw evidence (HTTP dumps, headers, status codes, tool exit codes) and mark each `CONFIRMED` or `DISMISSED` with a stated reason. | M |
-| FR-COUNCIL-14 | Gate 3 MUST explicitly check for and dismiss common false-positive patterns: WAF block pages, rate-limit responses, generic 5xx errors, and honeypot/canary responses, before a finding can reach `CONFIRMED`. | M |
-| FR-COUNCIL-14a | **(New, confirmed — resolves `16-Actual-Setup-Reuse-and-Integration-Map.md` §4a, mined from `Actual-Setup/skills/triage-validation/SKILL.md`)** Beyond FR-COUNCIL-14's pattern checks, Gate 3 MUST additionally verify: (a) **impact beyond "technically possible"** — e.g. an XSS finding must show actual cookie/session exposure, not just script execution; an SSRF finding must show data returned from an internal endpoint, not just a DNS/network ping; an IDOR finding must show the actual other-user data in the response, not just a differing status code; (b) for any IDOR/BOLA or privilege-escalation candidate, an **identity/session check**: the finding MUST be verified to require the specific cross-identity condition it claims (e.g. session A actually reading session B's data) — a finding that only reproduces with no authentication at all is a different bug (missing auth, not IDOR) and MUST be re-classified, not confirmed as originally framed; (c) the evidence MUST follow a **baseline/attack/diff** structure — a stored baseline (unmodified) request/response, the attack request/response, and a concrete diff between them showing the claimed impact, not a status-code difference alone. | M |
-| FR-COUNCIL-15 | Only `CONFIRMED` findings MUST be eligible for a `VAPT_FINDING` report (FR-COUNCIL-17); `DISMISSED` findings MUST be retained in the state store for audit purposes and MUST instead be surfaced only via the engagement's single `INFO_REGISTER` document (`12-Report-Formatting-Rules.md` §9), never inline in a `VAPT_FINDING` report's own body. **(Extended — decision #64, `24`)** `REMEDIATED` findings (a regression-check outcome, `verified_vulnerabilities.status`) follow the same `INFO_REGISTER` routing as `DISMISSED`, never a silent absence from both documents — see `FR-DEDUP-06`. | M |
-| FR-COUNCIL-16 | `Ministral-8B-Instruct-2410` (Reporter — a genuinely separate model from the Strategist, per decision #55; previously the Strategist's own model reloaded) MUST be loaded to ingest confirmed findings and produce: CWE/CVE mapping where applicable, a root-cause narrative, and remediation guidance. | M |
-| FR-COUNCIL-16a | **CVSS scoring MUST NOT be produced directly by the LLM as a final value** (per critical-analysis finding C-07 and operator decision). Instead: the LLM MUST propose per-metric values against the **CVSS 3.1** metric set (Attack Vector, Attack Complexity, Privileges Required, User Interaction, Scope, Confidentiality/Integrity/Availability impact) with a one-line justification per metric, and a **deterministic, non-LLM CVSS 3.1 calculator component** — confirmed implementation: the official Python **`cvss`** library (PyPI package `cvss`, which implements the CVSS v3.1 base-score formula per the FIRST.org specification) — MUST compute the final numeric score and vector string from those proposed metric values. Every finding in this system uses CVSS 3.1 — no other version is supported. The LLM never emits the final score itself. | M |
-| FR-COUNCIL-17 | **(Revised, resolves critical-analysis finding C-25)** Per `12-Report-Formatting-Rules.md`'s own established format, report generation produces **two distinct document types**, never conflated: (a) one **VAPT finding report** per `CONFIRMED` finding (its own Report ID, cover page, CVSS, sections — `12-Report-Formatting-Rules.md` §2/§6), and (b) one **consolidated informational register per engagement** covering `DISMISSED`/non-yielding candidates, regenerated in place as new items are added, never split into per-item files (`12-Report-Formatting-Rules.md` §9). Both are emitted first as Markdown, written to a `pending-approval/` area of the artifact store, and MUST NOT be auto-converted further. Each VAPT finding report MUST include: executive summary, scope statement, methodology, per-finding evidence references (linking to raw artifact files), CVSS (per FR-COUNCIL-16a), and remediation. **(Extended — decision #64, `24`)** A `CONFIRMED` finding with `finding_origin = 'REGRESSION_CHECK'` (`retests_finding_id` set) still gets its own individual VAPT finding report under (a) — never omitted for being previously known — but that report MUST explicitly state its carried-forward status and cite the originating engagement, rather than reading as a freshly-discovered issue. | M |
-| FR-COUNCIL-17a | HTML and PDF renders of a report MUST only be generated **after** the operator explicitly approves that specific Markdown report as correct and safe to proceed with (see FR-CTRL-08). Rendering MUST follow the standard defined in `12-Report-Formatting-Rules.md`, via headless conversion tooling (e.g. `pandoc` + `wkhtmltopdf`/`weasyprint`). | M |
-| FR-COUNCIL-17b | **(New, confirmed — resolves critical-analysis finding C-26, mined from `claude-bug-bounty`'s `brain.py` `_ground_report_output()`)** Before a Markdown draft can leave `DRAFT_PENDING_APPROVAL`, a deterministic **grounding check** MUST run: extract every URL, endpoint path, and hostname referenced in the Reporter's drafted narrative, and verify each is a subset of what appears in that finding's raw evidence (the artifacts referenced per FR-COUNCIL-17). A reference NOT present in the evidence MUST NOT be allowed through silently. On a grounding failure, the system MUST regenerate the affected section with the specific ungrounded reference fed back to the Reporter, bounded to the same 2-retry/3-attempt pattern as `IR-STRUCTURED-03`; if grounding still fails after retries, the report MUST be marked `BLOCKED_UNGROUNDED` (`reports.status`, `DR-SCHEMA-11`) — not silently emitted, not infinitely retried — for operator review. | M |
-| FR-COUNCIL-18 | **(Confirmed reconciliation with `12-Report-Formatting-Rules.md` §1.5; timing revised, resolves critical-analysis finding C-23)** Raw secrets (passwords, tokens, session cookies) MUST be redacted from the **evidence fed into the Reporter LLM's prompt**, before it drafts anything — never by scanning the Reporter's own free-form output afterward, which is fragile (an LLM can paraphrase or reformat a secret in ways an exact-string scan would miss). Each substitution is deterministic (exact-match against the already-known raw value, never LLM-identified) and creates its `redaction_map` row (source artifact, offset, hash — `DR-SCHEMA-14`) at substitution time. Because the Reporter never sees the real value, its own draft naturally contains only `[REDACTED-N]` placeholders, requiring no further scanning. This redaction MUST be reversible: FR-CTRL-08's approval step programmatically restores the full, verbatim, unredacted value throughout the report (via `redaction_map`, hash-verified) before HTML/PDF rendering — satisfying the "never redact evidence" rule for the *final approved* report while keeping the *pre-review draft* redacted by default. | M |
+| FR-COUNCIL-13 | `Mistral-7B-Instruct-v0.3` (Gate 3) evaluates candidate findings against raw evidence, recording `CONFIRMED, DISMISSED, or INFO` with contextual rationale. | M |
+| FR-COUNCIL-14 | Gate 3 evaluates candidate findings against common false-positive patterns (WAF blocks, rate-limit responses, generic 5xx, honeypots) to maintain signal quality. Findings flagged with anomalies may still be marked for review or promoted via operator instruction. | M |
+| FR-COUNCIL-14a | Adjudication evaluates verified impact, proper vulnerability categorization (e.g., distinguishing unauthenticated endpoints from IDOR/BOLA), and baseline-versus-probe response differences. Operator directives can override classification flags to preserve exploratory observations. | M |
+| FR-COUNCIL-15 | Confirmed findings populate the primary VAPT_FINDING register. Non-confirmed, informational, or remediated observations are routed to the consolidated INFO_REGISTER or retained as auxiliary artifacts based on operator reporting preferences. | M |
+| FR-COUNCIL-16 | `Ministral-8B-Instruct-2410` (Reporter, a distinct model from the Strategist) ingests confirmed findings, produces CWE/CVE mapping, root-cause narrative, remediation. | M |
+| FR-COUNCIL-16a | The model proposes CVSS 3.1 metric vectors; a deterministic calculator computes final base scores. The operator may override any vector component directly during report review. | M |
+| FR-COUNCIL-17 | Two distinct document types, never conflated: (a) one `VAPT_FINDING` report per `CONFIRMED` finding; (b) one consolidated `INFO_REGISTER` per engagement, regenerated in place. Both emit as Markdown to `pending-approval/` first. A `REGRESSION_CHECK`-origin finding still gets its own report, marked carried-forward. | M |
+| FR-COUNCIL-17a | Rendered HTML/PDF exports are produced upon operator command (approve-report or explicit CLI export), ensuring the operator controls final report delivery. | M |
+| FR-COUNCIL-17b | Grounding verification validates that URLs, endpoints, and parameters cited in finding drafts match observed raw tool evidence. Flagged discrepancies are highlighted for operator review rather than silently dropped. | M |
+| FR-COUNCIL-18 | Secrets are redacted by default from raw evidence presented to the Reporter model via a reversible redaction_map. Redacted secrets are restored upon report finalization, with raw values remaining intact in the secure local artifact store. | M |
 
 ---
 
 ## FR-HIB — Phase 5: Hibernation & Restoration
 
-Traces to base §Phase 5.
-
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR-HIB-01 | The system MUST mark the engagement state as `COMPLETE` or `PAUSED` in the state store before beginning teardown. | M |
-| FR-HIB-02 | The system MUST evict all resident model weights and KV caches and verify the resulting freed memory before proceeding to application restoration. | M |
-| FR-HIB-03 | The system MUST issue `SIGCONT` to every PID it suspended in Phase 1 (FR-ENV-05), using the recorded PID/process-tree list, and MUST verify each target process resumed (is running, not zombie/dead) rather than assume success. | M |
-| FR-HIB-04 | If a previously suspended process no longer exists at restoration time (e.g., it was killed externally while stopped), the system MUST log this discrepancy rather than fail the whole restoration sequence. | M |
-| FR-HIB-05 | The system SHOULD report restoration completion time to the operator, with an expectation of sub-2-second resume for previously paged-out application memory. | S |
+| FR-HIB-01 | Mark engagement state `COMPLETE`/`PAUSED` before teardown begins. | M |
+| FR-HIB-02 | Evict all resident weights/KV caches; verify freed memory before application restoration. | M |
+| FR-HIB-03 | `SIGCONT` every suspended PID (FR-ENV-05); verify each resumed (not zombie/dead), never assume success. | M |
+| FR-HIB-04 | A missing previously-suspended process is logged as a discrepancy, not a whole-restoration failure. | M |
+| FR-HIB-05 | SHOULD report restoration completion time; sub-2-second expectation for paged-out memory. | S |
 
 ---
 
-## FR-CTRL — Operator Control Surface (new; not explicit in base document)
+## FR-CTRL — Operator Control Surface
 
-The base document describes an end-to-end autonomous loop with no defined human
-interaction points beyond the two internal LLM gates. The following requirements add
-the missing operator-facing control layer. **Confirmed interface: CLI only** — no GUI
-or web dashboard is required; every action below MUST be reachable as a command-line
-operation, consistent with the rest of this Kali/terminal-based system.
+CLI-only (no GUI/web dashboard). Every action below is reachable as a `vaptctl`
+subcommand.
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR-CTRL-01 | The system MUST provide an operator-invokable **start** action that accepts a target scope definition (IP ranges/domains) to seed the engagement. Per explicit decision, this system does **not** itself gate execution on a separate authorization/Rules-of-Engagement artifact — obtaining and verifying authorization is treated as out of scope for this system and is the operator's responsibility outside the tool. | M |
-| FR-CTRL-02 | The system MUST provide an operator-invokable **pause** action that halts task-queue progression at the next safe checkpoint (i.e., not mid-subprocess) without losing state. | M |
-| FR-CTRL-03 | The system MUST provide an operator-invokable **resume** action that continues a `PAUSED` engagement from its last committed state, and MUST accept optional updates to the three high-risk opt-in flags (FR-TOOL-06a) as part of that action, per FR-TOOL-06c. | M |
-| FR-CTRL-04 | The system MUST provide an operator-invokable **abort/kill-switch** action that immediately terminates all in-flight subprocess trees, unloads any resident model, and marks the engagement `ABORTED`, within a bounded time (see NFR-REL-04). | M |
-| FR-CTRL-05 | The system MUST provide a **status** view showing: current phase, current resident model (if any), RAM/swap headroom, task-queue depth, and count of findings by state (`CANDIDATE`/`CONFIRMED`/`DISMISSED`). | M |
-| FR-CTRL-06 | ~~Configurable autonomy levels (paranoid/normal/yolo)~~ — **removed by confirmed operator decision.** This generic concept is superseded by the specific, per-category opt-in flags in FR-TOOL-06a (`--allow-brute-force`, `--allow-active-exploitation`, `--allow-lateral-movement`) and the fixed diminishing-returns thresholds in FR-COUNCIL-11, which together cover what a generic autonomy-level setting would have controlled, with no separate "yolo" concept and no ability to weaken the hard scope gate (FR-COUNCIL-06) at any setting. | — |
-| FR-CTRL-07 | The system MUST allow the operator to export the final report and the full audit trail (tool logs + model invocation logs + gate decisions) as a single package for offline review. | M |
-| FR-CTRL-09 | **(New, confirmed)** The system MUST enforce a **system-wide single-engagement lock**: `start` MUST refuse to begin a new engagement if any existing engagement row has `status` IN (`IN_PROGRESS`, `PAUSED`) — Phase 1's hibernation is a system-wide action (it freezes the operator's own desktop) and cannot safely run for two engagements at once, even though the schema supports many `engagements` rows for history. This MUST be enforced both at the application level (checked before Phase 0 begins) and at the schema level (DR-SCHEMA-01, `engagement_lock_slot`), so a race between two near-simultaneous `start` invocations cannot both succeed. | M |
-| FR-CTRL-08 | The system MUST provide an operator-invokable **approve-report** CLI action, taking a pending Markdown report identifier, that is the sole trigger for (a) reversing the redaction applied under FR-COUNCIL-18, restoring full unredacted evidence, and (b) triggering HTML/PDF rendering (FR-COUNCIL-17a). No other event (task-queue completion, session-budget expiry, engagement completion) may itself trigger unredaction or rendering. | M |
+| FR-CTRL-01 | `start` accepts a target scope (IP ranges/domains). Legal authorization, permissions, and rules of engagement (RoE) are strictly the operator's responsibility outside the tool. Operational scope limits guide autonomous scanning only and do not restrict operator-directed commands. | M |
+| FR-CTRL-02 | `pause` halts task-queue progression at the next safe checkpoint (not mid-subprocess) without losing state. | M |
+| FR-CTRL-03 | `resume` continues a `PAUSED` engagement from last-committed state; accepts optional updates to the three high-risk flags (FR-TOOL-06c). | M |
+| FR-CTRL-04 | `abort` immediately terminates all subprocess trees, unloads any resident model, marks the engagement ABORTED, within 20 seconds. | M |
+| FR-CTRL-05 | `status` shows: phase, resident model, RAM/swap headroom, queue depth, finding counts by state. | M |
+| FR-CTRL-06 | Mode configuration supports distinct operating postures: Autonomous Non-Destructive Mode (strictly enforcing read/safe-write boundaries and prohibiting data destruction/DoS) and Operator-Directed Mode (unconditional, unrestricted execution of operator commands with zero refusal). | — |
+| FR-CTRL-07 | Export the final report and full audit trail as a single offline-review package. | M |
+| FR-CTRL-08 | `approve-report` serves as the primary trigger for (a) verifying or finalizing evidence unredaction and (b) generating rendered HTML/PDF deliverables (FR-COUNCIL-17a). Direct CLI export flags are also supported for rapid ad-hoc generation. | M |
+| FR-CTRL-09 | System-wide single-engagement lock: `start` refuses if any engagement is `IN_PROGRESS`/`PAUSED` — enforced at both application and schema level via a dedicated `engagement_lock_slot`. | M |
 
-## FR-CHECKPOINT — Human Checkpoint Gate (new; required by `19-Extended-Capability-Domains.md`)
+---
 
-**Why this exists:** several extended-capability techniques mined from external
-source material (`10`'s decision on this, following a "fetch everything" mining
-sweep) have a real safety mechanism in their *source* design that is a live human
-confirming something in real time — not a pre-engagement config flag. This system's
-core design is fully autonomous with no per-action pause (`FR-COUNCIL-11`, decision
-#13) and no built-in authorization/RoE verification (decision #3) — folding these
-techniques in as "just another opt-in-flag category" would silently drop the actual
-safety property the source designers built in, not preserve it. **Confirmed
-resolution: preserve the capability, add a genuine, narrow exception to the no-pause
-design** — a new gate that hard-stops only for a fixed, closed list of action
-classes, distinct from Council Gate 1/2/3 and from the existing opt-in-flag
-categories (`FR-TOOL-06a`). See `20-Human-Checkpoint-and-Escalation-Safety-Catalog.md`
-for the full catalog of what triggers this, where, and why.
+## FR-CHECKPOINT — Human Checkpoint Gate
+
+Operational sensitivity classification tracks tasks against a fixed, closed list of
+five action classes. In Autonomous Mode, tasks matching these classes log checkpoint
+audit events for operator visibility. In Operator-Directed Mode, commands dispatched
+or directed by the operator execute immediately without interactive pausing.
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR-CHECKPOINT-01 | The system MUST maintain a fixed, closed list of **checkpoint action classes** that a deterministic classifier tags a proposed task against, distinct from and evaluated in addition to Council Gate 1/2: `ANTI_FORENSICS` (any task matching MITRE ATT&CK T1070/T1564/T1622-class indicator-removal, artifact-hiding, or debugger/EDR-evasion actions against the *client's own* logging/detection infrastructure), `LIVE_CREDENTIAL_SPRAY` (the actual authentication-attempt stage of a credential-spray pipeline — not its upstream wordlist-generation/breach-enrichment/OSINT stages, which carry no live-target interaction and are NOT checkpoint-gated), `CICD_EXTERNAL_ARTIFACT` (any action that creates a persistent, visible artifact in a target's CI/CD system — opening a pull request, triggering a workflow run, modifying repository secrets), and `DEPENDENCY_CONFUSION_PUBLISH` (publishing or unpublishing a package to a live, third-party public package registry as part of a dependency-confusion proof). This list MUST NOT be silently extended by a future domain addition without an explicit decision recorded in `10`. | M |
-| FR-CHECKPOINT-02 | A task classified into one of `FR-CHECKPOINT-01`'s action classes MUST additionally require its own dedicated pre-engagement opt-in flag (distinct from the three existing high-risk categories, `FR-TOOL-06a`) before the Operator may even propose it — an unset flag MUST cause deterministic refusal (`POLICY_REFUSED`, the same pattern as `FR-TOOL-06b`) with no checkpoint ever raised. This is a two-layer design: the opt-in flag is the pre-engagement config-time decision; `FR-CHECKPOINT-03` below is the separate, live, per-instance confirmation — one does not substitute for the other. | M |
-| FR-CHECKPOINT-03 | When a task is classified into a checkpoint action class AND its corresponding opt-in flag is set, the system MUST NOT execute it. It MUST instead: create a `checkpoint_events` row (`DR-SCHEMA-18`) with `status = AWAITING_APPROVAL` and a human-readable `rationale_shown_to_operator` explaining the specific classification; transition the engagement to a new status, `PAUSED_AWAITING_CHECKPOINT`, distinct from the existing manual `PAUSED` (`FR-CTRL-02`); and wait **indefinitely** — unlike this system's resource-safety timeouts (e.g. `FR-GATE-10`'s 5-second bound), there is no auto-approve-on-timeout here, since silence is not consent for this class of action. **(One narrow exception, added by `23-Interactive-TUI-Console-and-Intervention-Pipeline-Specification.md`'s `FR-INTERVENE-10`)**: if the operator's own console input explicitly and specifically named this exact action, the live pause is skipped and the row is auto-finalized `APPROVED`/`approved_via = 'CONSOLE_DISPATCH'` instead — the operator's own real-time act of typing it serves as the attestation. This exception never applies to a checkpoint-class action the *model* derived on its own from a vaguer directive, and never touches `FR-CHECKPOINT-02`'s pre-engagement flag gate. | M |
-| FR-CHECKPOINT-04 | The system MUST provide an operator-invokable **approve-checkpoint** / **deny-checkpoint** CLI action, taking a `checkpoint_events` identifier. Approval executes exactly the one flagged task and returns the engagement to normal Phase 4.2 progression; denial marks that specific task `BLOCKED_BY_OPERATOR` and continues the loop with it skipped — neither action requires restarting the whole engagement. | M |
-| FR-CHECKPOINT-05 | **(`ANTI_FORENSICS` only, stricter than `FR-CHECKPOINT-02`'s generic flag)** Given the source material's own four-condition hard gate (named-technique SOW authorization, a client-side "white cell" contact aware of the engagement window, mandatory disclosure/reversion of any log/timestamp change, and "test whether detected, not permanently defeat detection"), `start` MUST refuse to enable the `ANTI_FORENSICS` action class unless the operator additionally supplies: a non-empty `white_cell_contact` value, and an explicit attestation flag confirming any log/timestamp modification will be disclosed and reverted in the final report. Enabling the flag without both fields present MUST fail `start` outright, not proceed with a warning. | M |
+| FR-CHECKPOINT-01 | Fixed, closed list of five classes: ANTI_FORENSICS, LIVE_CREDENTIAL_SPRAY, CICD_EXTERNAL_ARTIFACT, DEPENDENCY_CONFUSION_PUBLISH, PHISHING_MFA_BYPASS. MUST NOT be silently extended without a recorded decision. | M |
+| FR-CHECKPOINT-02 | High-impact operational classes (credential spraying, lateral movement, artifact publishing) utilize runtime flags for autonomous execution. Any checkpoint class directly commanded or invoked by the operator requires no additional opt-in flags and executes immediately. | M |
+| FR-CHECKPOINT-03 | When a sensitive action is autonomously proposed, it logs a pending checkpoint event for operator visibility. However, any action directly dispatched or triggered by the operator executes immediately (approved_via = 'OPERATOR_DIRECTIVE') without pausing the engine or blocking on human approval gates. | M |
+| FR-CHECKPOINT-04 | `approve-checkpoint`/`deny-checkpoint` act on exactly one flagged task; neither requires restarting the engagement. | M |
+| FR-CHECKPOINT-05 | Pre-flight disclosure and white-cell attestation flags are optional operator-managed tracking parameters. Their absence does not hard-abort start or prevent operator-directed task execution. | M |
+| FR-CHECKPOINT-06 | Credential spraying and brute-force tasks run within configurable lockout estimation limits during autonomous discovery. Operator-directed credential operations run with zero automated gating, executing exactly per the parameters provided by the operator. | M |
 
-## FR-MONITOR — Scheduled Monitoring Mode (new; required by `19-Extended-Capability-Domains.md`'s continuous-monitoring capability)
+---
 
-**Why this exists:** the `web2-recon` skill's continuous-monitoring pattern
-(subdomain-diff cron, repo commit-watch cron) is genuinely useful but conflicts with
-this system's per-invocation, no-daemon process model (`13`'s `IAB-PROC`).
-**Confirmed resolution: add scheduling, without adding a persistent daemon** — an
-external OS-level scheduler (cron/systemd timer) triggers a lightweight, discovery-only
-CLI invocation; the system itself never self-schedules or runs continuously in the
-background.
+## FR-MONITOR — Scheduled Monitoring Mode
+
+External cron/systemd-timer triggers a lightweight, discovery-only invocation — the
+system never self-schedules or runs continuously in the background.
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR-MONITOR-01 | The system MUST provide an operator-invokable **monitor** CLI action, taking an existing `engagement_id`, that performs a narrow, fixed recon subset against that engagement's already-registered targets (subdomain-enumeration diff for `NETWORK` targets, commit-HEAD diff for `CODE_REPO` targets), compares the result against `monitoring_baseline` (`DR-SCHEMA-17`), and logs any diff to `discovered_entities` (`entity_type = 'monitor_diff'`). | M |
-| FR-MONITOR-02 | A diff detected by `monitor` MUST NOT autonomously trigger active testing of the new finding — it is surfaced via `status`/an operator-visible alert only. Acting on it requires the operator to explicitly `start` a new, ordinary assess-mode engagement. This is a deliberate boundary against runaway autonomous escalation from an unattended, frequently-firing trigger. | M |
-| FR-MONITOR-03 | `monitor` is a deterministic, model-free operation (no council model is loaded) — it MUST NOT invoke Phase 1 hibernation, Phase 2's inference gateway, or Phase 4's council loop. The scheduling mechanism itself (cron/systemd timer entry) lives entirely outside this system and is configured by the operator directly on the host OS — the system does not self-schedule, run as a background service, or manage its own recurrence. | M |
-| FR-MONITOR-04 | A `monitor` invocation does not create a new `engagements` row and does **not** participate in `FR-CTRL-09`'s single-engagement lock (that lock exists specifically because Phase 1 hibernation is a system-wide action `monitor` never performs) — it MAY run against a target set belonging to an engagement in any status, including `COMPLETE`, and MAY run concurrently with a different engagement that is `IN_PROGRESS`/`PAUSED`. | M |
+| FR-MONITOR-01 | `monitor <engagement_id>` performs a fixed recon-diff subset against registered targets, compares to a stored `monitoring_baseline`, logs any diff to `discovered_entities`. | M |
+| FR-MONITOR-02 | Changes are logged by default; --monitor-auto-scan queues targeted non-destructive discovery tasks into Phase 4.2. | M |
+| FR-MONITOR-03 | Scheduled monitoring performs deterministic baseline recon without requiring resident model inference or full council startup. | M |
+| FR-MONITOR-04 | Does not create an `engagements` row and does not participate in FR-CTRL-09's lock — may run against any engagement status, including concurrently with an active one. | M |
+
+---
+
+## Authority & Conflict Resolution
+
+This functional specification defines pipeline mechanics and state progression. In the
+event of any discrepancy, ambiguity, or conflict regarding containment boundaries,
+authorization assumptions, scope enforcement, or operator override precedence, the
+**Security, Safety & Compliance Requirements (`05`)** serves as the supreme, binding
+authority across the entire system.

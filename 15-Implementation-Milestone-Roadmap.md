@@ -1,224 +1,30 @@
 # Implementation Milestone Roadmap — Autonomous Agentic VAPT System
 
-A build order, not a schedule — no dates or effort estimates, since those depend on
-who's building it. Each milestone is chosen to be independently testable before the
-next begins, and ordered so that expensive/risky/privileged pieces (hibernation,
-the freezer helper, the full council) come after the cheaper, safer pieces they
-depend on are already proven. Traces every deliverable back to the requirement
-cluster it satisfies, so "is this milestone done" has a concrete answer.
+**Build sequencing contract:** This document defines the mandatory, sequential engineering milestones and acceptance gates for constructing the Autonomous Agentic VAPT System. It is an active engineering requirement document governing delivery order, component integration, and staging boundaries. Automated build systems and developers must follow this sequence: no milestone may begin until all deliverables of the preceding milestone satisfy their explicit completion criteria.
+
+Implementation across all milestones enforces the **Dual-Mode Execution Architecture**: proving that unattended autonomous loops adhere strictly to non-destructive testing boundaries (safe reads and verification writes, barring state drops, schema alterations, and DoS), while operator-directed pathways execute commands unconditionally with zero automated refusal or safety interception.
+
+Full requirement statements, schemas, and interface definitions are owned by their respective specification documents and must be implemented as specified.
 
 ---
 
-## Milestone 0 — Schema, Config, and CLI Skeleton (no LLM, no tools, no hibernation)
+## Engineering Milestones & Verification Criteria
 
-**Goal:** every other milestone has somewhere to read/write state and a command
-surface to be invoked through, before any of the interesting logic exists.
+| # | Milestone | Deliverables | Done When (Acceptance Criteria) |
+| --- | --- | --- | --- |
+| 0 | Schema, Config & CLI Skeleton | Full database schema (`03`); WAL journal mode with a 5000 ms busy-timeout; single-engagement lock enforcement; YAML loaders for configuration defaults and scope rules (`13`); CLI command surface skeleton for all subcommands (`start`, `pause`, `resume`, `abort`, `status`, `export`, `approve-report`, `approve-checkpoint`, `deny-checkpoint`, `monitor`, `dashboard`, `console`). At this stage, `start` validates scope, checks the lock, and initializes state without launching lifecycle execution. | `vaptctl start --targets ... --scope-rules scope.yaml` successfully inserts the engagement record; a concurrent `start` execution is blocked by the single-engagement lock; `status` and `export` return valid structured data from initialized tables. |
+| 1 | Tool Bridge & Execution Containment (No LLM) | Tier 1 schema files and tool wrappers; Tier 2 path resolution (`/usr/bin`, `/usr/sbin`, `/opt/`) and execution containment engine enforcing autonomous non-destructive boundaries (blocking drops, alters, and DoS) while enabling unconditional operator execution; isolated process-group/session spawning with logged PID/PGID; output sanitization and untrusted tagging (`<tool_output_untrusted>`); state-delta discovery ledger; per-target rate limiting (10 req/s standard, 1 req/s brute-force); failure circuit breaker. | A manually queued task against a lab target executes via the bridge, writes raw artifacts, captures sanitized and tagged output, records process metadata, and increments discovery state deltas accurately. |
+| 2 | Deterministic Gates & Validation | Council Gate 1 deterministic Tier 0 scope validation engine (enforcing DNS-suffix anchoring, CIDR containment, and port boundaries for autonomous tasks, with automatic bypass for operator tasks); Council Gate 2 deterministic command and argument validator operating against Tier 1 schemas; command deduplication hash checking; pipeline wiring connecting queued tasks through Gate 1 → Gate 2 → tool bridge. | An out-of-scope autonomous task is rejected pre-execution; an operator-dispatched task bypasses Gate 1; a malformed command is caught by Gate 2 with descriptive schema-violation feedback. |
+| 3 | Local Engine Client & Operator Role | The `LocalEngineClient` abstraction connecting to the loopback inference endpoint (`127.0.0.1:11434`); structured output JSON schema enforcement and retry validator; loading and resident management of the tool-execution role (`Qwen2.5-Coder-7B-Instruct`); integration of Operator model output into Milestone 2's Gate 2 and Milestone 1's bridge. | The resident Operator model, provided an approved task, outputs a schema-compliant command on the initial attempt or within the 3-attempt correction limit, executing end-to-end against a test target. |
+| 4 | Multi-Model Council Integration | Sequential integration of remaining council roles: (1) Gate 1 semantic tier (`Hermes-3-Llama-3.1-8B`), (2) Strategist (`DeepSeek-R1-0528-Qwen3-8B`), (3) Gate 3 Adjudicator (`Mistral-7B-Instruct-v0.3`) with full 4-point verification checklist, (4) Reporter (`Ministral-8B-Instruct-2410`) paired with deterministic CVSS 3.1 calculator, and (5) Offline Script Linter (`Qwen2.5-Coder-3B-Instruct`). Enforce single-model residency and settle polling on every swap. | A single-target engagement runs through hypothesis generation → semantic scope gating → tool execution → evidence adjudication → report drafting end-to-end, producing confirmed and dismissed finding records. |
+| 5 | Loop Bounds & Multi-Target Orchestration | Per-target task ceiling (configurable, default 30, hard ceiling 100); state-delta zero-yield circuit breaker (3 strikes); failure circuit breaker (3 network timeouts); global session budget enforcement; multi-target state tracking and automatic target pivot. | A multi-target engagement caps or circuit-breaks an unproductive or unresponsive target and automatically pivots to the next scoped target without halting the orchestrator. |
+| 6 | Environment Hibernation & Privileged Helper | Dedicated, least-privilege `vapt-freezer-helper` binary (`freeze`, `thaw`, `reclaim`) supporting `process_madvise(MADV_PAGEOUT)` with cgroup v2 fallback; process enumeration and protected denylist (`dbus`, desktop compositor); OOM score adjustment (`-900`); casualty detection; suspended process tracking in `suspended_processes`. | Test applications freeze and thaw cleanly; simulated memory pressure confirms that process casualties are detected and logged as degraded rather than false successes; cgroup v2 fallback executes when capability grants are restricted. |
+| 7 | Control Surface, Kill-Switch & Reporting Pipeline | Interactive runtime signals (`pause` via `SIGUSR1`, `resume`, `abort` via process-group `SIGTERM`/`SIGKILL` within 20s); reversible byte-offset evidence redaction; deterministic report-grounding verification (validating draft claims against raw session logs); unredaction on operator report approval; HTML/PDF rendering conforming to the client report standard. | `vaptctl abort` halts all child tool processes within 20s and restores desktop applications; an approved report completes the Markdown → verification → unredaction → PDF rendering pipeline cleanly. |
+| 8 | Full Core Acceptance Pass | Complete execution of all acceptance test suites (`09`) within a containerized, disposable test lab (Juice Shop, DVWA, intentionally vulnerable network services). | All acceptance test rows for core phases pass; test failures indicate implementation defects that must be resolved prior to milestone sign-off. |
+| 9 | Extended Domains, Monitoring & TUI Console | Non-network target schemas (`CONTRACT`, `MOBILE_BINARY`, `CODE_REPO`); Human Checkpoint Gate (autonomous logging vs. immediate operator dispatch); specialized domain tools (Web3, Mobile, GraphQL, CI/CD, Credentials, Source Code); scheduled model-free monitoring engine; 1.0 Hz read-only terminal dashboard (`22`); interactive TUI console and asynchronous intervention pipeline (`23`). | Extended domain test suites pass in isolated environments; `vaptctl dashboard` streams 1.0 Hz metrics without database locks; `vaptctl console` dispatches real-time interventions directly into active execution cycles. |
 
-- SQLite schema: all tables in `03-Data-and-Storage-Requirements.md` (`DR-SCHEMA-01`
-  through `DR-SCHEMA-14`) plus the `IAB-SCHEMA` additions, with WAL mode and
-  `PRAGMA busy_timeout=5000` set on every connection (`DR-CONCURRENCY-01/03`).
-- The `engagement_lock_slot` generated column + unique index (`FR-CTRL-09`).
-- Config loader reading `vapt_agent.config.yaml` with the confirmed defaults
-  (`13-Implementation-Architecture-Bridge.md` IAB-FILES) baked in as fallback.
-- Scope-rules YAML loader/parser (IAB-FILES) populating `scope_rules`.
-- Click CLI skeleton: `start`, `pause`, `resume`, `abort`, `status`, `export`,
-  `approve-report` (`IR-CTRL`) — at this stage `start` only validates inputs,
-  writes an `engagements` row, enforces the single-engagement lock, and exits;
-  no Phase 1-5 logic runs yet.
+---
 
-**Done when:** you can run `vaptctl start --targets ... --scope-rules scope.yaml`,
-see a row appear in `engagements`, and a second concurrent `start` is refused by
-the lock. `status`/`export` read real (if mostly empty) tables.
+## Authority & Conflict Resolution
 
-## Milestone 1 — Tool Bridge, No LLM Yet
-
-**Goal:** prove the most security-critical subsystem in isolation, driven by
-manually-inserted `task_queue` rows instead of a real Operator model.
-
-- Tier 1 declarative schema files + wrappers (`IR-TOOL-01/02/03`, tiered timeouts).
-- Tier 2 path-restricted allowlist + behavioral denylist + the three opt-in-flag
-  categories (`FR-TOOL-03/06/06a-c`).
-- Subprocess spawning with `start_new_session=True`; every invocation logged with
-  its `pid` (`FR-TOOL-04a`, `IAB-SCHEMA-02`).
-- Sanitization pipeline + `<tool_output_untrusted>` provenance tagging
-  (`IR-SANITIZE-01/02/03`).
-- `discovered_entities` population and the state-delta yield calculation
-  (`FR-COUNCIL-11a`, `DR-SCHEMA-12`) — testable even without the loop-bound logic
-  around it yet.
-- Per-target rate limiting (`FR-TOOL-14`, `IR-BRIDGE-05`) and network-failure
-  classification feeding the failure-based circuit breaker (`FR-COUNCIL-11b`,
-  `IR-BRIDGE-06`) — both belong at the bridge level alongside the checks above,
-  not bolted on later.
-- **Before writing new Tier 1 wrappers from scratch**, check
-  `16-Actual-Setup-Reuse-and-Integration-Map.md` §2 — several are already
-  standalone, verified-portable scripts (`scope_checker.py` for `FR-COUNCIL-03a`'s
-  reference implementation, `jwt_scanner.py`, `dom_xss_harness.py`, `oob_listener.py`
-  as new Tier 1 candidates) rather than something to author fresh. This milestone
-  is also where the full `tools/` classification pass from `16`'s §6 belongs.
-
-**Done when:** a manually-queued task against a lab target actually executes,
-produces sanitized + tagged output, logs a `pid`, and correctly increments/doesn't
-increment `discovered_entities` depending on whether the result was novel.
-
-## Milestone 2 — Deterministic Gates (still no LLM)
-
-**Goal:** the two non-LLM gates, fully testable on their own since they're plain code.
-
-- Council Gate 1 Tier 0: deterministic Python scope checker (`FR-COUNCIL-03a`).
-- Council Gate 2: deterministic command/argument validator (`FR-COUNCIL-08`),
-  consuming the same declarative schema files from Milestone 1.
-- Wire both into the Milestone 0 CLI skeleton + Milestone 1 bridge so a queued task
-  now actually passes through Tier 0 → (stub Tier 1 approval) → Gate 2 → execution.
-
-**Done when:** an out-of-scope manually-queued task is rejected before any tool
-runs, and a malformed manually-queued command is rejected by Gate 2 with a
-specific, correct reason.
-
-## Milestone 3 — Local Engine Client + Structured Output, One Model First
-
-**Goal:** prove the LLM plumbing (load/unload, `response_format`, schema
-validation, retry) against one real model before multiplying it by five.
-
-- Local Engine Client (`IR-ENGINE-01..06`): `llama.cpp --server` process
-  spawn/terminate, `MemAvailable` settle-poll gate.
-- `IR-STRUCTURED-01..04`: `response_format={"type":"json_object"}` +
-  per-output-type Python schema validator + bounded 2-retry loop.
-- Load **only the Operator** (`Qwen2.5-Coder-7B-Instruct`) first — it's the most
-  tool-execution-critical role and directly exercises Milestone 1's bridge.
-  System prompt from `14-System-Prompt-Templates.md` §3.
-- Wire the Operator's command-generation output into Milestone 2's Gate 2, so a
-  real (not manually-queued) task can flow: Operator proposes → Gate 2 validates →
-  Milestone 1 bridge executes.
-
-**Done when:** the Operator, given one approved task, produces a schema-valid
-command on the first or a corrected retry attempt, and it executes successfully
-end-to-end against a lab target.
-
-## Milestone 4 — Remaining Council Roles, One at a Time
-
-Add each role from `14-System-Prompt-Templates.md` in this order, verifying each
-against the pipeline built so far before adding the next:
-
-1. **Council Gate 1 Tier 1** (`Hermes-3-Llama-3.1-8B`) — wire in front of the
-   Operator so tasks are actually gated before execution, not just Tier-0-checked.
-2. **Strategist** (`DeepSeek-R1-0528-Qwen3-8B`, planning prompt) — now tasks can
-   originate from real hypothesis generation instead of manual queueing.
-3. **Council Gate 3** (`Mistral-7B-Instruct-v0.3`) — findings can now be adjudicated,
-   using the triage-validation-mined checks (impact/identity/baseline-attack-diff,
-   `FR-COUNCIL-14a`) in `14-System-Prompt-Templates.md` §4, not just the base
-   pattern checklist.
-4. **Reporter** (`Ministral-8B-Instruct-2410`, reporting prompt — a dedicated model,
-   not a Strategist reload, per decision #55) + the deterministic Python
-   `cvss`-library calculator (`FR-COUNCIL-16a`).
-5. **Offline Script Linter** (`Qwen2.5-Coder-3B-Instruct`) — lowest priority, only
-   exercised for multi-line custom scripts; fine to stub/skip until the others are solid.
-
-**Done when:** a single target, single-hypothesis engagement runs Phase 4.1 →
-4.2 → 4.3 end-to-end with real models at every gate, producing at least one
-CONFIRMED-or-DISMISSED finding.
-
-## Milestone 5 — Loop Bounds & Multi-Target
-
-**Goal:** the diminishing-returns thresholds and multi-target scoping, now that a
-single-target single-pass loop already works.
-
-- Per-target 30-task cap, 3-zero-yield circuit breaker, 12-hour global budget,
-  auto-pivot/auto-transition (`FR-COUNCIL-11`).
-- Multi-target `targets` rows within one engagement (`DR-SCHEMA-02`).
-
-**Done when:** a multi-target engagement correctly caps/circuit-breaks one target
-and auto-pivots to the next without operator input.
-
-## Milestone 6 — Hibernation & the Privileged Helper
-
-**Goal:** deliberately last among the "core loop" milestones — this is the most
-system-invasive, privileged part, and the one most worth testing in isolation
-before it's allowed to touch the operator's real desktop session.
-
-- `vapt-freezer-helper` as its own small, separately-testable CLI
-  (`13-Implementation-Architecture-Bridge.md` IAB-HELPER): `freeze`/`thaw`/
-  `reclaim`, exit-code contract (0/13/1/2), `setcap`/`sudoers` grant.
-- `FR-ENV-01..14`: app enumeration, protected-process denylist, `SIGSTOP`,
-  `oom_score_adj=-900` via the helper, `process_madvise`/cgroup v2 fallback,
-  post-resume verification, `suspended_processes` tracking (`DR-SCHEMA-13`).
-- Test against disposable/non-critical applications first, not your daily-driver
-  browser session, until `FR-ENV-12`'s casualty-detection path is proven.
-
-**Done when:** freezing and thawing a handful of test applications round-trips
-cleanly, a simulated OOM-pressure scenario confirms `FR-ENV-12` correctly detects
-and logs a casualty rather than reporting false success, and the capability
-fallback to cgroup v2 works when the helper's grant is deliberately removed.
-
-## Milestone 7 — Control Surface, Kill-Switch, and Report Pipeline
-
-**Goal:** the remaining operator-facing pieces, now that there's a real engagement
-loop to pause/abort/report on.
-
-- `pause`/`resume`/`abort` per `13-Implementation-Architecture-Bridge.md` IAB-PROC
-  (SQLite/signal-coordinated, `abort` as a direct process-group kill via
-  `os.killpg`, not cooperative — `FR-TOOL-04a`, `SEC-KILL-01/02`).
-- Markdown report generation for both document types — per-finding `VAPT_FINDING`
-  reports and the one-per-engagement `INFO_REGISTER` (`FR-COUNCIL-17`, `DR-SCHEMA-11`)
-  — with evidence redacted *before* the Reporter LLM call, never after
-  (`FR-COUNCIL-18`), `redaction_map` with byte-offset + content-hash addressing
-  (`DR-SCHEMA-14`).
-- Deterministic grounding check (`FR-COUNCIL-17b`, `IR-GROUND-01..03`) on every
-  `VAPT_FINDING` draft before it can leave `DRAFT_PENDING_APPROVAL` — bounded retry
-  then `BLOCKED_UNGROUNDED`, not a silent pass-through.
-- `approve-report` → unredaction + hash verification + HTML/PDF rendering
-  (`FR-CTRL-08`, `12-Report-Formatting-Rules.md`).
-- Audit export packaging (`SEC-AUDIT-02`, `FR-CTRL-07`).
-
-**Done when:** `abort` reliably stops a running engagement (including any
-child-process tool it spawned) within the 20-second budget, and a full
-Markdown → operator-approval → PDF cycle produces a report matching
-`12-Report-Formatting-Rules.md`'s validation checks.
-
-## Milestone 8 — Full Acceptance Pass
-
-Run every test in `09-Acceptance-Criteria-and-Test-Plan.md` end-to-end against the
-confirmed test lab: one or more local, disposable, Docker-based intentionally
-vulnerable applications (e.g. OWASP Juice Shop for broad OWASP-Top-10/API coverage,
-DVWA for classic web vulns, plus a throwaway network-service container for the
-failure-based-circuit-breaker and rate-limiting tests) — never real infrastructure
-(`08-Assumptions-Constraints-Dependencies.md` AC-ASSUME-06; exact composition is an
-implementation-time detail, not fixed by this planning phase). Anything that fails
-here is a bug in the build, not a gap in the requirements —
-by this point every requirement in `01`-`18` (the core system) should already be
-traceable to code written in a specific earlier milestone.
-
-## Milestone 9 — Extended Capability Domains (`19-Extended-Capability-Domains.md`)
-
-Deliberately sequenced **after** the core system is proven end-to-end, not
-alongside it — every domain here builds on the core council/bridge/gate
-architecture rather than replacing any part of it. Suggested internal order,
-easiest/most-isolated first:
-1. **Schema generalization first** (`DR-SCHEMA-15/16`) — the `target_type`/
-   `pattern_kind` discriminators everything else in this milestone depends on.
-2. **The Human Checkpoint Gate** (`FR-CHECKPOINT-01..05`, `checkpoint_gate.py`) —
-   build and test this in isolation (a synthetic checkpoint-class task is enough)
-   before any domain that needs it.
-3. **`FR-GRAPHQL`/`FR-ARGUS`** — fit the existing `NETWORK` schema unmodified, no
-   new target type, lowest integration risk.
-4. **`FR-CODEACCESS`** (`diff-review`/`whitebox-code-recon`) — needs the new
-   `PATH_GLOB` scope-check but not the checkpoint gate; the most architecturally
-   awkward fit (`FR-CODEACCESS-03`), budget real design time here, not a quick port.
-5. **`FR-WEB3`** — needs the `CONTRACT` target type and the new Foundry/RPC
-   dependency, but not the checkpoint gate (mainnet-fork PoCs are non-destructive).
-6. **`FR-MOBILE`** — needs the `MOBILE_BINARY` target type; confirm the physical-device
-   default (`FR-MOBILE-06`) against actual measured headroom before assuming an
-   emulator is off the table.
-7. **`FR-CICD`/`FR-CRED`/anti-forensics** — needs both the checkpoint gate (step 2)
-   and, for anti-forensics specifically, the `FR-CHECKPOINT-05` attestation fields;
-   build last, since these carry the highest stakes if the checkpoint gate itself
-   has a bug.
-8. **`FR-MONITOR`** — independent of everything else in this milestone; can be
-   built any time after step 1.
-
-Acceptance for this milestone is `TP-CHECKPOINT`/`TP-MONITOR` (`09`) plus each
-domain's own rows, run against the same test lab as Milestone 8 where a domain's
-target type allows it — `FR-WEB3`/`FR-MOBILE`/`FR-CICD`/`FR-CODEACCESS` need their
-own disposable equivalents (a local Anvil fork with a deliberately-vulnerable test
-contract, a deliberately-vulnerable test APK, a throwaway Git repo/CI config, a
-deliberately-vulnerable local checkout) — not fixed by this planning phase, same
-spirit as `AC-ASSUME-06`.
+This document specifies the authoritative delivery milestones, implementation dependencies, and verification criteria for the system build. In the event of any discrepancy, ambiguity, or conflict between milestone descriptions, build tasks, and system control mandates, the **Security, Safety & Compliance Requirements (`05`)** serves as the final and supreme authority across the entire system.

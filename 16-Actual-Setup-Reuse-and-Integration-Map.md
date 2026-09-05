@@ -1,287 +1,65 @@
-# `Actual-Setup/` Reuse & Integration Map
+# Tool Reuse, Asset Adaptation & External Integration Requirements — Autonomous Agentic VAPT System
 
-**Purpose:** `Actual-Setup/` (a full copy of the `claude-bug-bounty` Claude Code
-plugin) was added to this repository as a candidate source of reusable assets. This
-document is the concrete, asset-by-asset analysis of what actually transfers to the
-Agentic VAPT System defined in `01`-`15`, what doesn't, and why — verified by reading
-the actual files, not inferred from `Actual-Setup/CLAUDE.md`'s own summary.
+This document specifies the technical integration contracts, script porting rules, bridge implementations, and methodology adaptations derived from external reference assets (`Actual-Setup/`). It establishes binding requirements for adapting standalone utilities, refactoring coupled tools, configuring direct protocol adapters (REST, GraphQL, MCP), and enforcing the **Dual-Mode Execution Architecture** across all adapted tooling.
+
+All security policies, execution boundaries, and operator-override guarantees governing these tools derive authoritatively from the **Security, Safety & Compliance Requirements (`05`)**.
 
 ---
 
-## 1. The Architectural Relationship (read this before anything below)
+## 1. TR-SCRIPT — Tool Scripts Adaptation & Deployment Contract
 
-`Actual-Setup/` is a **Claude-Code-native, human-copilot toolkit**: a person runs
-`claude`, types `/recon target.com`, and Claude itself — via Claude Code's own
-runtime (Bash/Read/Write/WebFetch tool access, its own subagent dispatch) — reads
-the skills/rules/agents as prompts and acts on them interactively. `rules/hunting.md`
-makes the operating model explicit: it addresses "you" as a hunter working inside a
-live chat session, with a human confirming scope via `/scope` before every asset.
+The system incorporates standalone utilities and refactors coupled tools from the reference toolkit into native Python execution wrappers deployed to the filesystem path allowlist (`/opt/vapt_agent/tools/`).
 
-The Agentic VAPT System is architecturally close to the opposite: fully local
-(`NFR-SEC-02` — no cloud model dependency at all), five specific `.gguf` models via
-`llama.cpp`, its own deterministic gates, its own SQLite state, its own CLI
-(`vaptctl`), and — per `FR-COUNCIL-11`/`FR-CTRL-09` — designed to run **unattended**
-for up to 12 hours with no human in the loop at all.
-
-**Consequence:** nothing in `Actual-Setup/skills/`, `commands/`, or `agents/` is
-directly executable by this system. They are markdown prompts written for a
-different runtime (Claude Code's own tool-calling loop) talking to a different model
-(Claude). Our Operator cannot "load a skill" the way Claude Code does — there is no
-equivalent mechanism in this design, and building one is out of scope (it would mean
-depending on Claude Code / a cloud model, which `NFR-SEC-02` rules out entirely).
-
-What follows is not "does this concept fit" — it's an asset-by-asset breakdown.
+| ID | Requirement | Priority |
+| --- | --- | --- |
+| TR-SCRIPT-01 | **Standalone Script Integration:** The system MUST deploy the 28 verified standalone scripts (`auth_session.py`, `banner.py`, `breach_checker.py`, `credential_store.py`, `dashboard.py`, `dom_xss_harness.py`, `h1_mutation_idor.py`, `hai_payload_builder.py`, `hai_probe.py`, `jwt_scanner.py`, `lead_board.py`, `llm_redteam.py`, `mindmap.py`, `oob_listener.py`, `port_scanner.py`, `prompt_safety.py`, `recon_adapter.py`, `safe_http.py`, `sast_scan.py`, `scope_checker.py`, `sneaky_bits.py`, `_spray_http_form.py`, `_spray_oauth.py`, `target_selector.py`, `visual_triage.py`, `waf_encoder.py`, `zendesk_idor_test.py`, `zero_day_fuzzer.py`) directly to `/opt/vapt_agent/tools/` as Tier 2 executable utilities. | M |
+| TR-SCRIPT-02 | **Coupled Script Refactoring:** The 15 coupled scripts (`cors_scanner.py`, `crlf_scanner.py`, `eol_check.py`, `h1_idor_scanner.py`, `h1_oauth_tester.py`, `h1_race.py`, `hunt.py`, `intel_engine.py`, `learn.py`, `memory_gc.py`, `multipart_mutator.py`, `nosqli_scanner.py`, `token_scanner.py`, `validate.py`, `waf_response_analyzer.py`) MUST be decoupled from external package imports (`memory.*`, `tools.*`) and refactored to interface natively with this system's SQLite state store and schema models. | M |
+| TR-SCRIPT-03 | **Deterministic Scope Checker Engine:** The logic from `scope_checker.py` MUST be integrated into the Council Gate 1 deterministic engine (Tier 0). It MUST enforce strict DNS-suffix anchoring and validate against CIDR, IP, and port-range definitions for autonomous tasks. In Operator-Directed Mode, scope verification yields unconditionally to manual targets. | M |
+| TR-SCRIPT-04 | **Tier 1 Structured Candidate Wrappers:** `jwt_scanner.py` (token decoding, signature validation, algorithm confusion tests), `dom_xss_harness.py` (headless browser DOM execution), and `oob_listener.py` (out-of-band interaction correlation) MUST be exposed with declarative Tier 1 JSON schemas defining typed arguments, timeout classes, and execution flags. | M |
+| TR-SCRIPT-05 | **Source Code Static Analysis (SAST):** `sast_scan.py` MUST be integrated into the source-code-access domain (`CODE_REPO` target type) as a standalone Semgrep wrapper, executing deterministic AST queries within isolated local repository checkouts. | M |
+| TR-SCRIPT-06 | **Reconnaissance & Pre-Filtering Pipeline:** The content-discovery and filtering pipeline modeled in `full_hunt.sh` and `dork_runner.py` (passive recon → crawling → parameter extraction → pattern-based candidate categorization prior to vulnerability-specific tool dispatch) MUST be implemented as the standard task-generation pattern for the Strategist and Operator roles. | M |
+| TR-SCRIPT-07 | **Dual-Mode Execution Posture for Tools:** All integrated scripts MUST execute according to active operating mode: in **Autonomous Mode**, operations MUST be strictly non-destructive (discovery reads and benign verification writes only; data drops, schema modifications, and DoS are prohibited); in **Operator-Directed Mode**, scripts execute as parameterized with zero automated refusal or safety gating. | M |
 
 ---
 
-## 2. Tool Scripts (`Actual-Setup/tools/*.py`, `*.sh`) — the highest-value category
+## 2. TR-BRIDGE — Protocol Adapters & External Service Bridges
 
-44 Python scripts were checked for internal package coupling (`from memory.` /
-`from tools.` imports) — this is the difference between "drop this one file in and
-it works" and "this needs the whole package or a rewrite."
+External platforms and intercepting proxies interface via minimal, direct transport adapters rather than heavy runtime dependencies.
 
-### 2a. Verified standalone (29 files — no cross-module imports)
-
-```
-auth_session.py       banner.py            breach_checker.py
-credential_store.py   dashboard.py         dom_xss_harness.py
-h1_mutation_idor.py   hai_payload_builder.py  hai_probe.py
-jwt_scanner.py         lead_board.py        llm_redteam.py
-mindmap.py             oob_listener.py      port_scanner.py
-prompt_safety.py       recon_adapter.py     safe_http.py
-sast_scan.py           scope_checker.py     sneaky_bits.py
-_spray_http_form.py    _spray_oauth.py      target_selector.py
-visual_triage.py       waf_encoder.py       zendesk_idor_test.py
-zero_day_fuzzer.py
-```
-
-### 2b. Verified coupled (15 files — pull in `memory.*`/`tools.*` internals)
-
-```
-cors_scanner.py     crlf_scanner.py      eol_check.py
-h1_idor_scanner.py  h1_oauth_tester.py   h1_race.py
-hunt.py             intel_engine.py      learn.py
-memory_gc.py        multipart_mutator.py nosqli_scanner.py
-token_scanner.py    validate.py          waf_response_analyzer.py
-```
-
-Coupled scripts are not unusable — they'd just need either the whole `memory`/
-`tools` package structure imported alongside them, or the specific logic extracted
-and rewritten against our own `03-Data-and-Storage-Requirements.md` schema instead
-of their JSONL-based memory layer. Treat 2a as "adopt directly," 2b as "port the
-logic, don't import the package."
-
-### 2c. Highest-confidence Tier 1 candidates (read in full, verified standalone)
-
-| Script | Maps to | Notes |
-|---|---|---|
-| `scope_checker.py` | **`FR-COUNCIL-03a`** (deterministic Tier 0 scope check) | Near-exact match for what we need: "deterministic scope checker — code check, not LLM judgment," anchored suffix matching (`*.target.com` matches `sub.target.com`, not `evil-target.com`), explicit IP/CIDR non-support with a clear warning rather than silent wrong behavior. **Recommendation: use this file's `_domain_matches`/`ScopeChecker` logic directly as the reference implementation for `FR-COUNCIL-03a`**, extending it for CIDR support (`FR-COUNCIL-03a` requires CIDR matching, which this file explicitly does not support) and the port-range/destructive-flag checks `FR-COUNCIL-03a` also requires. |
-| `jwt_scanner.py` | New Tier 1 tool (JWT attack testing) | Not currently in our Tier 1 list (`nmap`/`masscan`/`nuclei`/`ffuf`/`feroxbuster`/`gobuster`/`sqlmap`/`nikto`/`whatweb`/`wafw00f`/`testssl`). Candidate addition if JWT-based auth testing is in scope for a given engagement. |
-| `port_scanner.py` | Overlaps `nmap`/`masscan` (already Tier 1) | Likely redundant with existing Tier 1 tools — evaluate whether it adds non-HTTP service-specific value (per its `CLAUDE.md` description: SSH/DB/Redis/Docker-API/RDP discovery) before adding as a separate tool. |
-| `dom_xss_harness.py`, `oob_listener.py` | New Tier 1 tools (headless-browser DOM XSS confirmation, OAST/blind-vuln confirmation) | Both describe capabilities (headless browser rendering, out-of-band callback listening) our current Tier 1 list has no equivalent for at all — genuinely additive, not overlapping. |
-| `sast_scan.py` | **(Revised — no longer out of scope)** `FR-CODEACCESS-02` (`19-Extended-Capability-Domains.md`) | Wraps Semgrep over fetched JS/source for static analysis. Originally flagged out of scope since this system had no source-code-access mode — that changed with the `19` capability expansion (`diff-review`/`whitebox-code-recon`), which explicitly names `tools/sast_scan.py` as the Operator's static-analysis tool for that domain. Adopt directly (verified standalone, 2a). |
-
-**Not yet classified individually:** the remaining standalone scripts (`banner.py`,
-`dashboard.py`, `mindmap.py`, `prompt_safety.py`, `safe_http.py`, `waf_encoder.py`,
-`zero_day_fuzzer.py`, etc.) and all 15 coupled ones. **Recommendation:** a one-time
-classification pass over the full `tools/` directory belongs in
-`15-Implementation-Milestone-Roadmap.md` Milestone 1 (Tool Bridge), not fabricated
-here without reading each file.
-
-### 2d-2. `Actual-Setup/scripts/full_hunt.sh` and `dork_runner.py` — the master pipeline (added in a later mining sweep, per explicit operator emphasis that pipeline/orchestration logic is the highest-value category to fetch)
-
-Both verified standalone (no `memory.`/`tools.` package coupling — pure shell/Python
-using only generic `$TARGET`/`$TARGETURL` variables, no hardcoded real target) and
-copied into `Actual-Setup/scripts/`.
-
-**`full_hunt.sh`'s actual 3-phase pipeline** — the concrete tool-chaining sequence,
-not just a list of tools, is the valuable part:
-
-1. **Phase 1 — passive recon:** `subfinder`/`amass`/`crt.sh` subdomain enumeration →
-   `httpx` live-host probe → `gau`/`waybackurls` historical URL collection → tech
-   fingerprinting.
-2. **Phase 2 — content discovery:** `katana` crawl, deliberately time-boxed to
-   **5 minutes at crawl depth 3** (not left unbounded) → `ffuf` directory/file-
-   extension fuzzing → JS extraction (+ optional LinkFinder endpoint mining) →
-   `gf`-pattern filtering that sorts every discovered URL into **8 named
-   vuln-candidate buckets** (xss/sqli/ssrf/redirect/lfi/rce/idor/ssti) *before* any
-   vuln-specific tool runs.
-3. **Phase 3 — vuln scanning:** `nuclei` (critical/high/medium severity only) →
-   `dalfox` XSS confirmation run **specifically against the `xss` bucket from
-   Phase 2's gf-filtering**, not against the whole URL set → a basic
-   reflected-Origin CORS check → `subzy` subdomain-takeover scan → `dork_runner.py`
-   invoked for a Google-dork report as a final pass.
-
-**Why this sequencing matters, not just the tool list:** the gf-filter-then-target
-pattern (Phase 2 sorts candidates into buckets; Phase 3's `dalfox` call only touches
-the `xss` bucket) is a concrete, reusable prioritization method for this system's own
-Operator — proposing a targeted confirmation tool against a *pre-filtered* candidate
-set, rather than running every vuln-specific tool against every URL indiscriminately.
-This is the same spirit as `FR-COUNCIL-10`'s follow-on-task logic but demonstrated as
-a real, working pipeline rather than an abstract instruction — worth citing directly
-in the Operator prompt (`14` §3) as a concrete sequencing example, alongside the
-already-folded-in A→B chain-hunting guidance.
-
-`dork_runner.py` is a template generator (not a search executor) across 12 dork
-categories — the `microsoft365` (tenant/SharePoint/Power BI/OneDrive enumeration via
-dork) and `compliance` (leaked ISO 27001/SOC 2/PCI/DPA/incident-response documents)
-categories are concrete and specific enough to be worth Operator-level awareness, not
-generic Google-dorking knowledge a coding model already has by default.
-
-### 2d. Deployment path — no requirements change needed
-
-`FR-TOOL-03`'s Tier 2 path-restricted allowlist already covers `/usr/bin/`,
-`/usr/sbin/`, and **`/opt/`**. Any adapted script from this section deploys to
-`/opt/vapt_agent/tools/` on the target machine — already inside the existing
-allowlist. No amendment to `FR-TOOL-03` is needed; this is a packaging/deployment
-convention, not a requirements gap (an earlier chat-only version of this analysis
-overstated this as a gap — corrected here).
+| ID | Requirement | Priority |
+| --- | --- | --- |
+| TR-BRIDGE-01 | **Burp Suite Direct REST Bridge:** The system MUST interact with Burp Suite (`cc-bridge` extension) via direct HTTP REST calls (`[http://127.0.0.1:1337](http://127.0.0.1:1337)`) using standard client libraries (`httpx`/`requests`). No intermediate Node.js MCP bridge client shall be deployed for Burp communication. | M |
+| TR-BRIDGE-02 | **GraphQL Direct Endpoint Adapter:** Interfacing with platform GraphQL endpoints (such as public vulnerability disclosure metadata) MUST be implemented via native Python HTTP POST queries, eliminating redundant proxy layers. | M |
+| TR-BRIDGE-03 | **Caido MCP Client Adapter:** If Caido integration is enabled via runtime configuration, the system MUST interface with `npx @caido/mcp-server` using the standard Model Context Protocol client specification over stdio/IPC. | S |
+| TR-BRIDGE-04 | **Browser Automation Bridge:** Web-based dynamic interaction, anti-bot mitigation analysis, and DOM XSS verification MUST execute via direct Playwright/Puppeteer automation scripts utilizing the Chrome DevTools Protocol (CDP), without reliance on external MCP daemon processes. | M |
+| TR-BRIDGE-05 | **Untrusted Content Wrapping on Bridges:** All telemetry, HTTP headers, payloads, and response bodies ingested through REST, GraphQL, MCP, or CDP bridges MUST be enclosed in `<tool_output_untrusted>...</tool_output_untrusted>` boundary tags before model ingestion. | M |
+| TR-BRIDGE-06 | **Anti-Censorship Model Ingestion:** Ingestion of target data through bridge adapters MUST NOT trigger model refusals or censorship. Models analyze offensive security data, exploit structures, and vulnerabilities strictly as analytical input. | M |
 
 ---
 
-## 3. MCP / Burp / HackerOne Integration
+## 3. TR-METHOD — Triage, Planning & Methodology Enforcement
 
-| Asset | Finding (verified by reading `config.json`/`server.py`) | Integration guidance |
-|---|---|---|
-| `mcp/burp-mcp-client/` | **Not actually MCP.** `config.json`'s own comment states it plainly: `cc-bridge` is a REST API Burp extension, called via `curl` in `tools/burp_bridge.sh` (`base_url: http://127.0.0.1:1337`, bearer token from `~/.cc-bridge-token`). | Our Tier 2 bridge (or a dedicated integration module) can call the same REST endpoints directly via `requests`/`httpx`. **No MCP client implementation is needed on our side for Burp.** |
-| `mcp/hackerone-mcp/server.py` | A genuine registered MCP server, but its own docstring shows it's independently CLI-invocable and is "a lightweight wrapper around HackerOne's public GraphQL API" — no auth required. | Call HackerOne's public GraphQL API directly, bypassing the MCP layer entirely, for the same reason as Burp above. |
-| `mcp/caido-mcp-client/` | **Verified — genuinely different from Burp/HackerOne.** `opencode-config.json` registers a real MCP server: `{"mcp":{"caido":{"type":"local","command":["npx","-y","@caido/mcp-server"],"environment":{"CAIDO_API_KEY":"...","CAIDO_URL":"..."}}}}`. There is no REST-bypass shown anywhere in this config the way `cc-bridge` provides one for Burp — Caido's own MCP server is the only integration path evidenced here. | **A real MCP client would be needed if Caido integration is wanted** — see revised conclusion below. |
-| No dedicated Playwright MCP config exists anywhere in the source repo. | Checked `.claude/settings.json` (no `mcpServers` key at all — only hooks and enabled plugins) and the whole repo for a `mcp/playwright-mcp-client/`-style folder analogous to Burp/Caido — neither exists. The only Playwright-related artifact is `.playwright-mcp/` at the repo root, which is a **runtime cache** (timestamped page snapshots and console logs from actual past sessions), not a configuration file. Playwright MCP is therefore registered outside this repository entirely — most likely a global/user-level `claude mcp add` registration on that machine, which has no file to "fetch" in the first place. | **Nothing to copy or configure from — there is no Playwright MCP config in this repo.** `.playwright-mcp/` was correctly never copied (see updated safety note below — it also contains real session artifacts, not just being the wrong kind of file). |
+Methodology patterns extracted from operational practice are codified into deterministic validation checklists and council reasoning protocols.
 
-**Revised conclusion (corrects the original, Burp/HackerOne-only-based one):** Burp
-and HackerOne integration need no MCP client — both reduce to plain REST calls
-callable directly from our own bridge code. **Caido is different: if Caido
-integration is ever wanted, this system would need an actual MCP client
-implementation** (or a Burp-style REST bridge extension for Caido, if one exists —
-not evidenced by anything copied here). This is not currently a requirement anywhere
-in `01`-`17` — Burp/Caido/HackerOne integration was always `FR-TOOL-10`/`11`-level
-**optional** methodology tooling, not a core requirement — but it should not be
-assumed "free" the way Burp turned out to be. No MCP client is added to `04`'s
-requirements or `13`'s module layout by this correction; it's flagged here as
-groundwork for if/when that optional integration is actually pursued.
-
-**Additional safety note (new, not in the original safety notice):** while checking
-`.claude/settings.json` for MCP registrations, `.claude/settings.local.json` in the
-source repo was found to contain a permission allowlist listing **real attack
-commands run against a real client (`myco.io`)** — actual URLs, actual SSRF/open-redirect
-payloads. This was never copied (confirmed: `Actual-Setup/` contains no `.claude/`
-directory at all), but it belongs alongside `hunt-memory/`/`findings/`/`recon/`/
-`target_config.yaml` in `17-Standalone-Engine-Reuse-and-Comparison.md`'s safety
-notice as a category to never go back and copy from that source repo.
+| ID | Requirement | Priority |
+| --- | --- | --- |
+| TR-METHOD-01 | **Gate 3 Evidentiary Verification Checklist:** Derived from triage validation standards, Gate 3 MUST evaluate candidate findings against mandatory checks: (1) ruling out false-positive patterns (WAF blocks, rate limits, generic 5xx errors, honeypots), (2) verifying proof of impact beyond technical possibility, (3) confirming cross-identity access for IDOR/BOLA, and (4) establishing a verified baseline/attack/diff evidence structure. | M |
+| TR-METHOD-02 | **Strategist Assumption-Breaking Heuristics:** The Strategist system prompt MUST incorporate core assumption-testing routines: evaluating trust boundary bypasses, state/timing race conditions (TOCTOU), parsing/normalization order differentials, boundary value extremes, and incidental access capabilities. | M |
+| TR-METHOD-03 | **Cluster Hunting & Sibling Mapping:** Upon confirming a vulnerability on an endpoint, the Operator MUST map sibling endpoints within the same module/controller and formulate targeted follow-on tasks to assess blast radius before concluding exploration of that vector. | M |
+| TR-METHOD-04 | **Deterministic Report Structuring:** The Reporter MUST generate finding titles matching the deterministic formula: `[Bug Class] in [Exact Endpoint] allows [role] to [impact] [scope]`. Speculative hedging language ("could potentially", "may allow") is strictly prohibited in final findings. | M |
+| TR-METHOD-05 | **Adversarial Threat Ingestion Defenses:** The heuristic injection detector MUST monitor ingested tool outputs for Unicode tag smuggling, MCP tool-description line-jumping, and delimiter injection, recording detected anomalies in execution logs without halting testing cycles. | M |
 
 ---
 
-## 4. Skills & Rules — Methodology to Mine, Not Code to Run
+## 4. TR-EXCLUDE — Non-Portable Architecture Exclusions
 
-None of these are executable by our system (§1). Their value is as **verified
-source material to enrich `14-System-Prompt-Templates.md`'s prompts** — mining
-content, not integrating code.
-
-### 4a. Implemented this pass (verified in full)
-
-**`skills/triage-validation/SKILL.md`** was read in full. Its "7-Question Gate" (in
-practice 8 questions) and closure-discipline procedures are materially more rigorous
-than `FR-COUNCIL-14`'s current 4-item false-positive checklist (WAF block / rate
-limit / generic error / honeypot). Not everything in it applies — Q2 ("is impact on
-the *program's* accepted impact list") and Q7 (bug-bounty "never submit" class list)
-are bounty-payout-eligibility concepts with no equivalent in an authorized VAPT
-engagement, where any confirmed vulnerability gets reported regardless of whether a
-bounty program would pay for it. What **does** transfer directly:
-
-- **Q6 — "prove impact beyond technically possible."** E.g. XSS must show actual
-  cookie theft/session hijack, not just `alert(1)`; SSRF must hit an internal
-  endpoint that returns data, not just a DNS ping; IDOR must show the actual
-  other-user's data in the response, not just a 200 status.
-- **Q8 — the identity/session check for IDOR/BOLA and privilege-escalation
-  findings.** A finding that only reproduces under one identity, or stops working
-  when logged out, is very often a scoped permission boundary, not a real bug — the
-  skill file states this is "the most common reason confirmed IDOR findings come
-  back as N/A."
-- **Baseline/attack/diff confirmation** and the **matched-twin negative control**
-  discipline (change exactly one property, preserve everything else, so the twin
-  travels the identical code path) — a materially stronger evidence standard than
-  our current gate's generic "distinguish real injections from generic errors."
-
-These three have been folded into `FR-COUNCIL-14` (revised) and the Gate 3
-Adjudicator prompt in `14-System-Prompt-Templates.md` §4 — see those files for the
-actual applied text.
-
-### 4a-continued. Mined in a later follow-up sweep (fully read, not skimmed)
-
-**`skills/bb-methodology/SKILL.md`** (457 lines, fully read) — its assumption-breaking
-checklist (trust boundary / state-timing-TOCTOU / parse-normalize ordering / boundary
-values / incidental capability / uniqueness) has been folded into the Strategist
-prompt, `14-System-Prompt-Templates.md` §1, as a concrete technique for generating
-novel hypotheses once standard scans run dry. Its escalation decision trees
-(XSS→session hijack, IDOR→PII scraping, SSRF→cloud metadata→RCE) were reviewed but
-not separately drafted in — they're closer to Operator follow-on-task judgment
-(`FR-COUNCIL-10`) than Strategist planning, and the Operator model is a strong coding
-model that already reasons about escalation paths without needing a scripted
-decision tree. Its 20-minute rotation / 45-minute rabbit-hole rule was cross-checked
-against `FR-COUNCIL-11`'s thresholds — no change needed, ours is already more precise
-(state-delta-based, not just a wall-clock timer).
-
-**`skills/report-writing/SKILL.md`** (532 lines, fully read) — its title formula,
-"never write 'could potentially'" hard rule, and human-tone avoid-list have been
-folded into the Reporter prompt, `14-System-Prompt-Templates.md` §5. Its 60-second,
-12-item pre-submit checklist and its bug-bounty-platform (H1/Bugcrowd/Intigriti/
-Immunefi) report templates were **not** adopted — the platform templates are the
-wrong deliverable shape for a client VAPT report (already governed by
-`12-Report-Formatting-Rules.md`), and the pre-submit checklist mixes bounty-specific
-items (two test accounts, a bounty-platform-style reproduction capsule) with items
-already covered elsewhere in this design (CVSS is already mandatory via
-`FR-COUNCIL-16a`; grounding is already mechanically checked via `IR-GROUND-01..03`,
-stronger than a self-checklist item). Flagged, not silently adopted as a new gate.
-
-**`skills/security-arsenal/SKILL.md`** (1,668 lines, fully read) — a payload/bypass-table
-reference (XSS, SSRF, SQLi, XXE, path traversal, IDOR, JWT/OAuth, NoSQLi, command
-injection, SSTI, HTTP smuggling, WAF bypass, WebSocket, MFA bypass, SAML). Assessed
-as **not directly transferable into any of `14`'s prompts**: the Operator is a strong
-coding-tuned model (`Qwen2.5-Coder-7B-Instruct`) that already has this class of
-payload knowledge from its own training — embedding a static payload reference into
-its system prompt would bloat context (`FR-GATE-07`'s 16k ceiling) for marginal
-benefit, and risks the prompt going stale as bypass techniques evolve faster than
-this document set. Its WAF-bypass decision tree's "5 min total, still blocked → kill"
-rule was cross-checked against `FR-COUNCIL-11`/`FR-COUNCIL-09` the same way
-`bb-methodology`'s rotation rule was — no change needed.
-
-**`skills/web2-vuln-classes/SKILL.md`** (2,447 lines — sampled by section structure,
-§11 "LLM/AI Features → MCP & RAG-Specific Attacks" read in full; the other 31 vuln
-classes were not read cover-to-cover). §11 documents current, named techniques —
-MCP tool-description "line jumping," prefix-match path-traversal sandbox escapes
-(with named CVEs), ASCII-smuggling via invisible Unicode tag characters, indirect
-RAG-document injection, and system-prompt extraction via role/scenario escape. This
-is **dual-use for this system**: as a target-vuln-class reference, but also as a
-direct threat description of attacks against *our own* council, since this system is
-itself an LLM-based agent processing untrusted tool output through `IR-SANITIZE`/
-`SEC-PROMPT`/`FR-TOOL-13`. The current heuristic-detector requirement (`FR-TOOL-13`)
-has no documented awareness of Unicode-tag-character smuggling or split/base64-encoded
-instruction evasion specifically — this is flagged as worth an operator decision on
-whether to fold these named techniques into `FR-TOOL-13`'s detection patterns, not
-silently added here. The remaining 31 vuln classes are believed to be adequately
-covered by `FR-COUNCIL-01/02`'s existing general hypothesis-generation instruction
-plus the Operator's own training-time knowledge, but were not individually verified
-class-by-class — a genuine limitation of this pass, not a claim of completeness.
+| ID | Requirement | Priority |
+| --- | --- | --- |
+| TR-EXCLUDE-01 | **Interactive Copilot Commands:** Slash commands (`commands/*.md`) designed for interactive cloud-copilot runtimes are excluded from direct implementation; operator interaction is owned exclusively by the `vaptctl` CLI surface and interactive TUI console. | M |
+| TR-EXCLUDE-02 | **Cloud Subagent Prompts:** Subagent prompt configurations (`agents/*.md`) designed for third-party cloud models are excluded; execution logic is owned exclusively by the 6-model dedicated local council. | M |
 
 ---
 
-## 5. What Does Not Reuse At All
+## Authority & Conflict Resolution
 
-| Asset | Why not |
-|---|---|
-| `commands/*.md` (39 slash commands) | Claude-Code-specific dispatch definitions. Our command surface is `vaptctl` (Click, `13-Implementation-Architecture-Bridge.md` IAB-CLI) — an unrelated mechanism. |
-| `agents/*.md` (9 subagents) | Claude-Code subagent prompts, invoked via Claude Code's own Agent/Task tool. Our "agents" are the five local models in the council — a different concept entirely. `agents/autopilot.md`'s scope→recon→rank→hunt→validate→report loop is a useful *conceptual* validation that our own 5-phase shape is sound (it's solving the same problem), but contains no transferable logic — the reasoning there is done by Claude itself, not by a portable algorithm. |
-| Running any `skill/`, `command/`, or `agent/` file as-is | These require Claude Code's runtime and a cloud model to interpret; running them "against" our local council does nothing, because they're prompts for a different system, not portable instructions. |
-
----
-
-## 6. Follow-Up Items (not resolved in this pass)
-
-| Item | Action needed |
-|---|---|
-| `rules/vapt_report_format.md` vs `12-Report-Formatting-Rules.md` | `12` was cloned from an earlier version of this toolkit's `CLAUDE.md`. `Actual-Setup/rules/vapt_report_format.md` is a separate, likely-evolved file under the same lineage — diff the two before implementation; `12` should be re-verified against whichever is more current, not assumed still accurate. |
-| Full `tools/` classification | 15 coupled files plus the remaining unclassified standalone ones were named but not individually read — a classification pass belongs in Milestone 1 of `15-Implementation-Milestone-Roadmap.md`. |
-| ~~`mcp/caido-mcp-client/`~~ | **Resolved** — decision #54: confirmed genuinely real MCP, see `16` §3. |
-| ~~§4b methodology mining~~ | **Resolved** — `web2-vuln-classes`, `bb-methodology`, `report-writing`, `security-arsenal` all fully read and mined; see §4a-continued above and `19-Extended-Capability-Domains.md`. |
-| `Actual-Setup/web3/08-ai-tools.md`'s third-party autonomous-agent comparisons | **New, not yet acted on.** Four third-party autonomous-pentest/audit agents are named and briefly described (Shannon, LuaN1ao, CAI Framework, a multi-agent Solidity auditor called SmartGuard) — the same genre as `17`'s `agent.py`/`brain.py` comparison, potentially relevant to `13`'s process-model design, but a real comparison pass (read each in full, compare against confirmed decisions) hasn't been done. Flagged, not assumed either way. |
-| `Actual-Setup/web3/07-case-study-role-misconfiguration.md`, `09-live-hunt-zksync.md` | Copied and verified safe (07 is explicitly self-labeled "Anonymized," grep-confirmed no real names; 09 documents a zero-finding audit of ZKsync Era, a public open-source protocol under a public Immunefi program) — but their actual technical *content* wasn't separately mined into any requirement, only their safety was determined. Low priority given `02-bug-classes.md`'s existing per-class real-example tables likely already cover the same ground. |
+This document standardizes functional requirements for tool adaptation, protocol bridge integration, and methodology implementation. In the event of any discrepancy, ambiguity, or conflict between external script behaviors, integration contracts, and system governance mandates, the **Security, Safety & Compliance Requirements (`05`)** serves as the final and supreme authority across the entire system.

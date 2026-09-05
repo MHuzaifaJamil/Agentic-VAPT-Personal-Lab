@@ -1,54 +1,24 @@
-# Autonomous Agentic VAPT System Architecture & Master Operational Plan
+# Autonomous Agentic VAPT System — Master Operational Blueprint
+
+A high-performance, fully local vulnerability assessment and penetration testing (VAPT) framework running on Kali Linux. The platform coordinates an ensemble council of dedicated language models alongside deterministic code gates to autonomously plan, execute, adjudicate, and report security assessments without cloud dependencies or telemetry egress.
 
 ---
 
-## 1. Target Hardware & Host Environment Specifications (Home PC)
+## 1. System Topology & Hardware Target
 
-### 1.1 Compute, Graphics & Kernel Infrastructure
+Optimized for high-efficiency mobile and workstation silicon operating under constrained shared memory architectures.
 
-* **Processor (CPU):** Intel Core Ultra 5 125H (Meteor Lake-P Architecture)
-* **Core Topography:** 14 Physical Cores / 18 Execution Threads
-* 4 Performance Cores (P-Cores) @ high-frequency AVX2/AVX-VNNI throughput
-* 8 Efficient Cores (E-Cores) for background scheduling, tool parsing, and subprocess management
-* 2 Low-Power Efficient Cores (LPE-Cores) for idle state OS maintenance
-
-
-* **Vector Acceleration:** Full support for `avx2`, `fma`, `bmi1`, `bmi2`, `avx_vnni`, and `vaes`.
-
-
-* **Graphics (Integrated GPU):** Intel Arc Graphics (Meteor Lake-P GT2, PCI ID `8086:7d55`, rev 08)
-* **GPU Architecture:** 7 Xe Cores with dedicated vector matrix processing units.
-* **Kernel Drivers:** `i915` and `xe` kernel modules active.
-* **Acceleration Interfaces:** Intel oneAPI Level Zero and OpenCL compute runtimes.
-
-
-* **Operating System:** Kali Linux (Debian 15.3 kernel environment, Rolling release).
-
-### 1.2 Memory & Storage Geometry
-
-* **Physical System RAM:** 15.3 GiB Total Shared LPDDR5/DDR5
-* **Baseline Consumption:** ~5.8 GiB active desktop load (XFCE, background daemons, browser sessions).
-* **Available RAM (Pre-Freezing):** ~9.5 GiB available for allocation.
-* **Available RAM (Post-Application Hibernation):** ~13.0 GiB available.
-
-
-* **Virtual Memory (Swap Architecture):** 15.3 GiB Total Active Swap
-* Primary Swap Partition: `/dev/nvme0n1p8` (10.3 GiB, NVMe speed)
-* Secondary Swap File: `/swapfile` (5.0 GiB)
-
-
-* **Storage & File System Topography:**
-* **Primary Root Mount:** `/dev/nvme0n1p7` (ext4) — 185 GB Total, 104 GB Used, **72 GB Available (60% utilization, 13% inode load)**.
-* **Ephemeral Memory Mount:** `tmpfs` mounted at `/tmp` (7.7 GB Max capacity).
-* **Storage Safety Constraint:** All agent working directories, vector stores, scan logs, and raw outputs are strictly bound to NVMe path `/home/mhj/.local/share/vapt_agent/artifacts/` to prevent `tmpfs` RAM starvation.
-
-
+* **Compute:** Intel Core Ultra 5 125H (14 Cores / 18 Threads: 4 P-Cores, 8 E-Cores, 2 LPE-Cores)
+* **Graphics / Matrix Acceleration:** Intel Arc Graphics (7 Xe Cores) via Intel oneAPI Level Zero / SYCL
+* **Host Operating System:** Kali Linux Rolling (x86_64)
+* **Memory Architecture:** 15.3 GiB Shared LPDDR5/DDR5 + 15.3 GiB NVMe Swap
+* **Memory Management Strategy:** Dynamic desktop hibernation and strict **single-model residency**. Active models are loaded sequentially via memory-mapped IO (`mmap`) and evicted immediately upon phase completion to clear the 1.5 GiB minimum safety buffer.
 
 ---
 
-## 2. Multi-Model LLM Council Specifications
+## 2. The Multi-Model Council
 
-To balance cognitive accuracy against the 15.3 GiB shared memory constraint, models are deployed under a **Strictly Sequential Single-Residency Lifecycle**. Models are dynamically memory-mapped (`mmap`) into RAM/VRAM on demand and unloaded (`keep_alive: 0`) upon phase completion.
+The reasoning pipeline divides responsibilities across specialized local models to prevent single-agent confirmation bias and parameter hallucination.
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
@@ -56,391 +26,118 @@ To balance cognitive accuracy against the 15.3 GiB shared memory constraint, mod
 ├───────────────────────────────┬─────────────────────────────┬──────────────────────────┤
 │ Council Role                  │ Model Identifier            │ Quantization & Footprint │
 ├───────────────────────────────┼─────────────────────────────┼──────────────────────────┤
-│ Lead Strategist                │ DeepSeek-R1-0528-Qwen3-8B   │ Q8_0   (~8.6 GB)         │
-│ Lead Operator & Exploitation  │ Qwen2.5-Coder-7B-Instruct   │ Q8_0   (~8.0 GB)         │
-│ Scope Gate — Tier 0 (Det.)    │ Python scope checker        │ N/A (code, no model)     │
-│ Scope Gate — Tier 1 (Semantic)│ Hermes-3-Llama-3.1-8B       │ Q8_0   (~8.4 GB)         │
+│ Lead Strategist               │ DeepSeek-R1-0528-Qwen3-8B   │ Q8_0   (~8.6 GB)         │
+│ Lead Operator & Tool Runner   │ Qwen2.5-Coder-7B-Instruct   │ Q8_0   (~8.0 GB)         │
+│ Scope Gate (Semantic Tier)    │ Hermes-3-Llama-3.1-8B       │ Q8_0   (~8.4 GB)         │
 │ Offline Script Linter         │ Qwen2.5-Coder-3B-Instruct   │ Q8_0   (~3.3 GB)         │
 │ False-Positive Adjudicator    │ Mistral-7B-Instruct-v0.3    │ Q8_0   (~7.6 GB)         │
-│ Reporter                      │ Ministral-8B-Instruct-2410  │ Q8_0   (~8.4 GB)         │
+│ Executive Technical Reporter  │ Ministral-8B-Instruct-2410  │ Q8_0   (~8.4 GB)         │
 └───────────────────────────────┴─────────────────────────────┴──────────────────────────┘
 
 ```
 
-*(This is now a 6-model council, not 5 — Reporter was split out as its own resident
-model rather than sharing the Strategist's weights, and every model was moved to a
-uniform `Q8_0` quantization. Both changes, plus the Gate 1 model reversal below, were
-made per an operator-supplied roster; see `11-Critical-Analysis-and-Design-Challenges.md`
-finding C-30 for the memory-headroom consequence of the quantization change, and the
-revised C-03 resolution for the Gate 1 reasoning.)*
+* **Lead Strategist (`DeepSeek-R1-0528-Qwen3-8B`):** Employs extended reasoning tokens (`<think>`) to construct macro-level attack paths, hypothesize kill-chains, and map target trust boundaries.
+* **Lead Operator (`Qwen2.5-Coder-7B-Instruct`):** Generates structured tool invocations, handles API schemas, and synthesizes target-specific exploit/automation scripts. Remains resident during Phase 4.2.
+* **Scope Gate — Dual-Tier:**
+* *Tier 0 (Deterministic):* Non-bypassable Python rule engine enforcing CIDR containment, domain regexes, port whitelists, and destructive syntax blocks.
+* *Tier 1 (Semantic — `Hermes-3-Llama-3.1-8B`):* High-level contextual sanity checks on proposed attack plans to challenge logic drift.
 
-### 2.1 Model Profiles & Operational Responsibilities
 
-#### 1. Lead Strategist: `DeepSeek-R1-0528-Qwen3-8B`
+* **Command Validator & Linter — Dual-Tier:**
+* *Council Gate 2 (In-Loop):* Deterministic, zero-latency schema and flag verifier validating Operator tool syntax before execution.
+* *Script Linter (Offline — `Qwen2.5-Coder-3B-Instruct`):* Invoked between phases to parse complex, multi-line custom scripts.
 
-* **Target Quantization:** `Q8_0` (Disk Footprint: ~8.6 GB | RAM with 8k Context: ~9.8 GB)
-* **Primary Mandate:** Macro-phase strategic reasoning, pre-engagement attack surface modeling, multi-step kill-chain hypothesis formation. (Report synthesis is now a separate role — see Reporter, below.)
-* **Why Selected:** Utilizes explicit Chain-of-Thought (`<think>`) reasoning tokens to construct logical attack trees and deduce root causes without jumping blindly to tool execution.
 
-#### 2. Lead Operator: `Qwen2.5-Coder-7B-Instruct`
-
-* **Target Quantization:** `Q8_0` (Disk Footprint: ~8.0 GB | RAM with 16k Context: ~10.2 GB)
-* **Primary Mandate:** Autonomous tool orchestration, structured JSON parameter generation, custom exploit script synthesis (Python, Bash), and parsing raw stdout/stderr streams.
-* **Why Selected:** State-of-the-art coding fidelity at the 7B scale; exhibits exceptional adherence to structured tool-calling schemas with virtually zero parameter hallucination.
-
-#### 3. Scope Gate — Two-Tier Council Gate 1
-
-**Tier 0 — Deterministic Python Scope Checker (no model):**
-* **Primary Mandate:** Non-bypassable, zero-LLM-dependence validation of target CIDR/domain-regex membership, port-range boundaries, and a fixed denylist of destructive flags. Runs first, before any LLM sees the task. This is the system's actual, non-negotiable safety boundary — Tier 1 below is a secondary contextual check, not a backstop this design depends on for hard scope enforcement.
-* **Why Selected:** A rule-based check cannot be persuaded, prompt-injected, or steered — it closes a reliability gap an LLM-only gate would have.
-
-**Tier 1 — Semantic Scope Gate: `Hermes-3-Llama-3.1-8B`**
-* **Target Quantization:** `Q8_0` (Disk Footprint: ~8.4 GB | RAM with 8k Context: ~9.6 GB)
-* **Primary Mandate:** Contextual/strategic sanity check on attack plans generated by the Strategist — only for tasks that already passed Tier 0 — before any execution occurs: does the plan stay logically aligned with engagement goals, without over-refusing standard, in-scope pentesting commands.
-* **Why Selected:** *(Revised — see `11`, finding C-03.)* This role was originally `Hermes-3-Llama-3.1-8B` in the base plan, then swapped to `Llama-3.1-8B-Instruct` for stronger refusal behavior (decision #34), because Tier 1 was being treated as if it were the primary safety backstop. It has now been swapped back to `Hermes-3-Llama-3.1-8B`, on the basis that Tier 0's deterministic pre-check — not any LLM — is the real non-bypassable boundary, so a model tuned against blanket safety refusals is appropriate for Tier 1's narrower, genuinely-contextual job (and avoids Meta's Llama 3.1 license gating, which the operator does not hold). This does reopen part of C-03's original concern for the narrower class of judgment Tier 0 cannot express (e.g., excessive-but-technically-in-scope actions) — flagged, not silently assumed safe; see the revised C-03 resolution and Open Item C in `10-Decision-Log-and-Open-Questions.md`.
-
-#### 4. Council Gate 2 (Command Linting) — Deterministic Code, Not a Model
-
-* **Command/argument validation ("Council Gate 2") is performed by a deterministic, non-LLM Python validator** — argparse-style flag verifiers, regex sanitizers, per-tool schema — evaluated synchronously with zero model-load latency, not by an LLM.
-* **`Qwen2.5-Coder-3B-Instruct`'s role:** reserved for **offline, between-phase** use only — multi-line custom exploit script syntax checks that exceed what the deterministic validator can evaluate via flags/regex/schema alone.
-* **Target Quantization:** `Q8_0` (Disk Footprint: ~3.3 GB | RAM with 4k Context: ~3.9 GB) — for its offline role only.
-* *(This model was originally the in-loop Council Gate 2 linter, alternating with the 7B Operator per generated command. Corrected per `11-Critical-Analysis-and-Design-Challenges.md`, finding C-09. This part of the design is unchanged by the roster update.)*
-
-#### 5. False-Positive Adjudicator: `Mistral-7B-Instruct-v0.3`
-
-* **Target Quantization:** `Q8_0` (Disk Footprint: ~7.6 GB | RAM with 8k Context: ~8.8 GB)
-* **Primary Mandate:** Independent vulnerability confirmation gatekeeper.
-* **Why Selected:** Strict adherence to factual ground truth; assesses raw HTTP response dumps, headers, and error codes against strict vulnerability criteria to filter out WAF blocks, rate limits, and generic 500 server errors before a finding is marked verified.
-
-#### 6. Reporter: `Ministral-8B-Instruct-2410`
-
-* **Target Quantization:** `Q8_0` (Disk Footprint: ~8.4 GB | RAM with 16k Context: ~10.6 GB)
-* **Primary Mandate:** Ingests confirmed findings, maps CWE/CVE identifiers, deduces root causes, drafts one technical report per confirmed finding plus a consolidated informational register, and proposes CVSS 3.1 per-metric values (a separate deterministic calculator computes the final score).
-* **Why Selected:** A genuinely separate model from the Strategist, rather than the same weights reloaded — an independent perspective on evidence than the one that planned the attack, and Mistral AI's edge/long-context tuning suits synthesizing potentially many findings' worth of evidence into one document. *(This role previously shared the Strategist's model, reloaded between phases. Split into its own model per an operator-supplied roster update — see `10`, decision #55.)*
+* **False-Positive Adjudicator (`Mistral-7B-Instruct-v0.3`):** Independent evidence gatekeeper reviewing raw HTTP streams, server headers, and return codes against an empirical 4-point impact checklist.
+* **Executive Reporter (`Ministral-8B-Instruct-2410`):** Drafts vulnerability records, maps CWE/CVE indices, and proposes CVSS 3.1 vectors for automated calculation.
 
 ---
 
-## 3. Master Operational Blueprint (5-Phase Lifecycle)
+## 3. Operational Lifecycle
 
 ```
-[ Phase 1: Environment & Memory Prep ]
-  ├── Enforce NVMe paths (bypass tmpfs)
-  └── Freeze non-agent apps via SIGSTOP -> Flush to NVMe Swap (Available RAM: ~13 GB)
+[ Phase 1: Environment Prep ]
+  └── Freeze non-essential desktop GUI apps (SIGSTOP) -> Reclaim RAM to Swap (~13 GB free)
        │
        ▼
-[ Phase 2: Gateway & Runtime Bridge ]
-  ├── Initialize llama.cpp/Ollama with Level Zero SYCL Backend
-  └── Pin LLM compute to 8 threads (P-Cores) & Expose OpenAI-compatible /v1 endpoint
+[ Phase 2: Runtime Engine Initialization ]
+  └── Launch llama.cpp with Level Zero SYCL -> Pin to 8 P-Core threads on 127.0.0.1:11434
        │
        ▼
-[ Phase 3: Framework & Kali Tool Integration ]
-  ├── Harvest skills & MCP definitions (claude-bug-bounty, CyberStrike, strix)
-  └── Establish Dynamic Subprocess Bridge for /usr/bin/ security suite
+[ Phase 3: Toolset & Bridge Binding ]
+  └── Initialize Tier 1 JSON schemas & Tier 2 dynamic CLI adapters across /usr/bin & /opt
        │
        ▼
 [ Phase 4: State-Driven Council Execution (Relay Mode) ]
-  ├── Step A: DeepSeek-R1-0528-Qwen3-8B (Plan) ──► Scope Checker + Hermes-3-Llama-3.1-8B (Validate Scope) ──► SQLite
-  ├── Step B: Qwen-Coder-7B (Payload, resident) ──► Deterministic Validator (Lint) ──► Subprocess Run
-  └── Step C: Mistral-7B (Adjudicate Evidence) ──► Ministral-8B-Instruct-2410 (Report, CVSS via deterministic calculator)
+  ├── 4.1 Plan: DeepSeek-R1 -> Scope Check (Tier 0 Code + Tier 1 Hermes-3) -> SQLite Task Queue
+  ├── 4.2 Execute: Qwen-Coder-7B (Resident) -> Gate 2 Validation -> Process-Group Subprocess Run
+  └── 4.3 Adjudicate: Mistral-7B Evidence Review -> Ministral-8B Report Generation
        │
        ▼
-[ Phase 5: Hibernation & State Restoration ]
-  ├── Evict all model weights from RAM (Memory freed: ~7.8 GB)
-  └── Send SIGCONT to desktop apps -> Fast page-in from NVMe Swap (<2s)
+[ Phase 5: Teardown & Workspace Restoration ]
+  └── Evict model weights -> Resume desktop application trees (SIGCONT)
+
+```
+
+### Phase Details
+
+* **Phase 1: Environment Prep & Memory Reclamation:** Suspends heavy user processes (`SIGSTOP`), reprioritizes OOM-kill safety (`oom_score_adj = -900`), and flushes inactive pages to NVMe swap via a dedicated helper binary (`vapt-freezer-helper`), increasing free memory from ~9.5 GiB to ~13.0 GiB.
+* **Phase 2: Local Gateway & Core Pinning:** Boots the local inference backend on loopback, binding compute workloads to Performance Cores while reserving Efficient Cores for tool subprocesses and I/O polling.
+* **Phase 3: Security Tooling Bridge:** Binds Tier 1 native JSON schemas (`nmap`, `ffuf`, `sqlmap`, `nuclei`) and Tier 2 binary bridges (`/usr/bin`, `/usr/sbin`, `/opt/`) with non-shell execution (`shell=False`) and tiered subprocess timeouts.
+* **Phase 4: State-Driven Council Relay:** Coordinates iterative testing cycles through an append-only SQLite WAL state store. Tasks proceed through Plan $\rightarrow$ Gate $\rightarrow$ Tool Execution $\rightarrow$ Evidence Adjudication $\rightarrow$ Report Generation.
+* **Phase 5: Teardown & State Restoration:** Flushes inference buffers, clears runtime caches, and signals desktop processes (`SIGCONT`) to restore user workflows cleanly.
+
+---
+
+## 4. Execution Posture & Safety Controls
+
+The architecture implements a **Dual-Mode Execution Architecture** to balance autonomy with strict operational safety:
+
+* **Autonomous Mode (Non-Destructive Testing):** Unattended runs are strictly constrained. Permitted actions are limited to discovery reads (`GET`, `SELECT`) and non-destructive verification writes (`POST`). Data mutation, table drops, file deletions, and Denial of Service (DoS) conditions are prohibited by code gates.
+* **Operator-Directed Mode (Unconditional Execution):** Direct operator commands, interactive interventions, and manual scripts execute with top operational priority, bypassing automated heuristic gate refusals.
+
+### Defense-in-Depth Safeguards
+
+* **Untrusted Content Wrapping:** All target responses are tagged as `<tool_output_untrusted>` to prevent target data from overriding model instructions.
+* **Deterministic Grounding Verification:** Draft finding narratives are mechanically verified against raw evidentiary artifacts before report finalization.
+* **Circuit Breakers:** Automated loops trip on either 3 consecutive zero-yield runs (auto-pivoting target) or 3 consecutive network connection timeouts (marking target unreachable).
+* **Human Checkpoint Gate:** Sensitive actions (e.g., live credential spraying, external CI/CD PRs, package registry verification) trigger real-time checkpoints requiring explicit operator authorization unless executed directly via operator command.
+
+---
+
+## 5. Control Interfaces
+
+The system operates without external web dashboards or browser dependencies:
+
+```bash
+# Core Lifecycle Management
+vaptctl start --targets <targets.txt> --scope-rules <scope.yaml> [--assessment-mode initial|retest]
+vaptctl pause
+vaptctl resume
+vaptctl abort                      # Direct kill-switch: halts subprocess trees within 20s
+vaptctl status [--json]
+vaptctl export --engagement-id <id> --out <path>
+
+# Checkpoints & Reports
+vaptctl approve-checkpoint --checkpoint-id <id>
+vaptctl deny-checkpoint --checkpoint-id <id>
+vaptctl approve-report --report-id <id>
+
+# Real-Time Telemetry & Console
+vaptctl dashboard                  # 1.0 Hz read-only terminal performance dashboard (rich)
+vaptctl console                    # Interactive TUI intervention stream (Textual)
+vaptctl monitor --engagement-id <id> # Standalone model-free reconnaissance engine
 
 ```
 
 ---
 
-### Phase 1: Storage, Environment Hardening & Application Hibernation
-
-1. **Storage Sandboxing:**
-* Direct all agent-generated artifacts, cache databases, tool output XMLs, and temporary scripts to `/home/mhj/.local/share/vapt_agent/artifacts/`.
-* Set runtime environment variables (`TMPDIR`, `TEMP`, `TMP`) within the agent process space to target the NVMe partition, strictly blocking ephemeral memory usage in `/tmp`.
-
-
-2. **Application Hibernation Daemon (Memory Reclamation):**
-* Identify all active desktop GUI applications using user session process tables (`firefox-esr`, `chrome`, `brave`, `code`, `discord`, terminal emulators).
-* Exclude critical system daemons (`systemd`, `dbus`, `Xorg`, `xfce4-session`, `pulseaudio`/`pipewire`).
-* Issue `kill -SIGSTOP` to target application process trees, halting CPU consumption instantly.
-* Before triggering memory reclamation, lower each suspended PID's OOM-kill priority to **`oom_score_adj = -900`** (`/proc/<pid>/oom_score_adj`) so hibernated apps are the *last* candidates the kernel's OOM killer would select during the memory-pressure spike below. *(Added — see the Phase 5 correction note below and `11-Critical-Analysis-and-Design-Challenges.md`, finding C-01.)*
-* **`process_madvise(MADV_PAGEOUT)` requires elevated capabilities (`CAP_SYS_PTRACE`) the main agent process does not hold.** This call (and the `oom_score_adj` write above) MUST be performed by a narrow, single-purpose helper process (`vapt-freezer-helper`) granted only that specific capability via `setcap`, or an equivalently narrow `sudoers`/polkit rule — never by a privileged main agent process. If the helper/capability is unavailable at runtime, fall back to cgroup v2 memory limits (`memory.high`/`memory.reclaim`) rather than silently skip reclamation. *(Added per `11-Critical-Analysis-and-Design-Challenges.md`, finding C-15.)*
-* Trigger immediate kernel memory reclamation on paused PIDs via `process_madvise(MADV_PAGEOUT)` or cgroup memory limits, moving ~3.5 to 4.5 GB of application pages directly into `/swapfile` and `/dev/nvme0n1p8`.
-* **Result:** System available memory increases from **9.5 GiB to ~13.0 GiB**.
-* **Note:** freezing an application for 10-12 hours lapses its network/IPC sessions (TCP keepalives, TLS sessions, DBus heartbeats) regardless of memory handling — on resume, affected apps may show reconnect/re-auth prompts. This hibernation mechanism guarantees process memory and UI state, not network/session continuity. *(Added per `11-Critical-Analysis-and-Design-Challenges.md`, finding C-16.)*
-
-
-3. **Database State Initialization:**
-* Initialize local SQLite relational state store at `/home/mhj/.local/share/vapt_agent/state.db` with tables for `targets`, `attack_paths`, `task_queue`, `tool_execution_logs`, and `verified_vulnerabilities`.
-* One engagement MAY scope multiple targets (hosts/domains, or — per §7 below — a smart contract, mobile binary, or repository) — each target tracked and diminishing-returns-bounded independently, so one target running dry or capping out doesn't affect any other target in the same engagement. *(Added — this was already a confirmed design decision, never previously reflected here; see `03-Data-and-Storage-Requirements.md`'s `targets` table.)*
-* The state store is configured to handle simultaneous reads and writes safely (e.g. a CLI status check while the engagement is actively running), rather than fail under contention. *(Added per `11-Critical-Analysis-and-Design-Challenges.md`, finding C-20 — see `03-Data-and-Storage-Requirements.md` for the precise mechanism.)*
-
-
-
----
-
-### Phase 2: Local OpenAI-Compatible Inference Gateway & SYCL Acceleration
-
-1. **Inference Engine Initialization:**
-* Deploy **`llama.cpp --server`** (primary, confirmed production engine) utilizing the Intel oneAPI Level Zero / SYCL compute backend to offload matrix operations to the 7 Xe Cores of the Intel Arc iGPU. Model load/unload is handled via explicit controller-level process spawn/terminate, abstracted behind a Local Engine Client interface so `ollama` may be substituted later if its own Intel SYCL/Level-Zero support is independently verified. *(Earlier wording treated `llama.cpp --server` and `ollama` as interchangeable, but the `keep_alive` semantics used throughout this document are Ollama-specific and don't exist natively in raw `llama.cpp`. Corrected per `11-Critical-Analysis-and-Design-Challenges.md`, finding C-13.)*
-* Expose standard local REST API on `[http://127.0.0.1:11434/v1](http://127.0.0.1:11434/v1)` (`/v1/chat/completions` and `/v1/embeddings`).
-
-
-2. **Compute & Core Scheduling:**
-* Set thread limits to **8 compute threads** (`-t 8`). This pins intensive token processing strictly to the 4 Performance Cores (8 threads), leaving the 8 Efficient Cores free to process network sockets, CLI tools, and JSON parsing.
-
-
-3. **Memory Eviction Policy:**
-* Enforce a hard **Single-Model Residency Policy** (`keep_alive: 0` or manual context teardown). No two models are permitted to reside in RAM/VRAM simultaneously.
-* **Memory-settle gate between swaps:** after confirming the outbound model's process has fully exited (`waitpid`), poll `/proc/meminfo`'s `MemAvailable` and do not spawn the inbound model until available memory clears the safety margin (baseline + 1.5 GB) — bounded to 5 seconds, after which a degraded-swap alert is raised. This closes a transient double-allocation race where the kernel hasn't finished reclaiming the outbound process's pages before the inbound one starts allocating. *(Added per `11-Critical-Analysis-and-Design-Challenges.md`, finding C-18.)*
-
-
-
----
-
-### Phase 3: Security Framework & Kali Toolset Bridge
-
-1. **Open-Source Repository Integration:**
-* Configure `shuvonsec/claude-bug-bounty`, `CyberStrikeus/CyberStrike`, and `usestrix/strix` to point directly to the local endpoint by setting:
-* `OPENAI_BASE_URL="[http://127.0.0.1:11434/v1](http://127.0.0.1:11434/v1)"`
-* `OPENAI_API_KEY="local-no-key-required"`
-* `ANTHROPIC_BASE_URL="[http://127.0.0.1:11434/v1](http://127.0.0.1:11434/v1)"`
-
-
-* Extract modular methodology templates:
-* Burp Suite and Caido Model Context Protocol (MCP) server configurations.
-* Structured multi-turn assessment prompts and vulnerability scoring heuristics.
-
-
-
-
-2. **Dual-Tier Kali Execution Bridge:**
-* **Tier 1 (Structured Native Wrappers):** Standard JSON function-calling schemas for high-frequency tools (`nmap`, `masscan`, `nuclei`, `ffuf`, `feroxbuster`, `gobuster`, `sqlmap`, `nikto`, `whatweb`, `wafw00f`, `testssl`).
-* **Tier 2 (Dynamic CLI Binary Bridge):** A generic execution interface (`run_security_command`) allowing `Qwen2.5-Coder-7B` to invoke any binary resolving inside `/usr/bin/`, `/usr/sbin/`, or `/opt/` (a path-restricted dynamic allowlist covering the full `kali-linux-everything` toolset). Within this scope, execution is gated by a behavioral denylist (shell builtins, inline-interpreter/eval invocations, writes outside the artifact path, a fixed destructive-utility list) plus three curated high-risk categories — brute-force, active-exploitation, lateral-movement — each requiring its own pre-engagement opt-in flag before its listed binaries can run. *(The original "any installed binary, no further mechanism" description offered no containment beyond a flat denylist. Corrected per `11-Critical-Analysis-and-Design-Challenges.md`, findings C-12/C-14.)*
-
-
-3. **Subprocess Sandboxing & Deterministic Sanitization:**
-* Execute all external binaries using isolated `subprocess.Popen` handles with non-shell execution (`shell=False`), explicit argument vectors, and **tiered mandatory timeouts** by tool class: Quick Probes (`ffuf`, `whatweb`, `nikto`, `wafw00f`) = 180s; Targeted Scans (`nuclei`, standard `nmap`, `sqlmap` quick mode, `gobuster`, `feroxbuster`, `testssl`) = 900s; Deep/Full-Range Scans (`nmap -p-`, `sqlmap` with tamper scripts, `masscan` subnet sweeps) = 1800s — with non-blocking output streaming to detect stalls before the hard timeout. *(A flat 180s default for every tool didn't fit long-running scans. Corrected per `11-Critical-Analysis-and-Design-Challenges.md`, finding C-08.)*
-* Every tool is launched fully isolated in its own process group, so an emergency stop cleanly terminates the entire tool invocation — including any worker processes it spawns internally — not just its main process. *(Added per `11-Critical-Analysis-and-Design-Challenges.md`, finding C-19 — see `01-Functional-Requirements.md`/`05-Security-Safety-and-Compliance-Requirements.md` for the precise mechanism.)*
-* Run raw stdout/stderr through a local Python sanitization pipe:
-* Extract open ports, service banners, responsive URLs, and HTTP status codes ($200, 301, 401, 500$).
-* Discard HTML bodies, redundant 404 responses, and binary data before context ingestion to protect the 16k context window.
-
-
-
-
-
----
-
-### Phase 4: State-Driven Council Execution (Relay Protocol)
-
-#### Step 4.1: Strategic Attack Path Formulation & Scope Verification
-
-1. **Load `DeepSeek-R1-0528-Qwen3-8B` (Q8_0):**
-* Ingest target scope, IP ranges, and rules of engagement from the SQLite database.
-* Model generates step-by-step attack hypotheses and an ordered task queue.
-* Model outputs the plan to SQLite and completely unloads from RAM.
-
-
-2. **Council Gate 1 — Two-Tier Scope Check:**
-* **Tier 0 (deterministic, no model):** A Python scope checker validates the generated plan's tasks against target CIDR/domain-regex/port boundaries and a destructive-flag denylist — non-bypassable, runs first, and is the real safety boundary this step relies on.
-* **Tier 1 — Load `Hermes-3-Llama-3.1-8B` (Q8_0):** For tasks that passed Tier 0, evaluates them for contextual/strategic alignment with engagement goals, without over-refusing standard in-scope commands.
-* Approves valid tasks or writes revisions to the SQLite task queue.
-* Model unloads completely from RAM.
-* *(This step alternated between `Hermes-3-Llama-3.1-8B` and `Llama-3.1-8B-Instruct` over the course of this document set's revisions — see finding C-03's resolution in `11` for the full reasoning on why it settled back on Hermes-3.)*
-
-
-
-#### Step 4.2: Autonomous Tool Execution, Linting & Exploitation
-
-1. **Load `Qwen2.5-Coder-7B-Instruct` (Q5_K_M):**
-* Reads next executable task from SQLite.
-* Formulates the concrete CLI command or custom exploit script.
-
-
-2. **Fast Pre-Flight Linting — Council Gate 2 (deterministic, no model swap):**
-* A deterministic Python validator — argparse-style flag verifiers, regex schema validation — checks generated CLI flags against tool syntax standards, evaluated synchronously with no model-load latency. `Qwen2.5-Coder-7B` (the Operator) stays resident throughout this loop; `Qwen2.5-Coder-3B` is not invoked here.
-* If invalid, the Operator regenerates a corrected command (up to 3 attempts) before the task is marked blocked.
-* *(This step originally alternated `Qwen2.5-Coder-3B` in and out of RAM per generated command. Corrected per `11-Critical-Analysis-and-Design-Challenges.md`, finding C-09.)*
-
-
-3. **Execution & Log Parsing:**
-* The Python bridge executes the tool, sanitizes output, writes full logs to NVMe artifacts, and commits parsed findings to SQLite.
-* `Qwen2.5-Coder-7B` evaluates parsed outputs, determines if secondary exploitation or pivoting is required, and loops until the task queue is resolved — **bounded by a 30-task-per-target cap and a 3-consecutive-zero-yield circuit breaker (auto-pivot to the next target), plus a global 12-hour session budget (auto-transitions to Phase 4.3)** — no operator pause at any of these thresholds.
-* Model unloads completely from RAM only once Phase 4.2 ends for the whole engagement, not per task.
-* **"Zero-yield" is a precise, state-delta definition, not "non-empty output":** a run only counts as yielding if it adds at least one new row to a `discovered_entities` ledger (a previously-unseen port, route, parameter, or status-code anomaly for that target) — a noisy tool returning hundreds of repetitive `200 OK` responses with nothing new still counts toward the 3-run circuit breaker. *(Added per `11-Critical-Analysis-and-Design-Challenges.md`, finding C-17.)*
-* *(This step originally had no stated bound. Corrected per `11-Critical-Analysis-and-Design-Challenges.md` and `01-Functional-Requirements.md` FR-COUNCIL-11.)*
-
-
-
-#### Step 4.3: Evidence Adjudication & Final Reporting
-
-*(Note on the step below: CVSS handling was corrected — see the numbered item.)*
-
-1. **Load `Mistral-7B-Instruct-v0.3` (Q8_0) — Council Gate 3:**
-* Reads reported vulnerability candidates from SQLite along with raw HTTP/log dumps.
-* Evaluates evidence objectively to eliminate false positives (e.g., distinguishing real injections from generic server errors).
-* Marks findings as `CONFIRMED` or `DISMISSED` in SQLite, then unloads.
-
-
-2. **Load `Ministral-8B-Instruct-2410` (Q8_0) — Reporter:**
-* Ingests confirmed findings, maps CVE/CWE identifiers, deduces root causes, and drafts one technical report per confirmed finding, plus a single consolidated register covering dismissed/informational candidates — not one merged report. *(Originally described as a single report; corrected per `11-Critical-Analysis-and-Design-Challenges.md`, finding C-25.)*
-* Proposes CVSS 3.1 per-metric values with justification — **a separate deterministic (non-LLM) calculator computes the final numeric score and vector string; the model never emits a final CVSS score itself.**
-* Any secrets redacted in the draft report are restored to their exact original form — verified against the raw evidence, never approximated — only once the operator approves the report. *(Added per `11-Critical-Analysis-and-Design-Challenges.md`, finding C-21 — see `03-Data-and-Storage-Requirements.md` for the precise mechanism.)*
-* Model unloads completely upon task completion.
-* *(This step originally had the model calculate CVSS scores directly — corrected per `11-Critical-Analysis-and-Design-Challenges.md`, finding C-07. It also originally reused the Strategist's own model reloaded, rather than a dedicated Reporter model — split out per decision #55, `10-Decision-Log-and-Open-Questions.md`.)*
-
-
-
----
-
-### Phase 5: Agent Hibernation & Desktop Workspace Restoration
-
-1. **State Preservation & Engine Eviction:**
-* The agent marks the engagement state as `COMPLETE` or `PAUSED` in SQLite.
-* The local inference engine purges all active model weights and KV caches, freeing ~7.8 GB of physical RAM.
-
-
-2. **Instant Desktop Application Wake-Up:**
-* The process manager identifies all previously suspended PIDs and issues `kill -SIGCONT`, then verifies each one actually resumed (not reaped by the OOM killer despite the `oom_score_adj` deprioritization applied in Phase 1).
-* The Linux virtual memory subsystem pages application memory back from NVMe swap (`/dev/nvme0n1p8`) into physical RAM on demand.
-* **Outcome:** All browser sessions, tabs, IDEs, and user tools resume instantly (<2 seconds) in their exact prior working state, on a **best-effort, OOM-hardened basis — not an absolute guarantee.** Any suspended process not found alive at resume time is logged as a partial-hibernation-success event, not silently treated as full success.
-* *(This step originally guaranteed "zero data loss" unconditionally, with no OOM-killer mitigation described. Corrected per `11-Critical-Analysis-and-Design-Challenges.md`, finding C-01.)*
-
-
-
----
-
-## 4. Resource Allocation & Operational Thresholds
-
-| Operational Phase | Active Model in RAM | RAM Allocation | Context Buffer | Available Headroom |
-| --- | --- | --- | --- | --- |
-| **Phase 1: Pre-Launch (Apps Frozen)** | *None* | 0.0 GB | 0 tokens | ~13.0 GB |
-| **Phase 4.1: Strategy (DeepSeek-R1-0528-Qwen3-8B)** | `DeepSeek-R1-0528-Qwen3-8B (Q8_0)` | ~8.6 GB | 8,192 tokens | ~3.2 GB |
-| **Phase 4.1: Scope Gate (Tier 1 — Hermes-3-Llama-3.1-8B)** | `Hermes-3-Llama-3.1-8B (Q8_0)` | ~8.4 GB | 8,192 tokens | ~3.4 GB |
-| **Phase 4.2: Execution (Qwen-Coder-7B)** | `Qwen-Coder-7B (Q8_0)` | ~8.0 GB | 16,384 tokens | ~2.8 GB |
-| **Phase 4.3: Triage (Mistral-7B)** | `Mistral-7B (Q8_0)` | ~7.6 GB | 8,192 tokens | ~4.2 GB |
-| **Phase 4.3: Reporting (Ministral-8B-Instruct-2410)** | `Ministral-8B-Instruct-2410 (Q8_0)` | ~8.4 GB | 16,384 tokens | ~2.4 GB |
-| **Phase 5: Post-Launch (Apps Resumed)** | *None* | 0.0 GB | 0 tokens | ~9.5 GB |
-
-(Headroom = ~13.0 GiB post-hibernation ceiling minus each model's RAM-with-context
-figure from §2.1, not the raw disk footprint shown above.)
-
-**This headroom is now much tighter than the previous mixed-quantization scheme's** (worst case dropped from ~5.2 GB to ~2.4 GB) as a direct consequence of moving every model to `Q8_0`. It still clears the 1.5 GB RAM safety margin (`NFR-RES-02`) in every phase, but with far less slack for KV-cache misestimation or an OS memory-pressure spike. Accepted as a documented trade-off, not silently absorbed — see `11-Critical-Analysis-and-Design-Challenges.md` finding C-30. This operational blueprint maintains memory safety (above the confirmed margin) on your 15.3 GiB Intel Core Ultra 5 system, **reduces (but does not eliminate) hallucination risk** through multi-agent validation gates, and provides seamless execution of the entire Kali Linux security suite without cloud API dependencies. *(This originally claimed the design "completely mitigates" hallucination — an unprovable absolute. Corrected per `11-Critical-Analysis-and-Design-Challenges.md`, finding C-11.)*
-
-### Models and Their Usage
-
-[ Phase: Strategy & Planning ]
-  ├── DeepSeek-R1-0528-Qwen3-8B (Lead Strategist) ──► Proposes Attack Vector / Chain
-  └── Scope Gate: Python Checker (Tier 0) + Hermes-3-Llama-3.1-8B (Tier 1) ──► Challenges Assumptions & Scope Creep
-       │
-       ▼ (Consensus Written to SQLite Task Queue)
-[ Phase: Tool Execution & Verification ]
-  ├── Qwen2.5-Coder-7B       (Lead Operator, stays resident for the loop) ──► Generates Tool Call / Script Payload
-  └── Deterministic Python Validator (Gate 2) ──► Instantly Validates CLI Flags & JSON Schema (Qwen2.5-Coder-3B-Instruct: offline script checks only)
-       │
-       ▼ (Tool Dispatched to Subprocess)
-[ Phase: Finding Triage & Verification ]
-  ├── Mistral-7B-Instruct-v0.3 (Strict Adjudicator) ──► Adversarial False-Positive Gatekeeper
-  └── Ministral-8B-Instruct-2410 (Reporter) ──► Assesses Confirmed Findings & Deduces Root Cause (proposes CVSS 3.1 metrics; deterministic calculator computes final score)
-  (Corrected per 11-Critical-Analysis-and-Design-Challenges.md, findings C-03/C-07/C-09/C-30; roster updated per decision #55, 10-Decision-Log-and-Open-Questions.md.)
-
----
-
-## 5. Operator Control Surface & Emergency Stop
-
-*(Added — this entire section was previously absent from this file. HOME.md is meant
-to be a complete high-level blueprint of the whole system, not just the autonomous
-loop; per operator decision, every control-surface/safety mechanism below is now
-reflected here at a summary level, with `01-Functional-Requirements.md`'s `FR-CTRL`
-section and `05-Security-Safety-and-Compliance-Requirements.md`'s `SEC-KILL` carrying
-full precision.)*
-
-* **CLI-only control, no GUI/web dashboard required:** the operator interacts with the
-  system exclusively through a command-line tool (`vaptctl`) — `start`, `pause`,
-  `resume`, `abort`, `status`, `export`, and `approve-report`, plus two later additions
-  (§7's `approve-checkpoint`/`deny-checkpoint`, §8's `monitor`/`dashboard`).
-* **No built-in authorization check:** `start` seeds an engagement from a target list
-  and scope rules, but the system never itself verifies that the operator actually
-  holds legal permission to test those targets — obtaining and confirming
-  authorization is the operator's own responsibility, entirely outside this tool.
-* **Emergency stop (kill-switch):** `abort` immediately and forcefully terminates
-  every in-flight tool subprocess (and anything it spawned), unloads any resident
-  model, and marks the engagement stopped — all within a **20-second** bound,
-  regardless of what the system is doing at the moment it's invoked.
-* **Single-engagement lock:** only one engagement may be actively running (or paused)
-  at a time system-wide, since Phase 1's hibernation freezes the operator's own
-  desktop — a second engagement cannot safely hibernate on top of the first.
-
-## 6. Defense-in-Depth Safeguards
-
-*(Added — five mechanisms that were each individually addressed in `01`/`04`/`05` but
-never summarized here, on the same "complete blueprint" principle as §5.)*
-
-* **Prompt-injection containment:** anything the system reads back from a scanned
-  target (an HTTP response, a banner, a page title) is treated as data to analyze,
-  never as an instruction — every council model is told this explicitly, and a
-  lightweight heuristic scan additionally flags suspicious patterns (including
-  hidden-Unicode tricks and injection attempts hidden in tool/plugin metadata) for
-  audit review, though that scan is a detection aid, not the actual containment.
-* **Structured-output enforcement:** every model-to-code handoff (a tool call, a CVSS
-  proposal, a gate decision) is schema-validated by ordinary code before anything acts
-  on it — a malformed or hallucinated structure gets a bounded number of corrective
-  retries, then the step is marked failed rather than silently proceeding on bad data.
-* **Report grounding:** before a draft report can reach the operator for approval, a
-  mechanical check confirms every URL/endpoint it cites actually appears in that
-  finding's real evidence — a reference that isn't backed by evidence is not allowed
-  through silently.
-* **Rate limiting:** the Operator's tool-invocation rate is capped (a lower, stricter
-  cap for the three high-risk opt-in categories than for everything else), so an
-  unattended run can't hammer a target faster than a real assessment ever should.
-* **Failure-based circuit breaker:** distinct from the zero-yield breaker already
-  described in Phase 4.2 above, a *separate* breaker trips after repeated
-  network-level failures (timeouts, connection errors) against one target, marking it
-  unreachable and auto-pivoting — so "the target stopped responding" and "the target
-  responded but nothing new was found" are never confused with each other.
-
-## 7. Extended Capability Domains & the Human Checkpoint Gate
-
-*(Added — formalized later, in `19-Extended-Capability-Domains.md` and
-`20-Human-Checkpoint-and-Escalation-Safety-Catalog.md`, after a deep-mining pass over
-a comparable open-source toolkit surfaced these as genuinely valuable additional
-scope. Summarized here only at the level of "what exists," not "how it works.")*
-
-Beyond general web/network VAPT, this system also covers: Web3/smart-contract
-auditing, mobile app pentesting, GraphQL API auditing, CI/CD pipeline security,
-credential-attack/password-spray methodology, source-code-access auditing (reviewing
-a diff or a whole repository rather than a live network target), and a handful of
-narrower automated-scanner and reference-vulnerability-class additions. Each of these
-new target types (a smart contract, a mobile app binary, a source repository) needed
-its own identity concept, since none of them is a hostname or IP address the way
-every other target in this system is.
-
-A small number of specific actions across these new domains — deliberately
-anti-forensic techniques against a client's own logging, live password-spray
-execution, an action that opens a real pull request or triggers a workflow run
-against a client's CI/CD system, and publishing a package to a public registry to
-prove a dependency-confusion finding — turned out to have a real safety mechanism, in
-the reference material they were drawn from, that was a **human confirming something
-in real time**, not just a pre-engagement setting. Rather than silently drop that
-safeguard to fit this system's otherwise fully-autonomous design, a narrow, explicit
-exception was added: for exactly these action classes, the engagement pauses and
-waits — indefinitely, no automatic timeout — for the operator to explicitly approve
-or deny that one specific action, before continuing.
-
-## 8. Live Monitoring & Scheduled Checks
-
-*(Added — formalized in `22-VAPT-Monitoring-Dashboard-Specification.md`, plus a
-smaller scheduled-recon addition alongside the `19` capability expansion.)*
-
-* **`vaptctl dashboard`** — a live, continuously-refreshing terminal view (not a
-  browser/GUI dashboard) showing which model is currently active, a rolling
-  tokens-per-second trace per model, the memory-safety margin, the diminishing-returns
-  breaker states, and a projected finish time against the 12-hour session budget —
-  entirely read-only, so it never competes with the running engagement for control.
-* **Scheduled monitoring (`vaptctl monitor`)** — a lightweight, separate check
-  (subdomain changes, new commits to a watched repository) that an operator can wire
-  up to an external scheduler (e.g. a cron job) to run between full engagements. It
-  only ever logs a detected change — it never starts new active testing on its own;
-  acting on a finding still requires the operator to explicitly start a new
-  engagement.
+## 6. Extended Capability Domains
+
+Beyond standard network and web application penetration testing, modular bridges extend coverage to specialized target classes:
+
+* **Smart Contracts (`CONTRACT`):** On-chain logic review, EVM simulation, and invariant testing via Foundry forks.
+* **Mobile Binaries (`MOBILE_BINARY`):** Runtime-first traffic interception, Frida instrumentation hooks, and decompilation analysis.
+* **GraphQL APIs:** Introspection recovery, schema field suggestion mining, and query depth analysis.
+* **CI/CD Pipelines (`CODE_REPO`):** Workflow injection, runner exploitation, and supply-chain misconfiguration auditing.
+* **Source Code Repositories (`CODE_REPO`):** Path-glob-scoped static analysis (SAST) and sink-to-source taint tracking.
