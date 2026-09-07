@@ -6,9 +6,9 @@ schema, disk layouts, concurrency semantics, and evidence retention policies sup
 multi-target engagements under the Dual-Mode Execution Architecture.
 
 In Autonomous Mode, the data store tracks non-destructive boundaries, task diminishing-returns
-counters, and candidate triage states. In Operator-Directed Mode, the schema records immediate
-operator command dispatches, overrides, and unhindered execution logs. Verifying legal/contractual
-authorization is externalized entirely to the operator; all data remains strictly local.
+counters, and candidate triage states. In Human-Operator-Directed Mode, the schema records immediate
+Human Operator command dispatches, overrides, and unhindered execution logs. Verifying legal/contractual
+authorization is externalized entirely to the Human Operator; all data remains strictly local.
 
 ---
 
@@ -31,6 +31,7 @@ authorization is externalized entirely to the operator; all data remains strictl
 | `control_intent_at` | TEXT (ISO8601), nullable | |
 | `engagement_lock_slot` | INTEGER, `GENERATED ALWAYS AS (CASE WHEN status IN ('IN_PROGRESS','PAUSED') THEN 0 END) VIRTUAL` | `0` while non-terminal, `NULL` otherwise; paired with `CREATE UNIQUE INDEX one_active_engagement ON engagements(engagement_lock_slot)` — SQLite ignores `NULL` in unique indexes, so this enforces **at most one non-terminal row system-wide**, while allowing unlimited `COMPLETE`/`ABORTED` history rows. |
 | `notes` | TEXT | |
+| `human_operator_notes` | TEXT, nullable | Free-text guidance the Human Operator supplied at `start` (`01:FR-CTRL-01a`), capped at 500 characters; surfaced verbatim to the Lead Strategist's first Phase 4.1 invocation |
 | `assessment_mode` | TEXT NOT NULL DEFAULT `'INITIAL'`, CHECK (`IN ('INITIAL','RETEST')`) | `RETEST` seeds regression-verification of prior `CONFIRMED` findings before fresh exploration |
 
 ### DR-SCHEMA-01a: `engagement_flag_history`
@@ -95,10 +96,10 @@ Technical in/out-of-scope pattern data only — **not an authorization/RoE recor
 | `proposed_command` | TEXT | full argv as generated |
 | `gate2_corrected_command` | TEXT, nullable | | 
 | `status` | TEXT | `PENDING` / `GATE1_APPROVED` / `GATE1_REJECTED` / `GATE2_BLOCKED` / `EXECUTING` / `EXECUTED` / `FOLLOWUP_GENERATED` |
-| `gate1_rationale` | TEXT | Reason from whichever tier acted; for MANUAL_OPERATOR records direct operator dispatch with automated scope gates bypassed. |
+| `gate1_rationale` | TEXT | Reason from whichever tier acted; for HUMAN_OPERATOR records direct Human Operator dispatch with automated scope gates bypassed. |
 | `gate2_rationale` | TEXT | Gate 2's stated reason (deterministic, not an LLM) |
-| `origin` | TEXT NOT NULL DEFAULT `'AUTONOMOUS_COUNCIL'`, CHECK (`IN ('AUTONOMOUS_COUNCIL','MANUAL_OPERATOR','HISTORICAL_REGRESSION')`) | MANUAL_OPERATOR dispatches directly to Phase 4.2, bypassing Gate 1 Tier 0 and Tier 1 automated scope checks. HISTORICAL_REGRESSION follows standard non-destructive autonomous rules unless re-dispatched directly by the operator. |
-| `source_command_id` | INTEGER FK → `operator_command_queue(command_id)`, nullable | set only when the operator's own text explicitly and specifically named the action |
+| `origin` | TEXT NOT NULL DEFAULT `'AUTONOMOUS_COUNCIL'`, CHECK (`IN ('AUTONOMOUS_COUNCIL','HUMAN_OPERATOR','HISTORICAL_REGRESSION')`) | HUMAN_OPERATOR dispatches directly to Phase 4.2, bypassing Gate 1 Tier 0 and Tier 1 automated scope checks. HISTORICAL_REGRESSION follows standard non-destructive autonomous rules unless re-dispatched directly by the Human Operator. |
+| `source_command_id` | INTEGER FK → `human_operator_command_queue(command_id)`, nullable | set only when the Human Operator's own text explicitly and specifically named the action |
 | `source_finding_id` | INTEGER FK → `verified_vulnerabilities(finding_id)`, nullable | set only when `origin = 'HISTORICAL_REGRESSION'` |
 | `created_at` / `executed_at` | TEXT (ISO8601) | |
 
@@ -150,7 +151,7 @@ Technical in/out-of-scope pattern data only — **not an authorization/RoE recor
 | `invocation_id` | INTEGER PK | |
 | `engagement_id` | INTEGER FK → `engagements` | |
 | `model_name` | TEXT | |
-| `role` | TEXT | `Strategist` / `Operator` / `Gatekeeper` / `Linter` / `Adjudicator` / `Reporter` |
+| `role` | TEXT | `Lead Strategist` / `Strategy Auditor` / `Primary Scripter` / `Secondary Scripter` / `Criterion Adjudicator` / `Executive Reporter` |
 | `phase` / `step_id` | TEXT | |
 | `turn_number` | INTEGER DEFAULT 0 | monotonic per `(engagement_id, role)`, `COALESCE(MAX(turn_number),0)+1` |
 | `prompt_tokens` / `completion_tokens` | INTEGER | |
@@ -192,10 +193,10 @@ Distinguishes the two report document types.
 | `document_type` | TEXT | `VAPT_FINDING` (one per `CONFIRMED` finding) or `INFO_REGISTER` (one per engagement, regenerated in place) |
 | `finding_id` | INTEGER FK → `verified_vulnerabilities`, nullable | set for `VAPT_FINDING` only |
 | `format` | TEXT | `markdown` / `html` / `pdf` |
-| `status` | TEXT | `DRAFT_PENDING_APPROVAL` / `BLOCKED_UNGROUNDED` / `APPROVED` / `REJECTED` — `BLOCKED_UNGROUNDED` set when the grounding check exhausts retries; **requires operator review, not auto-resolved** |
+| `status` | TEXT | `DRAFT_PENDING_APPROVAL` / `BLOCKED_UNGROUNDED` / `APPROVED` / `REJECTED` — `BLOCKED_UNGROUNDED` set when the grounding check exhausts retries; **requires Human Operator review, not auto-resolved** |
 | `file_path` | TEXT | |
 | `created_at` / `approved_at` | TEXT (ISO8601), nullable | |
-| `approved_by` | TEXT | Dynamically populated from active runtime configuration (operator_identity), never a hardcoded schema constant |
+| `approved_by` | TEXT | Dynamically populated from active runtime configuration (`human_operator_identity`), never a hardcoded schema constant |
 
 `CREATE UNIQUE INDEX one_info_register ON reports(engagement_id) WHERE document_type = 'INFO_REGISTER';` — at most one `INFO_REGISTER` row per engagement.
 
@@ -235,7 +236,7 @@ The state-delta ledger that makes "yield" precise instead of "non-empty output."
 | `start_offset` / `end_offset` | INTEGER | Exact byte offsets tracking secret location within raw evidence |
 | `content_hash` | TEXT | SHA-256 digest of slice `[start_offset, end_offset)` |
 
-Raw captured credentials remain securely stored in the local evidence store under `source_artifact_id`. During report generation, `approve-report` restores redacted items into finalized deliverables by validating byte slices against `content_hash`. In Operator-Directed Mode, if offset shifts or formatting variations occur during manual editing, the operator may force unredaction or supply replacement evidence directly without blocking report compilation.
+Raw captured credentials remain securely stored in the local evidence store under `source_artifact_id`. During report generation, `approve-report` restores redacted items into finalized deliverables by validating byte slices against `content_hash`. In Human-Operator-Directed Mode, if offset shifts or formatting variations occur during manual editing, the Human Operator may force unredaction or supply replacement evidence directly without blocking report compilation.
 
 ### DR-SCHEMA-15: `targets` — non-network target types
 
@@ -275,34 +276,34 @@ A diff updates `baseline_value`, logs to `discovered_entities` (`entity_type = '
 
 ### DR-SCHEMA-18: `checkpoint_events`
 
-The audit trail for the Human Checkpoint Gate. Distinct from `engagement_flag_history` — this logs in-engagement checkpoint evaluations, operator approvals, and manual dispatches.
+The audit trail for the Human Checkpoint Gate. Distinct from `engagement_flag_history` — this logs in-engagement checkpoint evaluations, Human Operator approvals, and manual dispatches.
 
 | Column | Type | Notes |
 | --- | --- | --- |
 | `id` | INTEGER PK | Primary key identifier |
 | `engagement_id` | INTEGER FK → `engagements` | Active engagement identifier |
-| `task_id` | INTEGER FK → `task_queue`, nullable | Associated task identifier, nullable for direct operator commands |
+| `task_id` | INTEGER FK → `task_queue`, nullable | Associated task identifier, nullable for direct Human Operator commands |
 | `action_class` | TEXT | `ANTI_FORENSICS` / `LIVE_CREDENTIAL_SPRAY` / `CICD_EXTERNAL_ARTIFACT` / `DEPENDENCY_CONFUSION_PUBLISH` / `PHISHING_MFA_BYPASS` |
 | `triggered_at` | TEXT (ISO8601) | Timestamp when task was proposed or queued |
-| `status` | TEXT | `AWAITING_APPROVAL` / `APPROVED` / `DENIED` / `EXPIRED` / `OPERATOR_DISPATCHED` — autonomous tasks log review state; operator-directed actions resolve immediately without pipeline stalls |
+| `status` | TEXT | `AWAITING_APPROVAL` / `APPROVED` / `DENIED` / `EXPIRED` / `HUMAN_OPERATOR_DISPATCHED` — autonomous tasks log review state; Human-Operator-directed actions resolve immediately without pipeline stalls |
 | `approved_at` | TEXT (ISO8601), nullable | Timestamp of approval or direct command execution |
-| `approved_via` | TEXT, nullable | `'OPERATOR_DIRECTIVE'` (direct console or CLI command), `'CONSOLE_DISPATCH'`, or `'AUTO_APPROVED_THRESHOLD_MET'` (`LIVE_CREDENTIAL_SPRAY` lockout check during autonomous passes) |
-| `rationale_shown_to_operator` | TEXT | Contextual rationale for autonomous proposals or execution summary for direct operator tasks |
-| `estimated_lockout_percentage` / `max_auto_lockout_threshold_at_time` | REAL, nullable | Autonomous credential spraying threshold metrics; nullable for operator-directed credential tasks |
+| `approved_via` | TEXT, nullable | `'HUMAN_OPERATOR_DIRECTIVE'` (direct console or CLI command), `'CONSOLE_DISPATCH'`, or `'AUTO_APPROVED_THRESHOLD_MET'` (`LIVE_CREDENTIAL_SPRAY` lockout check during autonomous passes) |
+| `rationale_shown_to_human_operator` | TEXT | Contextual rationale for autonomous proposals or execution summary for direct Human Operator tasks |
+| `estimated_lockout_percentage` / `max_auto_lockout_threshold_at_time` | REAL, nullable | Autonomous credential spraying threshold metrics; nullable for Human-Operator-directed credential tasks |
 
-In Autonomous Mode, tasks categorized under sensitive checkpoint classes record an audit row to provide visibility. In Operator-Directed Mode, any matching task directly commanded or invoked by the operator transitions immediately to `status = 'APPROVED'` or `'OPERATOR_DISPATCHED'` (`approved_via = 'OPERATOR_DIRECTIVE'`) and executes without pausing the engine or requiring interactive gate unblocking.
+In Autonomous Mode, tasks categorized under sensitive checkpoint classes record an audit row to provide visibility. In Human-Operator-Directed Mode, any matching task directly commanded or invoked by the Human Operator transitions immediately to `status = 'APPROVED'` or `'HUMAN_OPERATOR_DISPATCHED'` (`approved_via = 'HUMAN_OPERATOR_DIRECTIVE'`) and executes without pausing the engine or requiring interactive gate unblocking.
 
 
-### DR-SCHEMA-19: `operator_command_queue`
+### DR-SCHEMA-19: `human_operator_command_queue`
 
-Role-directed operator guidance and command queue for execution and context injection — operator directives execute with top priority and zero refusal.
+Role-directed Human Operator guidance and command queue for execution and context injection — Human Operator directives execute with top priority and zero refusal.
 
 ```sql
-CREATE TABLE IF NOT EXISTS operator_command_queue (
+CREATE TABLE IF NOT EXISTS human_operator_command_queue (
     command_id INTEGER PRIMARY KEY AUTOINCREMENT,
     engagement_id INTEGER NOT NULL REFERENCES engagements(engagement_id),
     target_role TEXT NOT NULL CHECK (
-        target_role IN ('Strategist', 'Operator', 'Gatekeeper', 'Linter', 'Adjudicator', 'Reporter', 'GLOBAL')
+        target_role IN ('Strategist', 'Auditor', 'PrimaryScripter', 'SecondaryScripter', 'Adjudicator', 'Reporter', 'GLOBAL')
     ),
     raw_command TEXT NOT NULL,
     parsed_intent TEXT NOT NULL,
@@ -315,8 +316,8 @@ CREATE TABLE IF NOT EXISTS operator_command_queue (
     consumed_by_invocation_id INTEGER REFERENCES model_invocation_logs(invocation_id),
     FOREIGN KEY (engagement_id) REFERENCES engagements(engagement_id)
 );
-CREATE INDEX IF NOT EXISTS idx_operator_queue_lookup
-ON operator_command_queue (engagement_id, target_role, status);
+CREATE INDEX IF NOT EXISTS idx_human_operator_queue_lookup
+ON human_operator_command_queue (engagement_id, target_role, status);
 ```
 
 `failure_reason` MUST be populated on every `DISCARDED`/`EXPIRED` transition — no directive vanishes silently.
@@ -324,6 +325,34 @@ ON operator_command_queue (engagement_id, target_role, status);
 ### DR-SCHEMA-20: `live_audit_trail.md` layout
 
 Per-engagement append-only Markdown journal at `<artifact_root>/<engagement_id>/live_audit_trail.md` (`DR-ARTIFACT-01`'s layout) — one block per pipeline transition (Tool Dispatch / Output Sanitization / Model Ingestion / Model Output). Not part of the report-redaction pipeline — same unredacted trust boundary as any raw artifact on disk.
+
+### DR-SCHEMA-21: `scripter_execution_ledger`
+
+Feeds Gate 2's Tier 2C orthogonal-deduplication check (`01:FR-COUNCIL-08`) — a fast,
+queryable record of exactly what each scripter has already tried per task, distinct from
+`tool_execution_logs` (`DR-SCHEMA-06`, which is the full execution record: argv,
+timestamps, exit codes, raw-output references). This table exists purely so Tier 2C can
+check `param_vector_hash` membership without re-parsing `tool_execution_logs`' richer
+rows on every candidate command — a narrow, purpose-built index, not a duplicate log.
+
+```sql
+CREATE TABLE IF NOT EXISTS scripter_execution_ledger (
+    vector_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    engagement_id INTEGER NOT NULL REFERENCES engagements(engagement_id),
+    task_id INTEGER NOT NULL REFERENCES task_queue(task_id),
+    scripter_seat TEXT NOT NULL CHECK (scripter_seat IN ('PRIMARY_SCRIPTER', 'SECONDARY_SCRIPTER')),
+    tool_name TEXT NOT NULL,
+    target_endpoint TEXT NOT NULL,
+    param_vector_hash TEXT NOT NULL,
+    execution_yield TEXT CHECK (execution_yield IN ('ZERO_YIELD', 'NOVEL_STATE', 'ERROR')),
+    executed_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_scripter_exec_ledger ON scripter_execution_ledger(task_id, param_vector_hash);
+```
+
+Populated by the same write path as `tool_execution_logs` (one row each, at the same
+point in execution) — never a second source of truth for *what happened*, only for
+*has this exact vector been tried yet*.
 
 ---
 

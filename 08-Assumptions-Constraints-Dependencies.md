@@ -6,7 +6,7 @@ This document outlines the operational environment, physical hardware limitation
 dependency inventory, and structural boundaries governing the system. These constraints
 frame the Dual-Mode Execution Architecture: physical memory limits mandate sequential
 model swaps and memory reclamation, while operational boundaries strictly distinguish
-autonomous non-destructive discovery from unconditional, operator-directed execution.
+autonomous non-destructive discovery from unconditional, Human-Operator-directed execution.
 
 All security models, authorization assignments, and containment mandates cited across
 these assumptions derive authoritatively from the Security Specification (`05`).
@@ -17,11 +17,11 @@ these assumptions derive authoritatively from the Security Specification (`05`).
 | ID | Assumption |
 |----|-------------|
 | AC-ASSUME-01 | The base document's hardware profile (Intel Core Ultra 5 125H, 15.3 GiB RAM, specific NVMe layout, Kali Debian 15.3 rolling) describes a **different physical machine** than this planning session's host. All paths/tuning throughout this requirements set inherit it verbatim. |
-| AC-ASSUME-02 | The operator (Muhammad Huzaifa Jamil) is the sole user — no multi-tenant/multi-operator scenario is assumed anywhere. |
-| AC-ASSUME-03 | The operator assumes full responsibility for independently confirming legal and contractual authorization for any tested target. The system enforces no internal legal or contractual gating — verification resides entirely with the human operator prior to execution. |
+| AC-ASSUME-02 | The Human Operator (Muhammad Huzaifa Jamil) is the sole user — no multi-tenant/multi-Human-Operator scenario is assumed anywhere. |
+| AC-ASSUME-03 | The Human Operator assumes full responsibility for independently confirming legal and contractual authorization for any tested target. The system enforces no internal legal or contractual gating — verification resides entirely with the Human Operator prior to execution. |
 | AC-ASSUME-04 | Kali's rolling-release kernel/driver stack is assumed adequate for sustained AI-inference + tool workloads — **not verified**, and carries GPU-offload and thermal-throttling risk. |
 | AC-ASSUME-05 | `kali-linux-everything` (or equivalent) is assumed installed on the target machine — not verified/installed by this planning phase. |
-| AC-ASSUME-06 | Acceptance testing and validation milestones run against configured test targets or disposable containerized labs (e.g., Juice Shop, DVWA) as designated by the operator. |
+| AC-ASSUME-06 | Acceptance testing and validation milestones run against configured test targets or disposable containerized labs (e.g., Juice Shop, DVWA) as designated by the Human Operator. |
 
 ## AC-CONSTRAINT — Hard Constraints
 
@@ -29,9 +29,9 @@ these assumptions derive authoritatively from the Security Specification (`05`).
 |----|-------------|
 | AC-CONSTRAINT-01 | Total RAM fixed at 15.3 GiB — the entire single-residency, sequential-swap council design exists *because of* this, not stylistically. |
 | AC-CONSTRAINT-02 | All agent-writable state/artifacts confined to the NVMe path — `tmpfs`/`/tmp` is a hard prohibition. |
-| AC-CONSTRAINT-03 | Operator control surface is **CLI only** — no GUI/web dashboard in scope. |
-| AC-CONSTRAINT-04 | The session budget, per-target task caps, and yield circuit breakers serve as operational defaults for autonomous execution. All thresholds can be extended, overridden, or disabled via CLI flags when commanded by the operator. |
-| AC-CONSTRAINT-05 | Execution paths encompass standard binary locations (/usr/bin/, /usr/sbin/, /opt/) and operator-configured tool paths necessary for specialized testing suites. |
+| AC-CONSTRAINT-03 | Human Operator control surface is **CLI only** — no GUI/web dashboard in scope. |
+| AC-CONSTRAINT-04 | The session budget, per-target task caps, and yield circuit breakers serve as operational defaults for autonomous execution. All thresholds can be extended, overridden, or disabled via CLI flags when commanded by the Human Operator. |
+| AC-CONSTRAINT-05 | Execution paths encompass standard binary locations (/usr/bin/, /usr/sbin/, /opt/) and Human-Operator-configured tool paths necessary for specialized testing suites. |
 
 ## AC-DEPENDENCY — External Dependencies
 
@@ -68,7 +68,7 @@ these assumptions derive authoritatively from the Security Specification (`05`).
 | AC-NONGOAL-03 | Automatic tool-signature/CVE-feed freshness | Deferred by explicit decision |
 | AC-NONGOAL-04 | Remote/offsite backup | Local-only, no-cloud-dependency design |
 | AC-NONGOAL-05 | Automatic artifact retention/pruning | Deferred — retained indefinitely until a deliberate policy decision |
-| AC-NONGOAL-06 | Multi-tenant/multi-operator support | Single-operator by assumption (`AC-ASSUME-02`) |
+| AC-NONGOAL-06 | Multi-tenant/multi-Human-Operator support | Single-Human-Operator by assumption (`AC-ASSUME-02`) |
 | AC-NONGOAL-07 | Installing, downloading, or executing any part of this system | This entire document set is a planning-phase artifact |
 
 ---

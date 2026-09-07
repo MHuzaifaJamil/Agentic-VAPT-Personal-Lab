@@ -10,9 +10,9 @@
 * **Cover-footer assessor line** (single line — no second reviewer in this practice): `Muhammad Huzaifa Jamil | Independent Security Researcher · muhammad.huzaifa.jamil@protonmail.com`
 * **Report-ID example pattern:** `CLIENT-*` (e.g. `CLIENT-001`)
 
-This standard governs the finished, human-approved HTML/PDF report deliverable. Reports are drafted as Markdown first and held pending operator review. Triggering report finalization (via `approve-report` or direct export command) unredacts captured evidence and executes headless conversion (`pandoc` + `wkhtmltopdf`/`weasyprint`) according to the layout and styling contracts defined below.
+This standard governs the finished, human-approved HTML/PDF report deliverable. Reports are drafted as Markdown first and held pending Human Operator review. Triggering report finalization (via `approve-report` or direct export command) unredacts captured evidence and executes headless conversion (`pandoc` + `wkhtmltopdf`/`weasyprint`) according to the layout and styling contracts defined below.
 
-Operating under the Dual-Mode Execution Architecture, candidate findings from both autonomous non-destructive testing cycles and operator-directed exploitation passes compile into this standardized presentation format once approved.
+Operating under the Dual-Mode Execution Architecture, candidate findings from both autonomous non-destructive testing cycles and Human-Operator-directed exploitation passes compile into this standardized presentation format once approved.
 
 ---
 

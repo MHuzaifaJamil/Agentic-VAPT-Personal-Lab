@@ -4,7 +4,7 @@ Methods: **Demo** / **Inspection** / **Test** / **Analysis**. Grouped by require
 each row states the verification method and pass criterion self-contained and independently.
 Testing criteria validate the Dual-Mode Execution Architecture: verifying that Autonomous Mode
 strictly enforces non-destructive boundaries (reads and safe verification writes only, barring
-destructive data mutations and DoS), while Operator-Directed Mode executes human instructions
+destructive data mutations and DoS), while Human-Operator-Directed Mode executes the Human Operator's instructions
 unconditionally with zero automated refusal or technical boundary interception.
 
 All security invariants, verification models, and override behaviors evaluated in this plan
@@ -17,10 +17,14 @@ derive authoritatively from the Security Specification (`05`).
 | Missing tool binary | Test | Hide `nmap`; pre-flight fails naming it specifically, blocks Phase 1. |
 | GPU benchmark | Test | Both GPU/CPU tok/s recorded; if GPU ≤ CPU, engagement flagged CPU-only in `engagement_phase_log`. |
 | Model file integrity | Test | Corrupt one `.gguf`; pre-flight fails on that model. |
-| Operator override | Inspection | A failed check proceeds only with a logged justification, visible in export. |
+| Human Operator override | Inspection | A failed check proceeds only with a logged justification, visible in export. |
 | Engine already running | Test | Pre-flight detects it, blocks Phase 1, no duplicate spawn. |
 | NVMe path validation | Test | Distinct failures for tmpfs / read-only / missing path. |
 | Baseline snapshot | Inspection | RAM/swap/disk recorded before Phase 1. |
+| Human Operator guidance notes accepted | Test | `start --notes "focus on auth"` persists verbatim to `engagements.human_operator_notes`; surfaced to the Lead Strategist's first invocation under a labeled `HUMAN OPERATOR GUIDANCE` section. |
+| Guidance notes optional | Test | `start` with no `--notes` proceeds identically to before this feature existed. |
+| Guidance notes length cap rejected, not truncated | Test | `--notes` over 500 characters is rejected at the CLI with a specific error before `start` proceeds; no silent truncation. |
+| No notes-file option exists | Inspection | `--notes-file` is not a recognized flag — inline `--notes` only, by design (small council models can't usefully consume long documents). |
 
 ## TP-ENV — Hibernation & OOM Protection
 
@@ -36,6 +40,22 @@ derive authoritatively from the Security Specification (`05`).
 | Privileged helper isolation | Inspection | Main process holds no capability; only the dedicated freezer-helper process does. |
 | cgroup v2 fallback | Test (fault injection) | Capability removed → cgroup fallback, logged degraded. |
 | Stale-socket SLA documented | Inspection | Status output states process-memory-only guarantee. |
+| Launching terminal protected | Test | The terminal session that ran `start` is walked to its session leader and marked protected before Phase 1 signaling; it is never `SIGSTOP`'d. |
+| Dashboard & console auto-launch | Demo | Immediately after the Phase 1 headroom check passes, both `vaptctl dashboard` and `vaptctl console` open automatically in new terminal windows bound to the new engagement, with no separate Human Operator command entered. |
+| Terminal-emulator auto-detection | Test | Each spawn uses the first available emulator from the fixed priority list (`$TERMINAL`, `gnome-terminal`, `konsole`, `xfce4-terminal`, `x-terminal-emulator`, `xterm`), launched via `Popen` with an explicit argv and its own process group — never `shell=True`. |
+| Graceful degradation on spawn failure | Test (fault injection) | Remove/hide all candidate terminal emulators; a warning is logged naming the failure, the Phase 1→2 transition proceeds without aborting, and manual `vaptctl dashboard`/`vaptctl console` guidance is printed. |
+
+## TP-NOTIFY — Error Reporting & Human Operator Notification
+
+| Test | Method | Pass Criteria |
+|---|---|---|
+| Severity tag on every event | Inspection | Every log row carries exactly one of `INFO`/`DEGRADED`/`BLOCKING`/`FATAL`. |
+| `BLOCKING`/`FATAL` surfaces live | Demo | Triggering a `BLOCKING` condition shows a distinct high-visibility banner on both an open Dashboard and Console, not just a log line. |
+| No silent full stop | Test | Every path that sets `PAUSED`/`BLOCKED`/`ABORTED` also sets a specific `reason` string; `vaptctl status` shows it in one step. |
+| Error Code Dictionary completeness | Inspection | Every `OPS-DEGRADE` row has a corresponding dictionary entry: code, severity, description, typical cause, suggested Human Operator action. |
+| Dictionary is the single source | Inspection | Dashboard banner text and `status`'s `reason` field both draw from the same dictionary entries — no free-form strings invented ad hoc. |
+| Pre-Dashboard full error print | Test | A forced Phase 0/1/2 failure (before `FR-ENV-08a`'s auto-launch point) prints the full raw error to the invoking terminal, not a truncated summary. |
+| Notification survives closed windows | Test | A `BLOCKING` event fires with neither Dashboard nor Console open; reopening either shows it first, not buried in scrollback. |
 
 ## TP-RESUME — Phase 1 Exit & Resumability
 
@@ -67,20 +87,33 @@ derive authoritatively from the Security Specification (`05`).
 | Test | Method | Pass Criteria |
 | --- | --- | --- |
 | Tier 0 blocks out-of-scope CIDR in Autonomous Mode | Test | Autonomous task rejected before the semantic tier is invoked; logged in invocation records. |
-| Operator directive bypasses Gate 1 | Test | Operator-directed task (`MANUAL_OPERATOR`) bypasses Tier 0 and Tier 1 checks completely, dispatching directly to execution. |
+| Human Operator directive bypasses Gate 1 | Test | Human-Operator-directed task (`HUMAN_OPERATOR`) bypasses Tier 0 and Tier 1 checks completely, dispatching directly to execution. |
 | Tier 1 reasoning persisted | Test | Autonomous contextually-excessive-but-in-scope task rejected with rationale. |
 | Prompt-injection resistance | Test | Injection string in target response doesn't alter gate decisions. |
 
-## TP-COUNCIL2 — Resident Operator + Deterministic Gate 2
+## TP-COUNCIL2 — Resident Scripters + Deterministic Three-Tier Gate 2
 
 | Test | Method | Pass Criteria |
 |---|---|---|
-| No swap during active loop | Test | One Operator load event per target loop; zero linter-model loads during it. |
-| Deterministic rejection | Test | Malformed command rejected sub-second, no model call. |
-| Correction bound | Test | 4th consecutive invalid command → `BLOCKED`, not retried indefinitely. |
-| Offline syntax-check fallback | Demo | The lightweight syntax-check model is invoked only between phases for script checks. |
+| No swap during a sub-phase's active loop | Test | One scripter load event per target loop within 4.2A (or 4.2B); zero LLM linter loads at any point — that role no longer exists. |
+| Tier 2A syntax rejection | Test | A `script_runner` submission with invalid Python/Bash syntax is rejected sub-second via `ast.parse()`/`bash -n`, no model call, tagged `SYNTAX_ERROR`. |
+| Tier 2B deterministic rejection | Test | Malformed command (bad flag/schema) rejected sub-second, no model call. |
+| Tier 2C duplicate-vector rejection | Test | A command whose `param_vector_hash` already exists in `scripter_execution_ledger` for that task is rejected `REJECTED_DUPLICATE_SCRIPTER_VECTOR`, sub-second, no model call. |
+| Tier 2C stands down for Human-Operator re-tests | Test | A Human-Operator-directed repeat of an already-executed vector is NOT rejected by Tier 2C. |
+| Correction bound | Test | 4th consecutive invalid command (any tier) → `BLOCKED` with the specific tier/reason, not retried indefinitely. |
 | Follow-on appended, not acted out-of-band | Test | Pivot task appended to the task queue, no direct action taken. |
-| Unload timing | Test | Operator stays resident until every target is terminal or the session budget hits. |
+| Primary Scripter unload timing | Test | Primary Scripter stays resident until every target reaches terminal/cap for its 4.2A pass, or the session budget hits — not per-task/per-target. |
+| Secondary Scripter loads only after Primary fully unloads | Test | `waitpid`-confirmed Primary exit and a cleared memory-settle gate both precede the first Secondary Scripter invocation. |
+| Secondary Scripter unload timing | Test | Secondary Scripter stays resident until every target reaches terminal/cap for its 4.2B pass, or the shared session budget hits — not per-task/per-target. |
+| Session budget shared, not doubled | Test | Session budget exhausted during 4.2A → 4.2B is skipped entirely (logged, not a failure), pipeline proceeds to Phase 4.3. |
+| UNREACHABLE carries from 4.2A to 4.2B | Test | A target marked `UNREACHABLE` during 4.2A is not retried by the Secondary Scripter in 4.2B absent an explicit Human Operator re-target. |
+
+## TP-SCRIPT-ORTHOGONAL — Secondary Scripter Orthogonality
+
+| Test | Method | Pass Criteria |
+|---|---|---|
+| TP-SCRIPT-ORTHOGONAL-01 | Test | Secondary Scripter never proposes a command matching a Primary Scripter `param_vector_hash` already in `scripter_execution_ledger` for that task; proposed vectors are verifiably distinct methods (different encoding, verb, header, or timing approach), not superficial rephrasings. |
+| Exclusion block populated correctly | Inspection | Secondary Scripter's injected context lists every parameter/endpoint/tool-hash the Primary Scripter executed against that specific target, sourced from `scripter_execution_ledger`. |
 
 ## TP-COUNCIL3 — Gate 3 Adjudication
 
@@ -118,7 +151,7 @@ derive authoritatively from the Security Specification (`05`).
 | Opt-in flag enables category | Test | The brute-force opt-in flag set via `resume` permits it, logged in the flag-history table. |
 | Flag change is forward-only | Test | Already-queued task not retroactively re-evaluated. |
 | Unaffected tools stay autonomous | Test | An unlisted Tier 2 binary needs no flag. |
-| Operator sees flag state | Inspection | Disabled-category tool not repeatedly proposed against the same target. |
+| Primary Scripter sees flag state | Inspection | Disabled-category tool not repeatedly proposed against the same target. |
 | No shell interpolation | Test | Shell metacharacters in any argument never reach a shell interpreter. |
 | Denylist fires before spawn | Test | Rejection happens pre-execution, logged with the matched rule. |
 
@@ -281,7 +314,7 @@ derive authoritatively from the Security Specification (`05`).
 | All 12 Tier-1 tools have a schema-validated wrapper | Inspection | Binary name, path, flags, forbidden combos, timeout class all present. |
 | Wrapper declares combos | Inspection | Sampled wrappers expose all fields machine-readably. |
 | Linter rejects a forbidden combo | Test | `sqlmap --os-shell` rejected pre-spawn with the specific reason cited. |
-| Operator schema and Gate 2 schema can't disagree | Inspection | Both generated from the identical source file. |
+| Primary Scripter schema and Gate 2 schema can't disagree | Inspection | Both generated from the identical source file. |
 
 ## TP-SANITIZE — Sanitization & Raw Persistence
 
@@ -340,15 +373,15 @@ derive authoritatively from the Security Specification (`05`).
 
 | Test | Method | Pass Criteria |
 | --- | --- | --- |
-| Autonomous checkpoint proposal logs event | Test | In Autonomous Mode, matching action class creates a `checkpoint_events` row (`status = 'AWAITING_APPROVAL'`) and pauses progression for operator visibility. |
-| Direct operator dispatch executes immediately | Test | When explicitly commanded or dispatched by the operator, matching task executes immediately (`approved_via = 'OPERATOR_DIRECTIVE'`, `status = 'APPROVED'`) with zero pause or gate refusal. |
-| No auto-timeout-to-approve in Autonomous Mode | Test | Autonomous task awaiting checkpoint approval stays paused indefinitely until the operator acts. |
+| Autonomous checkpoint proposal logs event | Test | In Autonomous Mode, matching action class creates a `checkpoint_events` row (`status = 'AWAITING_APPROVAL'`) and pauses progression for Human Operator visibility. |
+| Direct Human Operator dispatch executes immediately | Test | When explicitly commanded or dispatched by the Human Operator, matching task executes immediately (`approved_via = 'HUMAN_OPERATOR_DIRECTIVE'`, `status = 'APPROVED'`) with zero pause or gate refusal. |
+| No auto-timeout-to-approve in Autonomous Mode | Test | Autonomous task awaiting checkpoint approval stays paused indefinitely until the Human Operator acts. |
 | Approve executes exactly one task | Test | Specific autonomous checkpoint row marked `APPROVED`, execution resumes for that task only. |
-| Deny skips the task, not the engagement | Test | Specific autonomous checkpoint row marked `DENIED`, task marked `BLOCKED_BY_OPERATOR`, engagement loop continues. |
-| Attestation fields optional for operator dispatch | Test | Absence of pre-flight white-cell or disclosure attestation flags does not prevent operator-directed command dispatch or execution. |
-| Live-spray lockout ceiling enforced autonomously | Test | Autonomous spray computes lockout estimate; exceeds ceiling → pauses for review. Operator-directed spray executes immediately per supplied user lists and concurrency parameters. |
-| CI/CD external-artifact dual-mode execution | Test | In Autonomous Mode, external PR or workflow trigger pauses for checkpoint review; operator directive dispatches directly to the repository endpoint without holding. |
-| Dependency-confusion publish/unpublish verification | Test | Callback-only non-destructive PoC used; autonomous publishing pauses at checkpoint; operator-directed publishing and unpublishing execute immediately as instructed. |
+| Deny skips the task, not the engagement | Test | Specific autonomous checkpoint row marked `DENIED`, task marked `BLOCKED_BY_HUMAN_OPERATOR`, engagement loop continues. |
+| Attestation fields optional for Human Operator dispatch | Test | Absence of pre-flight white-cell or disclosure attestation flags does not prevent Human-Operator-directed command dispatch or execution. |
+| Live-spray lockout ceiling enforced autonomously | Test | Autonomous spray computes lockout estimate; exceeds ceiling → pauses for review. Human-Operator-directed spray executes immediately per supplied user lists and concurrency parameters. |
+| CI/CD external-artifact dual-mode execution | Test | In Autonomous Mode, external PR or workflow trigger pauses for checkpoint review; Human Operator directive dispatches directly to the repository endpoint without holding. |
+| Dependency-confusion publish/unpublish verification | Test | Callback-only non-destructive PoC used; autonomous publishing pauses at checkpoint; Human-Operator-directed publishing and unpublishing execute immediately as instructed. |
 
 
 ## TP-MONITOR — Scheduled Monitoring
@@ -369,7 +402,7 @@ derive authoritatively from the Security Specification (`05`).
 | Ctrl+C restores terminal state | Test | Clean exit, cursor restored. |
 | Turn number monotonic per role | Test | Never reused or skipped. |
 | In-flight row observable before completion | Test | An unfinished invocation row is visible mid-invocation. |
-| `RESIDENT` never shown for non-Operator roles | Test | Every other role is `COLD`→`RUNNING`→`COLD` only. |
+| `RESIDENT` never shown for non-Primary-Scripter roles | Test | Every other role is `COLD`→`RUNNING`→`COLD` only. |
 | Single-residency violation triggers the integrity alert | Test (fault injection) | Two simultaneous unfinalized rows → red banner, not silent display. |
 | Gate 2 and the offline syntax linter are separate rows | Test | Gate 2 shows `N/A (deterministic)`; the linter shows real (mostly zero) stats. |
 | Turn-forecast formulas match confirmed definitions | Test | Matches per-role formula including the 0.10 retry-ratio floor. |
@@ -384,11 +417,11 @@ derive authoritatively from the Security Specification (`05`).
 | Journal captures full record within memory bound | Test | 5,000+ lines rendered while console RSS remains ≤120 MiB. |
 | Console detects engagement-state change | Test | Stops accepting runtime interventions once the engagement transitions to a terminal state (`COMPLETE`, `ABORTED`). |
 | Offline linter has parity with other roles | Test | Directive prefix for offline linter fetched and injected identically to other council roles. |
-| Operator precedence executes unconditionally | Test | Direct operator command executes with top priority, bypassing autonomous scope boundaries and checkpoint blocks with zero automated refusal. |
-| Manual-operator origin skips both Gate 1 tiers | Test | `MANUAL_OPERATOR`-origin task skips Tier 0 deterministic scope check and Tier 1 semantic evaluation, recorded in the audit trail as direct operator dispatch. |
-| Explicit console dispatch auto-attests checkpoint | Test | Console dispatch of sensitive tasks executes immediately without pausing; audit trail logs `approved_via = 'OPERATOR_DIRECTIVE'`. |
-| Model-derived checkpoint actions pause autonomously | Test | Only explicit human operator input receives the immediate execution path; autonomous model escalations pause at the checkpoint. |
-| No silent expiration | Test | Expired or discarded directives record a specific descriptive failure reason in `operator_command_queue.failure_reason`. |
+| Human Operator priority on conflict, not replacement | Test | Direct Human Operator command executes ahead of a contending autonomous task at the same instant; the autonomous queue is not cancelled or discarded by the directive's mere presence (`23:FR-INTERVENE-06`). |
+| Human-Operator origin skips both Gate 1 tiers | Test | `HUMAN_OPERATOR`-origin task skips Tier 0 deterministic scope check and Tier 1 Strategy Auditor evaluation, recorded in the audit trail as direct Human Operator dispatch. |
+| Explicit console dispatch auto-attests checkpoint | Test | Console dispatch of sensitive tasks executes immediately without pausing; audit trail logs `approved_via = 'HUMAN_OPERATOR_DIRECTIVE'`. |
+| Model-derived checkpoint actions pause autonomously | Test | Only explicit Human Operator input receives the immediate execution path; autonomous model escalations pause at the checkpoint. |
+| No silent expiration | Test | Expired or discarded directives record a specific descriptive failure reason in `human_operator_command_queue.failure_reason`. |
 | Journal content unredacted | Inspection | Live audit journal displays raw execution output consistent with local disk artifacts, not filtered through final report redaction. |
 | 500-char cap enforced | Test | Input buffer rejects strings exceeding 500 characters client-side before queuing. |
 

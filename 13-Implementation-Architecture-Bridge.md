@@ -8,7 +8,7 @@ the proposed module layout.
 This architecture bridges the two execution postures of the Dual-Mode Execution Architecture:
 providing structured state serialization, deterministic validation, and graceful pausing for
 unattended, non-destructive Autonomous Mode loops, while providing direct, low-latency command
-dispatch for Operator-Directed Mode without automated interception or technical gate refusals.
+dispatch for Human-Operator-Directed Mode without automated interception or technical gate refusals.
 
 All security invariants, containment boundaries, and override models implemented across these
 components derive authoritatively from the Security Specification (`05`).
@@ -18,7 +18,7 @@ components derive authoritatively from the Security Specification (`05`).
 ## IAB-PROC — Process Architecture: Per-Invocation, SQLite/Signal-Coordinated
 
 **Confirmed: no persistent daemon.** `start` runs the full engagement lifecycle as one
-long-lived foreground process (the operator backgrounds it themselves, e.g. `&`,
+long-lived foreground process (the Human Operator backgrounds it themselves, e.g. `&`,
 `nohup`, `tmux` — process supervision beyond that is out of scope). `pause`/`resume`/
 `abort`/`status` are short-lived processes that coordinate with the running (or
 last-running) orchestrator through **SQLite state plus OS signals**, never a
@@ -33,8 +33,8 @@ socket/RPC protocol.
 | `pause` | **Cooperative.** Writes `engagements.control_intent = 'PAUSE_REQUESTED'` (IAB-SCHEMA-01), then sends `SIGUSR1` to `orchestrator_pid` purely to prompt an immediate check rather than waiting for the loop's natural per-task polling cadence. The orchestrator's `SIGUSR1` handler does nothing but set an in-memory flag — the actual pause logic runs at the next safe checkpoint (between tasks, never mid-subprocess). On pausing, the orchestrator persists all in-flight state, sets `engagements.status = 'PAUSED'`, and **exits the process** — a paused engagement holds no process, consistent with this design's whole memory-efficiency philosophy (no point in a process idling for hours). |
 | `resume` | Since "paused" means no process is running, `resume` **launches a fresh orchestrator process** (same entry point as `start`), which detects `status = 'PAUSED'`, applies any updated high-risk-category opt-in flags, records its own new PID, and continues the task-execution loop from the last committed task-queue state — this falls out naturally since all task-queue state already lives in SQLite. |
 | `abort` | **Not cooperative — a direct external kill, not a request.** Given the tight kill-switch budget and the possibility that the orchestrator itself is hung (e.g., blocked in a subprocess call or a stuck inference call), `abort` cannot rely on the orchestrator noticing a signal in time. Instead `abort` itself: (1) sets `engagements.status = 'ABORTED'` and `control_intent = 'ABORT'` immediately (atomic); (2) queries `tool_execution_logs WHERE end_ts IS NULL` for any currently-running subprocess `pid` (IAB-SCHEMA-02) and sends `SIGTERM` to its **entire process group** (`os.killpg(os.getpgid(pid), signal.SIGTERM)`, not just the recorded PID — every subprocess is spawned in its own session specifically so this is possible); (3) sends `SIGTERM` to `orchestrator_pid`; (4) waits a bounded grace period; (5) sends `SIGKILL` (same process-group targeting) to anything still alive; (6) since the orchestrator process may now be gone, `abort` itself invokes the restoration routine directly (reading `suspended_processes`, IAB-SCHEMA-03, and calling the freezer helper's thaw operation) — `abort` is responsible for satisfying the "abort still restores apps" guarantee, not a now-dead orchestrator process. |
-| `approve-checkpoint` / `deny-checkpoint` | **Cooperative checkpoint resolution.** In Autonomous Mode, an agent-proposed checkpoint action with no threshold exception persists the `checkpoint_events` row (`status = 'AWAITING_APPROVAL'`), sets `engagements.status = 'PAUSED_AWAITING_CHECKPOINT'`, and cleanly exits the process to release resources. `approve-checkpoint <id>` updates the status to `APPROVED` and re-spawns the orchestrator to execute the task. `deny-checkpoint <id>` sets `DENIED`, marks the task `BLOCKED_BY_OPERATOR`, and resumes the queue. **Exception:** Direct operator directives or console dispatches execute immediately (`status = 'APPROVED'`, `approved_via = 'OPERATOR_DIRECTIVE'`) without entering `PAUSED_AWAITING_CHECKPOINT` or exiting the process. |
-| `monitor` | **Not part of the `start`/`pause`/`resume`/`abort` engagement lifecycle at all.** A short-lived, deterministic, model-free process: reads an existing `engagement_id`'s registered targets, runs the fixed recon subset, diffs against `monitoring_baseline`, writes any diff to `discovered_entities`, and exits — no orchestrator PID, no hibernation, no engagement-lock interaction. Intended to be invoked by an external cron/systemd-timer entry the operator configures directly; this system never schedules its own recurrence. |
+| `approve-checkpoint` / `deny-checkpoint` | **Cooperative checkpoint resolution.** In Autonomous Mode, an agent-proposed checkpoint action with no threshold exception persists the `checkpoint_events` row (`status = 'AWAITING_APPROVAL'`), sets `engagements.status = 'PAUSED_AWAITING_CHECKPOINT'`, and cleanly exits the process to release resources. `approve-checkpoint <id>` updates the status to `APPROVED` and re-spawns the orchestrator to execute the task. `deny-checkpoint <id>` sets `DENIED`, marks the task `BLOCKED_BY_HUMAN_OPERATOR`, and resumes the queue. **Exception:** Direct Human Operator directives or console dispatches execute immediately (`status = 'APPROVED'`, `approved_via = 'HUMAN_OPERATOR_DIRECTIVE'`) without entering `PAUSED_AWAITING_CHECKPOINT` or exiting the process. |
+| `monitor` | **Not part of the `start`/`pause`/`resume`/`abort` engagement lifecycle at all.** A short-lived, deterministic, model-free process: reads an existing `engagement_id`'s registered targets, runs the fixed recon subset, diffs against `monitoring_baseline`, writes any diff to `discovered_entities`, and exits — no orchestrator PID, no hibernation, no engagement-lock interaction. Intended to be invoked by an external cron/systemd-timer entry the Human Operator configures directly; this system never schedules its own recurrence. |
 
 ### Signal assignments
 
@@ -160,7 +160,7 @@ report:
 ```
 
 Every value above is a **default** matching the confirmed decision — the file's
-existence lets the operator override without touching source, but shipping without
+existence lets the Human Operator override without touching source, but shipping without
 this file should fall back to exactly these numbers, not fail to start.
 
 ---
@@ -231,10 +231,10 @@ vaptctl console   [--engagement-id <id>] [--tail-lines <int>] [--no-stream]
 
 Operational notes on CLI flags and execution posture: The `--allow-*` flags configure autonomous
 discovery boundaries and tracking parameters. In Autonomous Mode, sensitive action proposals
-log structured checkpoint events for operator review, and live sprays evaluate against the
-`--max-auto-lockout-threshold` (default `5.0%`). In Operator-Directed Mode, commands, scripts,
-or actions explicitly dispatched or invoked by the operator execute immediately with zero
-refusal and zero automated gate stalls (`approved_via = 'OPERATOR_DIRECTIVE'`); pre-flight
+log structured checkpoint events for Human Operator review, and live sprays evaluate against the
+`--max-auto-lockout-threshold` (default `5.0%`). In Human-Operator-Directed Mode, commands, scripts,
+or actions explicitly dispatched or invoked by the Human Operator execute immediately with zero
+refusal and zero automated gate stalls (`approved_via = 'HUMAN_OPERATOR_DIRECTIVE'`); pre-flight
 attestation parameters (`--white-cell-contact`, `--attest-disclosure`) are optional tracking fields
 whose absence does not hard-abort runtime execution.
 
@@ -250,21 +250,21 @@ vapt_agent/
 │   ├── deny_checkpoint.py      # marks a checkpoint row denied, skips the one task
 │   ├── monitor.py              # discovery-only diff run, outside the engagement lifecycle
 │   ├── dashboard.py            # live terminal dashboard — read-only, independent of the orchestrator lifecycle
-│   └── console.py              # interactive TUI console — read-write (operator_command_queue), also independent of the orchestrator lifecycle
+│   └── console.py              # interactive TUI console — read-write (human_operator_command_queue), also independent of the orchestrator lifecycle
 ├── orchestrator/
 │   ├── preflight.py            # pre-flight self-test, including the one-time GPU-offload benchmark
 │   ├── hibernation.py          # environment/hibernation prep, calls freezer_helper client
-│   ├── phase_lifecycle.py      # engagement-lifecycle state machine, control_intent handling
+│   ├── phase_lifecycle.py      # engagement-lifecycle state machine, control_intent handling; Phase 4.2 runs its batch-sequential dual-scripter handoff here — run_phase_4_2a() (Primary Scripter) → full unload → memory-settle gate → run_phase_4_2b() (Secondary Scripter), never concurrent (`01:FR-COUNCIL-11d`)
 │   ├── engine_client.py        # Local Engine Client abstraction over the inference backend
 │   └── council/
-│       ├── strategist.py       # scope/task-queue planning model
-│       ├── scope_gate.py       # deterministic Tier 0 scope check (every task) + contextual Tier 1 sanity-check (non-manual-origin tasks only)
-│       ├── operator.py         # tool-invocation planning model, per-task follow-on queuing
-│       ├── gate2_validator.py  # deterministic tool-call validator, incl. duplicate-command hash check
-│       ├── dedup.py            # command-hash canonicalization, historical-context queries, regression seeding
-│       ├── offline_linter.py   # multi-line script syntax checker, offline/between-phase only
-│       ├── loop_bounds.py      # task-cap/zero-yield/failure circuit-breaker enforcement
-│       ├── adjudicator.py      # independent evidence-adjudication model
+│       ├── strategist.py       # scope/task-queue planning model (Lead Strategist)
+│       ├── strategy_auditor.py # deterministic Tier 0 scope check (every task) + contextual Tier 1 sanity-check (non-human-operator-origin tasks only) — Strategy Auditor role
+│       ├── primary_scripter.py # tool-invocation planning model, per-task follow-on queuing, Phase 4.2A only — Primary Scripter role
+│       ├── gate2_validator.py  # deterministic three-tier command validator (`01:FR-COUNCIL-08`): Tier 2A syntax/AST check (`ast.parse`/`py_compile`/`bash -n`, absorbs the deprecated Alignment Linter's job), Tier 2B tool CLI flag/schema validation, Tier 2C orthogonal-vector duplicate-hash check against `scripter_execution_ledger`
+│       ├── dedup.py            # command-hash canonicalization, historical-context queries, regression seeding — cross-engagement regression dedup (`24`), distinct from Tier 2C's within-engagement orthogonality check
+│       ├── secondary_scripter.py # orthogonal-vector exploit generation, Phase 4.2B only, loads after Primary Scripter fully unloads — Secondary Scripter role, replaces the deprecated Alignment Linter (Round 3, merged)
+│       ├── loop_bounds.py      # task-cap/zero-yield/failure circuit-breaker enforcement, tracked independently per sub-phase (4.2A/4.2B)
+│       ├── criterion_adjudicator.py # independent evidence-adjudication model — Criterion Adjudicator role
 │       └── reporter.py         # report-draft generation + CVSS calculator — a distinct model from strategist.py, not a reload of it
 ├── bridge/
 │   ├── tier1/                  # one module per Tier 1 tool schema+wrapper
@@ -302,7 +302,7 @@ vapt_agent/
 └── tests/                       # mirrors the acceptance test plan's structure
 ```
 
-Each `council/` module above MUST fetch its unconsumed `operator_command_queue` rows
+Each `council/` module above MUST fetch its unconsumed `human_operator_command_queue` rows
 before invocation — a change to all six existing modules, not just new code
 introduced by the interactive-console capability itself.
 

@@ -1,3 +1,5 @@
 .claude/
 __pycache__/
 *.pyc
+.obsidian/
+/Agentic VAPT Setup/
