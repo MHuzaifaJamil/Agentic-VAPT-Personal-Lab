@@ -81,6 +81,10 @@ immediately rather than only after the next push. Folds into "Push history" abov
 
 | `Agentic VAPT Setup (HOME).md` | modified | — (follow-up) | Secondary Scripter integrated directly into the main council-relay diagram (it had been left in a separate, disconnected diagram) — shown feeding into the same Gate 2 → Tool → Adjudicator → Reporter pipeline via the Pass 1 → Pass 2 handoff; the redundant standalone handoff diagram removed. |
 
+| `Agentic VAPT Setup (HOME).md` | modified | — (follow-up) | Added the actual model/quantization/footprint table (previously just pointed to `01`) and exact reference-hardware specs (CPU, GPU, memory, OS) to Section 8, per operator request. |
+
+| `README.md` | **new** | — (follow-up) | GitHub-facing README added: concept, the five core diagrams (mirrored from `HOME.md`), and a condensed user story — deliberately brief, links out to `HOME.md` and the numbered docs for detail. |
+
 ## Earlier decisions not yet mapped to a specific commit
 
 Decisions #34–54 in the decision log predate this index's practice of citing commit

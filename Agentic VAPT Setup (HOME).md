@@ -44,8 +44,21 @@ used to be a seventh AI model's whole job. It's now just plain, ordinary code do
 that check instantly, for free, with zero chance of getting it wrong — no reason to
 spend a model's time on something a simple program already does perfectly.)*
 
-*(Exact model names, sizes, and memory footprints are technical detail — see `01`'s
-Council Roster table if you need them.)*
+### The Actual Models Behind Each Role
+
+| Role | Model | Quantization | Memory Footprint |
+|---|---|---|---|
+| Lead Strategist | `DeepSeek-R1-0528-Qwen3-8B` | `Q8_0` | ~8.6 GB |
+| Strategy Auditor | `Hermes-3-Llama-3.1-8B` | `Q8_0` | ~8.4 GB |
+| Primary Scripter | `Qwen2.5-Coder-7B-Instruct` | `Q8_0` | ~8.0 GB |
+| Secondary Scripter | `DeepSeek-Coder-6.7B-Instruct` | `Q8_0` | ~7.2 GB |
+| Criterion Adjudicator | `Mistral-7B-Instruct-v0.3` | `Q8_0` | ~7.6 GB |
+| Executive Reporter | `Ministral-8B-Instruct-2410` | `Q8_0` | ~8.4 GB |
+
+Every model uses the same quantization, and none of them ever loads at the same time as
+another — the biggest single model (~8.6 GB) is what actually has to fit in memory at
+any one instant, not all six added together. This canonical roster lives in `01`'s
+Council Roster table — this table mirrors it for convenience.
 
 ---
 
@@ -158,10 +171,18 @@ Past ordinary websites and networks, the system also plugs into more specialized
 
 ## 8. The Hardware It Runs On
 
-No special server room, no cloud bill — this runs entirely on one machine:
+No special server room, no cloud bill — this runs entirely on one machine. Exact specs
+of the reference system this was designed against:
 
-* **A single laptop-class computer** (Intel Core Ultra 5, integrated graphics) — the kind of machine already sitting on a tester's desk.
-* **~15 GB of memory**, carefully managed so the AI models take turns rather than all loading at once.
+| Component | Specification |
+|---|---|
+| **CPU** | Intel Core Ultra 5 125H — 14 cores / 18 threads (4 Performance-cores, 8 Efficient-cores, 2 Low-Power-Efficient-cores) |
+| **GPU** | Intel Arc Graphics (integrated, 7 Xe Cores), used for AI inference via Intel oneAPI Level Zero / SYCL |
+| **Memory** | 15.3 GiB shared LPDDR5/DDR5, plus a 15.3 GiB NVMe swap partition for headroom during model loads |
+| **Host OS** | Kali Linux Rolling (x86_64) |
+| **Memory strategy** | Strict single-model residency — only one AI model resident at any instant, loaded/evicted on demand, with a fixed ~1.5 GiB safety buffer always kept free |
+
+* **A single laptop-class computer** — the kind of machine already sitting on a tester's desk, not a server rack.
 * **Kali Linux** — the standard operating system security professionals already use.
 * **Nothing leaves the machine** — no cloud AI calls, no telemetry, no external logging, unless the Human Operator deliberately configures it that way.
 
