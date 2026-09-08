@@ -30,6 +30,7 @@ version of this file that had gone missing from the working tree.
 | `97e9018` | 62–64 | Added the interactive TUI console (`23`) and historical state/dedup subsystem (`24`). |
 | `d2d5b8e` | — (housekeeping) | Filled in the commit hash for the #62–64 push in this index. |
 | `b34c493` | — (audit fix) | Fixed 8 cross-document inconsistencies found in a corpus-wide audit: `CLAUDE.md`'s `keep_alive` claim corrected to match `01`/`07`; doc `16`'s filename reference synced; `TR-SCRIPT-01` script count corrected (29→28); `FR-TOOL-01`/`TP-TIER1` tool-count parity fixed (11→12); doc `18`'s traceability matrix counts reconciled against every source doc; doc `04`'s `IR-CTRL` namespace-ownership split with `13` documented; doc `05`'s mislabeling of docs `07`/`08`/`12` fixed; primary-source lists harmonized between `00` and `CLAUDE.md`. |
+| `8d32a85` | — (Human Operator, direct) | `Assumptions-Not-Approved.md`/`ASSET-CLASSIFICATION.md` moved here from `../implementation/`, maintained from this location going forward (content unchanged by the move). New `IMPLEMENTATION-DEVIATIONS-FROM-REQUIREMENTS.md`: records the 2026-09-08 Phase 1 hibernation architecture change (denylist→allowlist, `orchestrator/hibernation.py` on the Implementing PC) as an operator-approved deviation from `01:FR-ENV-03`'s literal "fixed denylist" wording — made after three real forced-hardware-shutdown incidents plus 15 further correctness bugs found in the same mechanism by one code-review pass — plus the additive `suspended_processes.start_time_ticks` pid-recycling fix (touches `03:DR-SCHEMA-13`, non-conflicting). Not yet reconciled into `01`'s own text; tracked for the next requirements-sync pass. |
 
 ## Working Tree — Uncommitted Changes (Development Agents: read this first)
 
@@ -84,10 +85,6 @@ immediately rather than only after the next push. Folds into "Push history" abov
 | `Agentic VAPT Setup (HOME).md` | modified | — (follow-up) | Added the actual model/quantization/footprint table (previously just pointed to `01`) and exact reference-hardware specs (CPU, GPU, memory, OS) to Section 8, per operator request. |
 
 | `README.md` | **new** | — (follow-up) | GitHub-facing README added: concept, the five core diagrams (mirrored from `HOME.md`), and a condensed user story — deliberately brief, links out to `HOME.md` and the numbered docs for detail. |
-
-| `IMPLEMENTATION-DEVIATIONS-FROM-REQUIREMENTS.md` | **new** | — (Human Operator, direct) | Records the 2026-09-08 Phase 1 hibernation architecture change (`orchestrator/hibernation.py`, Implementing PC) from a denylist to an allowlist — a deliberate deviation from `01:FR-ENV-03`'s literal "fixed denylist" wording, made after three real forced-hardware-shutdown incidents plus 15 further correctness bugs found in the same mechanism by one code-review pass. Operator-approved; not yet reconciled into `01`'s own text (tracked here for the next requirements-sync pass). Also records the additive `suspended_processes.start_time_ticks` pid-recycling fix (touches `03:DR-SCHEMA-13`, non-conflicting). |
-| `Assumptions-Not-Approved.md` | **moved** | — (Human Operator, direct) | Relocated from `../implementation/` to here, alongside the requirement docs it tracks underspecified interpretations of — maintained from this location going forward. Content unchanged by the move. |
-| `ASSET-CLASSIFICATION.md` | **moved** | — (Human Operator, direct) | Relocated from `../implementation/` to here, alongside `16`/`17` (the reuse-mapping docs it's a companion report to). Content unchanged by the move. |
 
 ## Earlier decisions not yet mapped to a specific commit
 
