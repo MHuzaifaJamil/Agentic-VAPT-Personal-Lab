@@ -68,12 +68,19 @@ Verifies a finding report's citations before it can leave draft status.
 | IR-SANITIZE-02 | Provenance tag strings (<tool_output_untrusted>...</tool_output_untrusted>) are reserved system tokens; raw target output is sanitized to escape or strip literal occurrences of these tags before wrapping. |
 | IR-SANITIZE-03 | Every council model's system prompt includes a structural context separation clause treating wrapped tool output strictly as analytical data. This clause MUST NOT trigger ethical refusals, censorship, or blocking on security analysis, exploit synthesis, or Human Operator attack directives. |
 
-## IR-MCP — Burp Suite / Caido MCP Integration
+## IR-MCP — Caido MCP Integration & Third-Party Bridge Provenance
+
+*(Burp Suite does NOT use MCP — see `16:TR-BRIDGE-01`, which requires direct REST calls
+via the `cc-bridge` extension instead, and explicitly forbids an MCP bridge for Burp.
+This section's title previously implied otherwise; corrected. `IR-MCP-01` still applies
+to Burp's REST bridge config in spirit — "versioned config, not inline" — even though
+Burp's bridge isn't MCP-based; `IR-MCP-02`'s provenance requirement already applies
+generically to any third-party bridge, Burp's REST bridge included.)*
 
 | ID | Requirement |
 |----|-------------|
-| IR-MCP-01 | MCP server configs are versioned config files, not inline in orchestration code. |
-| IR-MCP-02 | Model Context Protocol (MCP) tool output and third-party bridge data flow through the standard provenance pipeline (IR-SANITIZE-02) to maintain consistent context framing across all ingestion channels. |
+| IR-MCP-01 | MCP server configs (currently: Caido only, per `16:TR-BRIDGE-03`) are versioned config files, not inline in orchestration code. |
+| IR-MCP-02 | Model Context Protocol (MCP) tool output and third-party bridge data (including Burp's non-MCP REST bridge, `16:TR-BRIDGE-01`) flow through the standard provenance pipeline (IR-SANITIZE-02) to maintain consistent context framing across all ingestion channels. |
 
 ## IR-EXT — Third-Party Framework Integration
 

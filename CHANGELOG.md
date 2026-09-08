@@ -91,6 +91,9 @@ immediately rather than only after the next push. Folds into "Push history" abov
 | `README.md` | modified | — (follow-up) | Sync note added next to the council-relay diagram pointing at its `HOME.md` copy, per `/code-review` finding (no shared-include mechanism exists in plain Markdown, so an explicit maintenance note is the fix, not full de-duplication — the diagram's presence here is by design). |
 | `CHANGELOG.md` | modified | — (follow-up) | Corrected its own prior entry: the model/footprint table landed in `HOME.md` Section 3, not Section 8 as previously stated; the Section 8 parenthetical now matches its actual (now 4-row) contents. |
 
+| `16-Actual-Setup-Reuse-and-Integration-Map.md` | modified | — (follow-up) | `TR-BRIDGE-03` corrected: cited `npx @caido/mcp-server` (no such official package exists) — fixed to the actual community server (`c0tton-fluff/caido-mcp-server`) and its real PAT/OAuth auth mechanism, matching `Actual-Setup/mcp/caido-mcp-client/`'s reference client exactly. Found via direct comparison against the operator's live reference toolkit. |
+| `04-Interface-and-Integration-Requirements.md` | modified | — (follow-up) | `IR-MCP` section retitled — its old title ("Burp Suite / Caido MCP Integration") implied Burp uses MCP, contradicting `16:TR-BRIDGE-01`'s explicit direct-REST-only requirement for Burp. Requirement text clarified to say which parts apply to Burp's REST bridge vs. Caido's actual MCP integration. |
+
 ## Earlier decisions not yet mapped to a specific commit
 
 Decisions #34–54 in the decision log predate this index's practice of citing commit
