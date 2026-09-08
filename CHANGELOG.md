@@ -85,6 +85,10 @@ immediately rather than only after the next push. Folds into "Push history" abov
 
 | `README.md` | **new** | — (follow-up) | GitHub-facing README added: concept, the five core diagrams (mirrored from `HOME.md`), and a condensed user story — deliberately brief, links out to `HOME.md` and the numbered docs for detail. |
 
+| `IMPLEMENTATION-DEVIATIONS-FROM-REQUIREMENTS.md` | **new** | — (Human Operator, direct) | Records the 2026-09-08 Phase 1 hibernation architecture change (`orchestrator/hibernation.py`, Implementing PC) from a denylist to an allowlist — a deliberate deviation from `01:FR-ENV-03`'s literal "fixed denylist" wording, made after three real forced-hardware-shutdown incidents plus 15 further correctness bugs found in the same mechanism by one code-review pass. Operator-approved; not yet reconciled into `01`'s own text (tracked here for the next requirements-sync pass). Also records the additive `suspended_processes.start_time_ticks` pid-recycling fix (touches `03:DR-SCHEMA-13`, non-conflicting). |
+| `Assumptions-Not-Approved.md` | **moved** | — (Human Operator, direct) | Relocated from `../implementation/` to here, alongside the requirement docs it tracks underspecified interpretations of — maintained from this location going forward. Content unchanged by the move. |
+| `ASSET-CLASSIFICATION.md` | **moved** | — (Human Operator, direct) | Relocated from `../implementation/` to here, alongside `16`/`17` (the reuse-mapping docs it's a companion report to). Content unchanged by the move. |
+
 ## Earlier decisions not yet mapped to a specific commit
 
 Decisions #34–54 in the decision log predate this index's practice of citing commit
