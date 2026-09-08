@@ -80,6 +80,8 @@ flowchart TD
 * **Step 3 — Connect the Tools.** The system wires up its security tools (the same tools professional testers use) so the AI can call them safely.
 * **Step 4 — Do the Work.** This is the main loop, and it repeats over and over until the job is done. Inside this loop, the "team" from Section 3 hands work to each other in relay fashion:
 
+<!-- SYNC NOTE: this diagram is deliberately duplicated in README.md (that file is
+     self-contained by design, not a stub linking here). If you change one, change both. -->
 ```mermaid
 flowchart LR
     S["Lead Strategist\nmakes a plan"] --> G1{"Strategy Auditor\nDoes this plan\nfit the scope?"}
@@ -178,13 +180,12 @@ of the reference system this was designed against:
 |---|---|
 | **CPU** | Intel Core Ultra 5 125H — 14 cores / 18 threads (4 Performance-cores, 8 Efficient-cores, 2 Low-Power-Efficient-cores) |
 | **GPU** | Intel Arc Graphics (integrated, 7 Xe Cores), used for AI inference via Intel oneAPI Level Zero / SYCL |
-| **Memory** | 15.3 GiB shared LPDDR5/DDR5, plus a 15.3 GiB NVMe swap partition for headroom during model loads |
-| **Host OS** | Kali Linux Rolling (x86_64) |
-| **Memory strategy** | Strict single-model residency — only one AI model resident at any instant, loaded/evicted on demand, with a fixed ~1.5 GiB safety buffer always kept free |
+| **Memory** | 15.3 GiB shared LPDDR5/DDR5, plus a 15.3 GiB NVMe swap partition — used during Step 1's app-freezing to page out the paused desktop apps' memory (`FR-ENV-07`'s reclaim step), not something invoked later while a model is loading |
+| **Host OS** | Kali Linux Rolling (x86_64) — the standard OS security professionals already use |
 
 * **A single laptop-class computer** — the kind of machine already sitting on a tester's desk, not a server rack.
-* **Kali Linux** — the standard operating system security professionals already use.
 * **Nothing leaves the machine** — no cloud AI calls, no telemetry, no external logging, unless the Human Operator deliberately configures it that way.
+* **A fixed ~1.5 GiB safety buffer** is always kept free on top of whatever the active model needs — the one AI-model-at-a-time rule itself is covered in Section 3 above, not repeated here.
 
 ---
 

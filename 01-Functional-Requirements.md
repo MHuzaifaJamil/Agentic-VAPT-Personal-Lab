@@ -13,20 +13,22 @@ governed authoritatively by the Security Specification (`05`).
 
 ## Council Roster
 
-| Role | Model Identifier | Function |
-|---|---|---|
-| **Lead Strategist** | `DeepSeek-R1-0528-Qwen3-8B` | Phase 4.1 — produces the attack-path plan (`FR-COUNCIL-01`/`02`) |
-| **Strategy Auditor** | `Hermes-3-Llama-3.1-8B` | Phase 4.1 — audits whether the Lead Strategist's plan addresses the Human-Operator-defined scope, and whether it's sound (`FR-COUNCIL-04`); never itself decides what is in/out of scope |
-| **Primary Scripter** | `Qwen2.5-Coder-7B-Instruct` | Phase 4.2A — turns an approved task into a concrete tool invocation, stays resident for the whole per-target loop until its queue is exhausted (`FR-COUNCIL-07`) |
-| **Secondary Scripter** | `DeepSeek-Coder-6.7B-Instruct` (`Q8_0`, ~7.2 GB) | Phase 4.2B — loads only after the Primary Scripter fully unloads; pursues attack vectors orthogonal to everything the Primary Scripter already tried (`FR-COUNCIL-11c`) |
-| **Criterion Adjudicator** | `Mistral-7B-Instruct-v0.3` | Phase 4.3 — evaluates candidate findings against raw evidence and false-positive criteria (`FR-COUNCIL-13`/`14`) |
-| **Executive Reporter** | `Ministral-8B-Instruct-2410` | Phase 4.3 — drafts the client-facing finding writeup (`FR-COUNCIL-16`) |
+| Role | Model Identifier | Quantization | Memory Footprint | Function |
+|---|---|---|---|---|
+| **Lead Strategist** | `DeepSeek-R1-0528-Qwen3-8B` | `Q8_0` | ~8.6 GB | Phase 4.1 — produces the attack-path plan (`FR-COUNCIL-01`/`02`) |
+| **Strategy Auditor** | `Hermes-3-Llama-3.1-8B` | `Q8_0` | ~8.4 GB | Phase 4.1 — audits whether the Lead Strategist's plan addresses the Human-Operator-defined scope, and whether it's sound (`FR-COUNCIL-04`); never itself decides what is in/out of scope |
+| **Primary Scripter** | `Qwen2.5-Coder-7B-Instruct` | `Q8_0` | ~8.0 GB | Phase 4.2A — turns an approved task into a concrete tool invocation, stays resident for the whole per-target loop until its queue is exhausted (`FR-COUNCIL-07`) |
+| **Secondary Scripter** | `DeepSeek-Coder-6.7B-Instruct` | `Q8_0` | ~7.2 GB | Phase 4.2B — loads only after the Primary Scripter fully unloads; pursues attack vectors orthogonal to everything the Primary Scripter already tried (`FR-COUNCIL-11c`) |
+| **Criterion Adjudicator** | `Mistral-7B-Instruct-v0.3` | `Q8_0` | ~7.6 GB | Phase 4.3 — evaluates candidate findings against raw evidence and false-positive criteria (`FR-COUNCIL-13`/`14`) |
+| **Executive Reporter** | `Ministral-8B-Instruct-2410` | `Q8_0` | ~8.4 GB | Phase 4.3 — drafts the client-facing finding writeup (`FR-COUNCIL-16`) |
 
-*(Quantization, context ceilings, and exact memory footprints are deployment detail — see
-`FR-GATE-07` for context-ceiling enforcement and `15-Implementation-Milestone-Roadmap.md`
-for build sequencing. This table is this corpus's canonical council roster — it replaced
-an equivalent table formerly in `CLAUDE.md`, which is agent operating instructions, not a
-technical specification.)*
+*(Context ceilings are enforced per `FR-GATE-07`, not repeated here since they're a
+runtime behavior, not an identity fact. Memory footprints are approximate at this
+quantization; see `15-Implementation-Milestone-Roadmap.md` for build sequencing. This
+table is this corpus's canonical council roster — it replaced an equivalent table
+formerly in `CLAUDE.md`, which is agent operating instructions, not a technical
+specification. `Agentic VAPT Setup (HOME).md`'s Section 3 table mirrors this one
+verbatim — update both together.)*
 
 ---
 

@@ -31,6 +31,10 @@ flowchart TD
     P4 --> P5["Step 5 — Clean Up"]
 ```
 
+<!-- SYNC NOTE: this diagram is a deliberate copy of the council-relay diagram in
+     "Agentic VAPT Setup (HOME).md" (Section 4) — README.md is self-contained by design
+     (see its own intro note), so it can't just link to HOME.md's copy. If you change one,
+     change both, or they will drift. -->
 ```mermaid
 flowchart LR
     S["Lead Strategist\nmakes a plan"] --> G1{"Strategy Auditor\nDoes this plan\nfit the scope?"}

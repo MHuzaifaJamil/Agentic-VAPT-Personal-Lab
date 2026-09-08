@@ -82,9 +82,14 @@ immediately rather than only after the next push. Folds into "Push history" abov
 
 | `Agentic VAPT Setup (HOME).md` | modified | — (follow-up) | Secondary Scripter integrated directly into the main council-relay diagram (it had been left in a separate, disconnected diagram) — shown feeding into the same Gate 2 → Tool → Adjudicator → Reporter pipeline via the Pass 1 → Pass 2 handoff; the redundant standalone handoff diagram removed. |
 
-| `Agentic VAPT Setup (HOME).md` | modified | — (follow-up) | Added the actual model/quantization/footprint table (previously just pointed to `01`) and exact reference-hardware specs (CPU, GPU, memory, OS) to Section 8, per operator request. |
+| `Agentic VAPT Setup (HOME).md` | modified | — (follow-up) | Added the actual model/quantization/footprint table (previously just pointed to `01`) to Section 3, and exact reference-hardware specs (CPU, GPU, memory, host OS) to Section 8, per operator request. `01`'s own Council Roster table gained the same Quantization/Footprint columns so HOME.md's "mirrors `01`" claim is actually true. |
 
 | `README.md` | **new** | — (follow-up) | GitHub-facing README added: concept, the five core diagrams (mirrored from `HOME.md`), and a condensed user story — deliberately brief, links out to `HOME.md` and the numbered docs for detail. |
+
+| `01-Functional-Requirements.md` | modified | — (follow-up) | Council Roster table gained Quantization/Memory-Footprint columns for all 6 roles (previously only Secondary Scripter had inline figures) — fixes a `/code-review` finding that `HOME.md`'s "mirrors `01`" claim was false for 5/6 roles. |
+| `Agentic VAPT Setup (HOME).md` | modified | — (follow-up) | `/code-review` fixes: swap-partition description corrected (tied to Step 1's app-freeze reclaim, not "model loads"); duplicated "Memory strategy"/Host-OS facts removed from the Section 8 table; sync note added next to the council-relay diagram pointing at its `README.md` copy. |
+| `README.md` | modified | — (follow-up) | Sync note added next to the council-relay diagram pointing at its `HOME.md` copy, per `/code-review` finding (no shared-include mechanism exists in plain Markdown, so an explicit maintenance note is the fix, not full de-duplication — the diagram's presence here is by design). |
+| `CHANGELOG.md` | modified | — (follow-up) | Corrected its own prior entry: the model/footprint table landed in `HOME.md` Section 3, not Section 8 as previously stated; the Section 8 parenthetical now matches its actual (now 4-row) contents. |
 
 ## Earlier decisions not yet mapped to a specific commit
 
