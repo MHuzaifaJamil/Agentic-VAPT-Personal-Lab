@@ -111,6 +111,19 @@ derive authoritatively from the Security Specification (`05`).
 | Multipart tool schema-validated | Inspection | The multipart parser-confusion tool exposes `{target_upload_endpoint, file_path, variant_name}` declaratively — no interactive prompts. |
 | Multipart tool workspace boundary enforced | Test | `file_path` outside the artifact workspace is rejected via the same check as `script_runner`'s `workspace_subdir`. |
 
+## TP-DISCOVER — Dynamic Domain-Based Tool Discovery
+
+| Test | Method | Pass Criteria |
+|---|---|---|
+| Undefined domain consults the catalog | Test | A task in a domain with no Tier 1 schema (e.g. Bluetooth) triggers a `KALI-TOOL-CATALOG.md` lookup before falling back to `FR-TOOL-03`'s generic bridge. |
+| Unknown/untagged domain falls back cleanly | Test (fault injection) | Domain absent from the catalog → falls back to `FR-TOOL-03` unchanged, task not blocked. |
+| Catalog file missing/unreadable degrades, doesn't block | Test (fault injection) | `KALI-TOOL-CATALOG.md` deleted/unreadable → logged degraded, task proceeds via `FR-TOOL-03` fallback. |
+| Presence check gates what's offered | Test | Candidate list is filtered through `shutil.which`; a resolvable binary is offered callable, an absent one is reported "known, not installed" naming its apt package. |
+| No autonomous package install without opt-in | Test | Missing candidate tool, no opt-in flag set → reported and skipped, no `apt install` subprocess spawned. |
+| Opt-in flag permits install, logged | Test | Opt-in flag set at `start` → install proceeds via non-shell/`setsid`/logged subprocess, recorded in the audit trail. |
+| Active wireless disruption checkpoint-gated | Test | An `aireplay-ng --deauth`-class task discovered via `FR-DISCOVER-01` is classified `ACTIVE_WIRELESS_DISRUPTION`; autonomous use requires the same opt-in flag pattern as `FR-TOOL-06a`; Human-Operator-directed use executes immediately. |
+| Passive wireless/Bluetooth tools stay ungated | Test | A passive enumeration tool (e.g. `bluetoothctl` device listing) discovered in the same domain executes as an ordinary Tier 2 tool, no checkpoint event logged. |
+
 ## TP-COUNCIL1 — Two-Tier Scope Gate
 
 | Test | Method | Pass Criteria |
@@ -344,6 +357,9 @@ derive authoritatively from the Security Specification (`05`).
 | Wrapper declares combos | Inspection | Sampled wrappers expose all fields machine-readably. |
 | Linter rejects a forbidden combo | Test | `sqlmap --os-shell` rejected pre-spawn with the specific reason cited. |
 | Primary Scripter schema and Gate 2 schema can't disagree | Inspection | Both generated from the identical source file. |
+| Phase 4.2 exploitation tools schema-registered, absent from baseline pipeline | Inspection | `dalfox`, `xsstrike`, `ghauri`, `fuxploider`, `hashcat`, `cupp`, `trevorspray`, `kerbrute`, `interactsh-client` each have a Tier 1 wrapper (`FR-TOOL-20`); none appear in `FR-BASELINE-06`'s wave table. |
+| Already-required tools get formal registration, not a duplicate mechanism | Inspection | `cewler`/hashcat-rule mutation (`FR-CRED-01`) and `interactsh-client` (`FR-ARGUS-02`) resolve to the same single Tier 1 wrapper referenced by both `19` and `01:FR-TOOL-20` — no second, parallel implementation exists. |
+| `mobsf`/`objection` schema-registered against `MOBILE_BINARY` | Inspection | `19:FR-MOBILE-08` tools have Tier 1 wrappers; `objection`'s wrapper is the same one `FR-MOBILE-03`/`05` already reference, not a second copy. |
 
 ## TP-SANITIZE — Sanitization & Raw Persistence
 
@@ -411,6 +427,7 @@ derive authoritatively from the Security Specification (`05`).
 | Live-spray lockout ceiling enforced autonomously | Test | Autonomous spray computes lockout estimate; exceeds ceiling → pauses for review. Human-Operator-directed spray executes immediately per supplied user lists and concurrency parameters. |
 | CI/CD external-artifact dual-mode execution | Test | In Autonomous Mode, external PR or workflow trigger pauses for checkpoint review; Human Operator directive dispatches directly to the repository endpoint without holding. |
 | Dependency-confusion publish/unpublish verification | Test | Callback-only non-destructive PoC used; autonomous publishing pauses at checkpoint; Human-Operator-directed publishing and unpublishing execute immediately as instructed. |
+| Fixed list now six classes, still closed | Inspection | `FR-CHECKPOINT-01`'s enum lists exactly six values including `ACTIVE_WIRELESS_DISRUPTION`; no undocumented seventh value exists in code or schema. |
 
 
 ## TP-MONITOR — Scheduled Monitoring

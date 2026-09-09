@@ -86,6 +86,7 @@ Source: `Actual-Setup/skills/mobile-pentest/SKILL.md`, fully mined. Target type:
 | FR-MOBILE-05 | Mobile testing utilities (adb, apktool, jadx, frida-tools, objection) may execute from /opt/ or designated virtual environments configured in the execution environment path. | M |
 | FR-MOBILE-06 | **(Hardware constraint, flagged not silently absorbed)** An Android emulator typically needs 2-4+ GB RAM — run alongside a resident council model under the confirmed `Q8_0` roster, this would likely exceed the already-tight post-hibernation headroom (roughly 2.0-4.2 GB worst-case). This system's default for this domain on the confirmed hardware profile MUST be a **physical Android device via `adb`**, not a local emulator; emulator use is a documented degraded/unsupported configuration, not the assumed default. | M |
 | FR-MOBILE-07 | Standard mobile N/A criteria serve as advisory guidance during automated triage; findings demonstrating theoretical exposure, configuration drift, or hardening gaps may be retained or promoted via Human Operator console review (--allow-theoretical-findings). | S |
+| FR-MOBILE-08 | `objection` is formally registered as a Tier 1/Tier 2 tool (`01:FR-TOOL-20`) matching its existing use in `FR-MOBILE-03`/`05` — no functional change, just closing the gap between "named in prose" and "actually callable via a declared schema." `mobsf` (Mobile Security Framework — static + dynamic analysis, its own local web UI/API) is registered alongside it as a new Tier 1 tool, offered as an alternative/complement to the `apktool`/`jadx` + manual-Frida path `FR-MOBILE-01`/`02` already specify — not a replacement for the runtime-first-never-decompile-first methodology `FR-MOBILE-01` mandates. `mobsf` runs as a per-task-spawned local service (started, used, torn down within the task's timeout tier) rather than kept resident, consistent with this system's single-residency posture for everything except the council models themselves. Its likely emulator-adjacent resource footprint is already covered by `FR-MOBILE-06`'s hardware-constraint note — no new constraint. | M |
 
 ## FR-GRAPHQL — GraphQL API Auditing (`graphql-audit`)
 
@@ -209,11 +210,14 @@ document's writing; none is deferred follow-up.
 
 New dependencies surfaced by this document, not previously in this system's scope:
 Foundry (`forge`/`cast`/`anvil`) plus third-party RPC endpoint access (`FR-WEB3-03`);
-`adb`, `apktool`, `jadx`, `frida-tools`/`objection` (`FR-MOBILE-05`); `graphw00f`,
-`clairvoyance`, `graphql-cop`, `gqlmap`, `wscat` (`FR-GRAPHQL-02`); `sisakulint`, `gh`
-CLI (`FR-CICD-02`); `cewler`, hashcat rule files (`FR-CRED-01`); `interactsh-client`
-(`FR-ARGUS-02`); a CDP-capable headless browser, Playwright or Puppeteer. Each is a
-net-new addition to this system's dependency floor.
+`adb`, `apktool`, `jadx`, `frida-tools`/`objection`, `mobsf` (`FR-MOBILE-05`/`08`);
+`graphw00f`, `clairvoyance`, `graphql-cop`, `gqlmap`, `wscat` (`FR-GRAPHQL-02`);
+`sisakulint`, `gh` CLI (`FR-CICD-02`); `cewler`, hashcat rule files, `hashcat`, `cupp`,
+`trevorspray`, `kerbrute` (`FR-CRED-01`, formally Tier-1-registered per
+`01:FR-TOOL-20`); `interactsh-client` (`FR-ARGUS-02`, formally Tier-1-registered per
+`01:FR-TOOL-20`); `dalfox`, `xsstrike`, `ghauri`, `fuxploider` (Phase 4.2 exploitation
+tools, `01:FR-TOOL-20`); a CDP-capable headless browser, Playwright or Puppeteer. Each
+is a net-new addition to this system's dependency floor.
 
 ---
 

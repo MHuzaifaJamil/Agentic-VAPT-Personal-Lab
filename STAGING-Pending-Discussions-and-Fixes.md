@@ -21,9 +21,20 @@ purpose is to show how a fix evolved, not just its final state.
 
 ## Currently Pending Approval
 
-## Round 8 — Dynamic Domain-Based Tool Discovery (WiFi/Bluetooth, and the Wider Kali Catalog)
+*(nothing pending — Rounds 6, 7, 8 approved and merged; see Archive below.)*
 
-**Status: 🔶 PENDING APPROVAL — nothing applied to any binding doc.**
+---
+
+## Archive — Resolved / Merged Items (newest first)
+
+### Round 8 — Dynamic Domain-Based Tool Discovery (WiFi/Bluetooth, and the Wider Kali Catalog)
+
+**Status: ✅ MERGED (decision #77).** `FR-DISCOVER-01..03` added to `01`, referencing
+`KALI-TOOL-CATALOG.md`. The flagged wireless-checkpoint question was resolved by
+proceeding with the recommended approach: `FR-DISCOVER-04` classifies actively
+disruptive wireless/Bluetooth actions under a new `ACTIVE_WIRELESS_DISRUPTION`
+checkpoint class, gated identically to `LIVE_CREDENTIAL_SPRAY` (`FR-CHECKPOINT-01`
+extended from five to six classes). Passive wireless/Bluetooth tools stay ungated.
 
 You asked for wireless/Bluetooth task support plus "every possible tool" from
 `kali-linux-everything`, and pushed back (correctly) on "too many to enumerate" —
@@ -86,9 +97,14 @@ deciding it myself, since it's a genuine new checkpoint-class question.
 
 ---
 
-## Round 7 — Phase 5 Mobile Runtime Tools as Tier 1 Candidates
+### Round 7 — Phase 5 Mobile Runtime Tools as Tier 1 Candidates
 
-**Status: 🔶 PENDING APPROVAL — nothing applied to any binding doc.**
+**Status: ✅ MERGED (decision #77).** `19:FR-MOBILE-08` added exactly as drafted:
+`objection` formally registered (closing the "named in prose, not schema-registered"
+gap against `FR-MOBILE-03`/`05`); `mobsf` added as new static+dynamic analysis
+capability. The flagged design question (spawned per-task vs. long-lived local
+service) was resolved as per-task-spawned, consistent with this system's
+single-residency posture for everything outside the council models themselves.
 
 The arsenal's Phase 5 (2 tools): `mobsf`, `objection`. This project already has a full
 Mobile domain (`19:FR-MOBILE-01..07`, `MOBILE_BINARY` target type) — `objection` is
@@ -117,9 +133,20 @@ constraint, just confirming it applies.
 
 ---
 
-## Round 6 — Phase 4 Exploitation Tools as Tier 1 Candidates (AI-Gated Loop Only)
+### Round 6 — Phase 4 Exploitation Tools as Tier 1 Candidates (AI-Gated Loop Only)
 
-**Status: 🔶 PENDING APPROVAL — nothing applied to any binding doc.**
+**Status: ✅ MERGED (decision #77), including the requested gap-check.** The 4
+genuinely-new tools (`dalfox`, `xsstrike`, `ghauri`, `fuxploider`) registered exactly
+as drafted. The gap-check against `19` (performed before merging, per explicit
+instruction, rather than assuming redundancy either way) found: `cewler` and the
+hashcat-rule-mutation technique were already named in `FR-CRED-01`'s prose —
+**formally Tier 1 schema-registered now, not skipped as a duplicate** — same
+treatment for `interactsh-client`, already an explicitly required dependency per
+`FR-ARGUS-02`. `hashcat`, `cupp`, `trevorspray`, `kerbrute` were not named anywhere in
+`19` — genuinely new registrations implementing `FR-CRED-01`'s existing 4-stage
+framework (`kerbrute` closes a real gap: `FR-CRED-03`'s mode list had no Kerberos/AD
+mode). All ten tools registered — per standing instruction, overlap with existing
+mechanisms is documented accurately, never used as grounds to skip registration.
 
 The arsenal's Phase 4 (11 tools). **Confirmed staying out of `FR-BASELINE`'s zero-AI
 pipeline** — these are exploitation-class, gated through the normal Gate 1/Gate 2/
@@ -150,8 +177,6 @@ skipping them without checking first:
 already-built mechanism under a new name would be worse than doing nothing.
 
 ---
-
-## Archive — Resolved / Merged Items (newest first)
 
 ### Round 5 — Expand `FR-BASELINE` With the Full Personal Tool Arsenal
 

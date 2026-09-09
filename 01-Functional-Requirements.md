@@ -119,6 +119,22 @@ exists in raw `llama.cpp` — load/unload is explicit process spawn/terminate vi
 | FR-TOOL-17 | **Authenticated session reuse:** The system MUST support establishing a named authenticated session (cookie jar or bearer/token-based) against a target once, then automatically injecting that session's credentials into every subsequent Tier 1/Tier 2 call scoped to that session, without re-authenticating per call. A Human Operator supplies login credentials/a pre-captured session at `start` or via the Console, or an autonomous login-flow task succeeds (scope-gated identically to any other autonomous action). Session state is `03:DR-SCHEMA-22`. If a session is invalidated mid-engagement (logout, expiry), it is marked invalid and surfaced via `OPS-NOTIFY` — never silently left stale, since subsequent authenticated calls would otherwise look like false-negative findings; the system MUST NOT auto-retry login without fresh Human-Operator-supplied or autonomously-re-validated credentials. | M |
 | FR-TOOL-18 | **Fingerprint-triggered EOL/CVE lookup:** Whenever a new `tech_fingerprint` entity is written to `discovered_entities` (including by `FR-BASELINE-01`'s pipeline), the system MUST automatically queue a follow-on Tier 2 task checking that `tech=version` pair against an EOL database (a plain `endoflife.date` lookup) and a CVE feed (GitHub Advisory DB/NVD by product+version), recording results (`03:DR-SCHEMA-23`) as corroborating evidence for the Reporter/Adjudicator — never as a finding by itself. If the EOL/CVE feed is unreachable, log degraded and continue; this is enrichment, not a required gate. | M |
 | FR-TOOL-19 | **Multipart parser-confusion tool (Tier 1):** A declaratively-schema'd Tier 1 tool — `{target_upload_endpoint, file_path, variant_name \| "all"}` — covering the fixed, enumerable set of multipart parser-confusion variants (boundary confusion, duplicate-field injection, content-type mismatches). `file_path` MUST resolve inside the artifact workspace, rejected via the same boundary check `script_runner`'s `workspace_subdir` already uses (`FR-TOOL-16`) — no separate mechanism invented. Output uses the standard Tier 1 evidence shape, no bespoke reporting format. | M |
+| FR-TOOL-20 | **Phase 4.2 AI-gated exploitation & specialist tools (Tier 1):** never members of `FR-BASELINE`'s zero-AI pipeline, gated through the normal Gate 1/Gate 2/Adjudicator loop like `sqlmap` already is. Genuinely new capability: `dalfox`, `xsstrike` (XSS scanning/confirmation — no prior dedicated XSS tool); `ghauri` (blind-SQLi specialist, complements rather than replaces `sqlmap`); `fuxploider` (file-upload RCE testing). Formal Tier 1 registration of tools already named in domain-19 prose (not net-new capability, just closing the "named in a requirement's text" vs. "actually schema-registered" gap): `hashcat`, `cupp`, `trevorspray`, `kerbrute` implement `19:FR-CRED-01`'s 4-stage credential-attack pipeline (`cewler` and hashcat-rule mutation were already registered under that same requirement's own text); `interactsh-client` implements `19:FR-ARGUS-01`'s OOB-callback confirmation, already an explicitly required dependency per `19:FR-ARGUS-02`; `mobsf`, `objection` implement `19:FR-MOBILE-08` (`objection` was already named in `FR-MOBILE-03`/`05` prose; `mobsf` is new mobile static+dynamic analysis capability). | M |
+
+---
+
+## FR-DISCOVER — Dynamic Domain-Based Tool Discovery
+
+Extends `FR-TOOL-03`'s Tier 2 dynamic bridge for domains with no dedicated Tier 1
+schema (wireless, Bluetooth, forensics, hardware, and the rest of Kali's tool
+categories) — discoverability, not a new execution mechanism.
+
+| ID | Requirement | Priority |
+|----|-------------|----------|
+| FR-DISCOVER-01 | When a task falls in a domain with no dedicated Tier 1 schema, the system MUST consult `KALI-TOOL-CATALOG.md` (repo root — a reference file, not a requirement doc, kept current against `apt-cache show kali-linux-everything` and its category metapackages) for candidate tool names in that category, rather than the Scripter guessing at binary names or this corpus enumerating every tool inline. An untagged/unknown domain, or one not found in the catalog, falls back to `FR-TOOL-03`'s generic Tier 2 bridge unchanged — additive, not a replacement. If the catalog file itself is missing/unreadable, log degraded and fall back the same way — never block the task on a reference-file read. | M |
+| FR-DISCOVER-02 | Before a domain's candidate tools are offered to the Scripter, the system MUST check each one's actual presence (`shutil.which`, the same pattern `oob_listener.py`'s graceful-degradation already uses) — only present binaries are offered as immediately callable; absent ones are reported as "known, not installed" naming the Kali/apt package that provides them. | M |
+| FR-DISCOVER-03 | The system MUST NOT run a package-manager install (`apt install`, etc.) autonomously by default when a candidate tool is missing — a system-modifying action outside this project's read-only-discovery/Tier-1-2-execution model, with real supply-chain-trust and host-state implications. A Human Operator MAY explicitly pre-authorize auto-install via runtime configuration (e.g. a `start` flag); only then does installation proceed, via the same non-shell/`setsid`/logged subprocess rules as everything else, with the install itself recorded in the audit trail. If no opt-in is given and a tool is missing, report it and continue — never block the engagement waiting for a tool that isn't there. | M |
+| FR-DISCOVER-04 | Actively disruptive wireless/Bluetooth actions discovered via `FR-DISCOVER-01` (e.g. `aireplay-ng --deauth`, jamming-style Bluetooth attacks — these knock real clients off a real network, not passive recon) are classified under the `ACTIVE_WIRELESS_DISRUPTION` checkpoint class (`FR-CHECKPOINT-01`), gated identically to `LIVE_CREDENTIAL_SPRAY`: autonomous use requires the same opt-in flag pattern as `FR-TOOL-06a`'s other high-risk categories; Human-Operator-directed use runs unconditionally as always. Purely passive scanning/monitoring tools discovered in the same domain (e.g. `bluetoothctl` device enumeration) are ordinary Tier 2 tools, not subject to this gate. | M |
 
 ---
 
@@ -166,9 +182,9 @@ scope (Phase 3's Tier 1/Tier 2 schema registration still exists for the AI-drive
 *(Not in this pipeline at all — genuinely exploit-class, stay AI-gated in the normal
 Phase 4.2 loop, never run unattended without Gate 1/Gate 2/Adjudicator review:
 `sqlmap`, `dalfox`, `xsstrike`, `ghauri`, `fuxploider`, `hashcat`, `cewler`, `cupp`,
-`trevorspray`, `kerbrute`, `interactsh-client`, `mobsf`, `objection` — see
-`STAGING-Pending-Discussions-and-Fixes.md` for their own staged rounds as Tier 1
-*candidates* for that loop, not this one.)*
+`trevorspray`, `kerbrute`, `interactsh-client`, `mobsf`, `objection` — formally
+registered as Tier 1 tools per `FR-TOOL-20`/`19:FR-MOBILE-08` (decision log #77); still
+never invoked by this pipeline.)*
 
 ---
 
@@ -271,14 +287,14 @@ subcommand.
 ## FR-CHECKPOINT — Human Checkpoint Gate
 
 Operational sensitivity classification tracks tasks against a fixed, closed list of
-five action classes. In Autonomous Mode, tasks matching these classes log checkpoint
+six action classes. In Autonomous Mode, tasks matching these classes log checkpoint
 audit events for Human Operator visibility. In Human-Operator-Directed Mode, commands
 dispatched or directed by the Human Operator execute immediately without interactive
 pausing.
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR-CHECKPOINT-01 | Fixed, closed list of five classes: ANTI_FORENSICS, LIVE_CREDENTIAL_SPRAY, CICD_EXTERNAL_ARTIFACT, DEPENDENCY_CONFUSION_PUBLISH, PHISHING_MFA_BYPASS. MUST NOT be silently extended without a recorded decision. | M |
+| FR-CHECKPOINT-01 | Fixed, closed list of six classes: ANTI_FORENSICS, LIVE_CREDENTIAL_SPRAY, CICD_EXTERNAL_ARTIFACT, DEPENDENCY_CONFUSION_PUBLISH, PHISHING_MFA_BYPASS, ACTIVE_WIRELESS_DISRUPTION (`FR-DISCOVER-04`). MUST NOT be silently extended without a recorded decision. | M |
 | FR-CHECKPOINT-02 | High-impact operational classes (credential spraying, lateral movement, artifact publishing) utilize runtime flags for autonomous execution. Any checkpoint class directly commanded or invoked by the Human Operator requires no additional opt-in flags and executes immediately. | M |
 | FR-CHECKPOINT-03 | When a sensitive action is autonomously proposed, it logs a pending checkpoint event for Human Operator visibility. However, any action directly dispatched or triggered by the Human Operator executes immediately (approved_via = 'HUMAN_OPERATOR_DIRECTIVE') without pausing the engine or blocking on human approval gates. | M |
 | FR-CHECKPOINT-04 | `approve-checkpoint`/`deny-checkpoint` act on exactly one flagged task; neither requires restarting the engagement. | M |
