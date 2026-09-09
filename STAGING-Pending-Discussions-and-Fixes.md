@@ -21,7 +21,103 @@ purpose is to show how a fix evolved, not just its final state.
 
 ## Currently Pending Approval
 
-*(Nothing pending right now.)*
+## Round 5 — Expand `FR-BASELINE` With the Full Personal Tool Arsenal
+
+**Status: 🔶 PENDING APPROVAL — nothing applied to any binding doc.** Pulled the actual
+72-tool list from `~/claude-bug-bounty/reports/Personal-Tool Arsenal-Portfolio/` (parsed
+the generated HTML directly — its data source module wasn't present on this machine) and
+applied the same "check before accepting" judgment as the last efficiency re-check,
+rather than mechanically registering all 72.
+
+### Scope decision: recon/scanning only, not assessment/exploitation/mobile
+
+The portfolio's own 5-phase split is: **Phase 1 Recon (26 tools)**, **Phase 2
+Scanning/Enumeration (25 tools)**, Phase 3 Assessment (8), Phase 4 Exploitation (11),
+Phase 5 Mobile Runtime (2). You asked for "every possible **recon** tool" — I've taken
+that literally and scoped this round to Phase 1+2 (51 tools) for the zero-AI baseline
+pipeline. Phase 3/4/5 tools (`sqlmap`, `dalfox`, `hashcat`, `kerbrute`, `mobsf`, etc.) MUST
+NOT run in a zero-AI deterministic pre-step — that would bypass Gate 1/Gate 2/Adjudicator
+review for genuinely exploit-class actions, a real safety regression against this
+project's whole Dual-Mode architecture. Listed separately below as Tier 1 *candidates*
+for the normal AI-gated Phase 4.2 loop instead — not acted on this round.
+
+### `naabu` + `nmap`, both, as you asked
+
+`FR-BASELINE-01` gains a second port-scan sub-step: `naabu` sweeps fast across the full
+port range first, then `nmap -sV` runs *only* against the ports `naabu` actually found —
+getting naabu's speed for the broad sweep and nmap's real version detection where it
+matters, instead of nmap's `-sV` eating the whole scan budget on 65535 ports. `nmap`
+was never removed — it stays fully available Tier 1 for the AI-driven loop too.
+
+### Efficiency trims (same judgment call as `port_scanner.py` last round)
+
+Checked for actual overlap rather than listing all 51 flatly:
+
+- **`massdns`/`puredns`/`shuffledns`** — three tools doing the same job (DNS
+  brute-force resolution); `puredns` is the polished wrapper around `massdns` with
+  wildcard filtering already built in. **Recommend `puredns` only**, not all three.
+- **`sublert`** — its actual job is *continuous* CT-log monitoring over time, not a
+  one-time baseline scan. **Routed to `01:FR-MONITOR` instead** (`FR-MONITOR-01`'s
+  existing scheduled-diff mechanism is the correct home for this, not a new one-shot
+  step).
+- **`knockpy`** — overlaps with subdomain enum (`subfinder`/`amass`) + the takeover
+  checks (`dnsreaper`/`subjack`) already covered below. Not added separately.
+- **`maigret`, `pywhat`** — on-demand OSINT/data-identification utilities (look up a
+  specific username; classify an arbitrary string), not "scan this domain" tools. Better
+  as AI-selectable Tier 2 binaries the Scripter reaches for on a specific task, not a
+  forced baseline step run against every target regardless of relevance.
+- **`waymore`, `hakrawler`, `gospider`, `cariddi`** — `katana` (already proposed below)
+  is a modern all-in-one crawler covering most of what these older/narrower crawlers do.
+  **Recommend `katana` + `gau` + `waybackurls` as the core crawl set**, with the other
+  four flagged rather than force-included — say so if you specifically want one of them
+  too (e.g. `cariddi` also does secret/endpoint pattern-matching inline, which the others
+  don't).
+
+### Proposed `FR-BASELINE` pipeline stages (revised)
+
+**Always runs (`NETWORK` targets):**
+1. Subdomain enumeration — `subfinder`, `amass`, `assetfinder` (three genuinely
+   complementary passive sources, per the portfolio's own stated rationale)
+2. DNS brute-force resolution — `puredns` (not all three DNS tools, see trim above)
+3. Live-host probing — `httpx`, `dnsx`
+4. Port scan — `naabu` (fast sweep) → `nmap -sV` (targeted, only naabu's discovered ports)
+5. Tech fingerprinting — `whatweb` + `httpx -tech-detect` (already-planned + portfolio's probe tool)
+6. Crawling/URL discovery — `katana`, `gau`, `waybackurls`
+7. Content/directory fuzzing — `ffuf`, `feroxbuster`, `gobuster` (already registered)
+8. Parameter discovery — `arjun`, `x8`
+9. Subdomain takeover check — `dnsreaper`, `subjack`
+10. Baseline vulnerability scan — `nuclei` (already registered)
+11. *(glue utilities, not standalone steps)* — `gf`/`qsreplace`/`anew` pipe between
+    stages 6→8 the way the portfolio itself describes them being used
+
+**Conditional (only when relevant, skipped otherwise — not wasted runtime on every target):**
+- Cloud asset discovery (`s3scanner`, `cloud_enum`, `cloudfail`, `scoutsuite`) — only if
+  a cloud-provider indicator (S3 bucket name pattern, cloud ASN) surfaces during recon.
+- Secrets scanning (`trufflehog`, `noseyparker`, `gitleaks`, `shhgit`, `git-hound`) —
+  only for `CODE_REPO` targets or when a git repository is discovered/in scope.
+- Mobile static recon (`apkleaks`, `jadx`) — only for `MOBILE_BINARY` targets.
+- GraphQL recon (`graphw00f`, `clairvoyance`) — only if a GraphQL endpoint surfaces
+  during crawling.
+
+**This is a large new-dependency count** — roughly 25 new external binaries beyond
+`naabu` (already approved). Real provisioning implications (`FR-PRE-04`'s tool-presence
+check would need to cover all of them). Flagging the scale explicitly before drafting
+the actual `01`/`03`/`09`/`13` text — **confirm this stage breakdown and the four trims
+above, and I'll draft the full requirement text next** (this message is the design/scope
+proposal; the formal `CLAUDE.md` §5.2 requirement blocks are the next step once you've
+confirmed the shape, since re-drafting after a trim-disagreement would waste both our
+time).
+
+### Separately flagged: Phase 3/4/5 tools as Tier 1 *candidates* (AI-gated loop, not baseline)
+
+Not part of this round's ask, but surfaced since you mentioned "every possible tool":
+`semgrep` (SAST, `CODE_REPO`), `log4j-scan`, `graphql-cop`, `jwt_tool`, `byp4xx`/
+`whatwaf`/`unwaf` (WAF-bypass), `dalfox`/`xsstrike` (XSS), `ghauri` (blind-SQLi, sqlmap
+alternative), `fuxploider` (upload testing). **Not flagging** `hashcat`/`cewler`/`cupp`/
+`trevorspray`/`kerbrute`/`interactsh-client` — these look like they already overlap
+`19:FR-CRED`'s wordlist/spray pipeline and `interactsh-client`'s existing wrap in
+`oob_listener.py` (per `ASSET-CLASSIFICATION.md`) — would need checking for actual gaps
+before proposing, not assumed. Say if you want this list turned into its own round.
 
 ---
 
