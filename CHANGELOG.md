@@ -102,6 +102,13 @@ immediately rather than only after the next push. Folds into "Push history" abov
 | `16-Actual-Setup-Reuse-and-Integration-Map.md` | modified | #75 | `TR-SCRIPT-06` rewritten concretely, pointing to `01:FR-BASELINE` for the actual pipeline spec. |
 | `18-Requirement-to-Test-Traceability-Matrix.md` | modified | #75 | Doc `01` 109→116 (75 covered); doc `03` 34→36 (24 covered); doc `05` 28→29 (19 covered); corpus baseline 348→358 (182 covered). |
 
+| `01-Functional-Requirements.md` | modified | #76 | `FR-BASELINE` expanded to 40+ tools across 4 dependency waves (bounded parallel execution within each wave); trigger moved to between Phase 1 and Phase 2 (before the first model loads); `FR-TOOL-01` roster expanded to match; `FR-MONITOR-01` gained the `sublert`-technique cross-reference. |
+| `09-Acceptance-Criteria-and-Test-Plan.md` | modified | #76 | `TP-BASELINE` expanded: wave-order, bounded-parallelism, conditional-skip, and exclusion tests added. |
+| `13-Implementation-Architecture-Bridge.md` | modified | #76 | `baseline_recon.py`'s description updated for the parallel wave executor and new Phase-1→2 trigger point. |
+| `18-Requirement-to-Test-Traceability-Matrix.md` | modified | #76 | Doc `01` 116→119 (78 covered); corpus baseline 358→361 (185 covered). |
+
+| `01-Functional-Requirements.md`, `09-Acceptance-Criteria-and-Test-Plan.md` | modified | — (follow-up to #76) | Un-trimmed per operator correction: overlapping-purpose tools are welcomed, not trimmed. Added back `bbot`/`theHarvester`/`knockpy`/`dnsrecon`/`massdns`/`shuffledns` to Wave 1 and `waymore`/`hakrawler`/`gospider`/`cariddi`/`aquatone`/`eyewitness` to Wave 3; `sublert` now runs in both `FR-BASELINE` (one-shot) and `FR-MONITOR` (continuous). Only `maigret`/`pywhat` stay Tier-2-only (input-shape mismatch, not a redundancy trim). |
+
 ## Earlier decisions not yet mapped to a specific commit
 
 Decisions #34–54 in the decision log predate this index's practice of citing commit

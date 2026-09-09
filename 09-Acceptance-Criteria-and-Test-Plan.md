@@ -82,15 +82,22 @@ derive authoritatively from the Security Specification (`05`).
 | Context ceiling enforced | Test | All 6 models truncate/summarize on overflow, never error. |
 | Endpoint stable across backend swap | Test | Identical OpenAI-compatible surface for both backends. |
 
-## TP-BASELINE — Deterministic Baseline Reconnaissance
+## TP-BASELINE — Deterministic Baseline Reconnaissance, Enumeration & Assessment
 
 | Test | Method | Pass Criteria |
 |---|---|---|
-| Pipeline runs automatically, zero AI | Test | Immediately after Phase 3 completes for a target, `naabu` → `whatweb` → `ffuf`/`feroxbuster` → `nuclei` run in order with no model invocation. |
+| Pipeline runs before the first model loads, zero AI | Test | Immediately once Phase 1's headroom check passes — before Phase 2 loads any model — Wave 1 tools start, with no model invocation anywhere in the pipeline. |
+| Waves run in dependency order | Test | Wave 2 (e.g. `nmap -sV`, `httpx`) does not start until every Wave 1 tool has completed or timed out; `nmap -sV`'s target port list comes only from Wave 1's `naabu` output. |
+| Within-wave parallelism, bounded | Test | Wave 1's independent tools (`subfinder`/`amass`/`assetfinder`/`puredns`/`naabu`) run concurrently, capped at the configured max-concurrency (default 8) — never all-at-once unbounded. |
+| Conditional waves skip cleanly | Test | A `NETWORK`-only target (no cloud indicator, no repo, not `MOBILE_BINARY`) never invokes the cloud/secrets/mobile tool groups — skipped, not run-and-discarded. |
+| `maigret`/`pywhat` are Tier 2-only, not in the fixed pipeline | Inspection | Neither appears in `FR-BASELINE-06`'s wave table (input-shape mismatch); both resolve as ordinary Tier 2 binaries when the Scripter selects them for a matching task. |
+| `sublert` runs both places | Inspection | `sublert` appears in Wave 1 (one-shot) and is separately reachable via `vaptctl monitor` (continuous) — not an either/or. |
+| Exploitation-class tools never auto-run | Inspection | None of `sqlmap`/`dalfox`/`hashcat`/etc. appear in the baseline pipeline at any wave — confirmed absent from `FR-BASELINE-06`'s table. |
 | Not re-run on resume | Test | A target with a completed baseline pass, on `resume`, does not re-execute the pipeline — prior results are reused. |
-| Tech fingerprints recorded | Inspection | `whatweb` step writes `discovered_entities` rows with `entity_type = 'tech_fingerprint'`. |
+| Tech fingerprints recorded | Inspection | The tech-fingerprinting step writes `discovered_entities` rows with `entity_type = 'tech_fingerprint'`. |
 | Strategist receives findings verbatim | Test | The Lead Strategist's first Phase 4.1 invocation context includes a `<baseline_recon_findings>` block sourced directly from persisted rows, not model-summarized. |
-| Partial failure doesn't block Phase 4.1 | Test (fault injection) | One pipeline step forced to fail/timeout; the remaining steps still run, and Phase 4.1 proceeds with the gap noted, not blocked. |
+| Partial failure doesn't block Phase 2/4.1 | Test (fault injection) | One tool forced to fail/timeout; the rest of its wave and all subsequent waves still run, and Phase 2/4.1 proceeds with the gap noted, not blocked. |
+| Wave ceiling prevents indefinite stall | Test (fault injection) | A wave with a hung tool still proceeds past the default 900s ceiling with whatever completed. |
 
 ## TP-TOOLEXT — Session Reuse, Fingerprint Intel & Multipart Tool
 

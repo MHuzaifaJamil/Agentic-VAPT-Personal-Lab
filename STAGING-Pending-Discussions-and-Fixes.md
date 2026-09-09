@@ -21,107 +21,163 @@ purpose is to show how a fix evolved, not just its final state.
 
 ## Currently Pending Approval
 
-## Round 5 — Expand `FR-BASELINE` With the Full Personal Tool Arsenal
+## Round 8 — Dynamic Domain-Based Tool Discovery (WiFi/Bluetooth, and the Wider Kali Catalog)
 
-**Status: 🔶 PENDING APPROVAL — nothing applied to any binding doc.** Pulled the actual
-72-tool list from `~/claude-bug-bounty/reports/Personal-Tool Arsenal-Portfolio/` (parsed
-the generated HTML directly — its data source module wasn't present on this machine) and
-applied the same "check before accepting" judgment as the last efficiency re-check,
-rather than mechanically registering all 72.
+**Status: 🔶 PENDING APPROVAL — nothing applied to any binding doc.**
 
-### Scope decision: recon/scanning only, not assessment/exploitation/mobile
+You asked for wireless/Bluetooth task support plus "every possible tool" from
+`kali-linux-everything` — that metapackage is several hundred tools; enumerating them
+all by name in a requirement doc isn't practical or maintainable. The actual gap isn't
+tool *coverage* — `FR-TOOL-03`'s Tier 2 dynamic bridge already lets the AI invoke *any*
+resolvable binary in `/usr/bin`/`/usr/sbin`/`/opt` without a fixed schema. The real gap
+is **discoverability**: nothing currently tells the AI *which* binaries exist for a task
+domain that doesn't already have named Tier 1 tools, like WiFi/Bluetooth.
 
-The portfolio's own 5-phase split is: **Phase 1 Recon (26 tools)**, **Phase 2
-Scanning/Enumeration (25 tools)**, Phase 3 Assessment (8), Phase 4 Exploitation (11),
-Phase 5 Mobile Runtime (2). You asked for "every possible **recon** tool" — I've taken
-that literally and scoped this round to Phase 1+2 (51 tools) for the zero-AI baseline
-pipeline. Phase 3/4/5 tools (`sqlmap`, `dalfox`, `hashcat`, `kerbrute`, `mobsf`, etc.) MUST
-NOT run in a zero-AI deterministic pre-step — that would bypass Gate 1/Gate 2/Adjudicator
-review for genuinely exploit-class actions, a real safety regression against this
-project's whole Dual-Mode architecture. Listed separately below as Tier 1 *candidates*
-for the normal AI-gated Phase 4.2 loop instead — not acted on this round.
+> ### FR-DISCOVER-01: Domain-Tagged Tool Candidate Lists
+> * **Statement**: The system MUST maintain a curated, extensible mapping from task
+>   domain (starting with `wifi` and `bluetooth`, extensible to any future domain) to a
+>   list of candidate tool binary names known to serve that domain — e.g. `wifi`:
+>   `airmon-ng`/`airodump-ng`/`aireplay-ng`/`aircrack-ng`/`wifite`/`hcxdumptool`/
+>   `hcxpcapngtool`/`bettercap`/`reaver`/`bully`/`mdk4`; `bluetooth`:
+>   `bluetoothctl`/`hcitool`/`gatttool`/`btlejack`/`bettercap`/`spooftooph`.
+> * **Pre-conditions & Inputs**: A task is tagged with a domain that has no dedicated
+>   Tier 1 tool already covering it.
+> * **Post-conditions & State Mutations**: The domain's candidate list is surfaced to
+>   the Scripter as available options for that task, resolved through `FR-DISCOVER-02`.
+> * **Edge & Failure Behaviors**: An untagged/unknown domain falls back to `FR-TOOL-03`'s
+>   generic Tier 2 bridge unchanged — this is additive, not a replacement.
+> * **Target Verification**: *(new test row needed in `09`)*
 
-### `naabu` + `nmap`, both, as you asked
+> ### FR-DISCOVER-02: Presence Check Before Suggesting
+> * **Statement**: Before a domain's candidate tools are offered to the Scripter, the
+>   system MUST check each one's actual presence (`shutil.which`, the same pattern
+>   `oob_listener.py`'s graceful-degradation already uses) — only present binaries are
+>   offered as immediately callable; absent ones are reported as "known, not installed"
+>   naming the Kali/apt package that provides them.
+> * **Target Verification**: *(new test row needed in `09`)*
 
-`FR-BASELINE-01` gains a second port-scan sub-step: `naabu` sweeps fast across the full
-port range first, then `nmap -sV` runs *only* against the ports `naabu` actually found —
-getting naabu's speed for the broad sweep and nmap's real version detection where it
-matters, instead of nmap's `-sV` eating the whole scan budget on 65535 ports. `nmap`
-was never removed — it stays fully available Tier 1 for the AI-driven loop too.
+> ### FR-DISCOVER-03: No Autonomous Package Installation Without Explicit Opt-In
+> * **Statement**: The system MUST NOT run a package-manager install (`apt install`,
+>   etc.) autonomously by default when a candidate tool is missing — this is a
+>   system-modifying action outside this project's read-only-discovery/Tier-1-2-execution
+>   model, with real supply-chain-trust and host-state implications. A Human Operator MAY
+>   explicitly pre-authorize auto-install via runtime configuration (e.g. a `start` flag);
+>   only then does installation proceed, via the same non-shell/`setsid`/logged subprocess
+>   rules as everything else, with the install itself recorded in the audit trail.
+> * **Edge & Failure Behaviors**: No opt-in given, tool missing: report it and continue —
+>   never block the engagement waiting for a tool that isn't there.
+> * **Target Verification**: *(new test row needed in `09`)*
 
-### Efficiency trims (same judgment call as `port_scanner.py` last round)
+**Safety note on WiFi/Bluetooth specifically**: several candidate tools are actively
+disruptive by design (`aireplay-ng --deauth`, jamming-style Bluetooth attacks) — these
+aren't passive recon, they knock real clients off a real network. **Recommend**: gate
+these specific *active* wireless actions the same way `LIVE_CREDENTIAL_SPRAY` is gated
+today (`FR-CHECKPOINT-01`'s fixed class list, or a new class alongside it) — autonomous
+use requires the same opt-in flag pattern as `FR-TOOL-06a`'s other high-risk categories;
+Human-Operator-directed use runs unconditionally as always. Purely passive
+scanning/monitoring tools in the same domain (e.g. `bluetoothctl` device enumeration)
+would not need this gate. Flagging this distinction for your confirmation rather than
+deciding it myself, since it's a genuine new checkpoint-class question.
 
-Checked for actual overlap rather than listing all 51 flatly:
+---
 
-- **`massdns`/`puredns`/`shuffledns`** — three tools doing the same job (DNS
-  brute-force resolution); `puredns` is the polished wrapper around `massdns` with
-  wildcard filtering already built in. **Recommend `puredns` only**, not all three.
-- **`sublert`** — its actual job is *continuous* CT-log monitoring over time, not a
-  one-time baseline scan. **Routed to `01:FR-MONITOR` instead** (`FR-MONITOR-01`'s
-  existing scheduled-diff mechanism is the correct home for this, not a new one-shot
-  step).
-- **`knockpy`** — overlaps with subdomain enum (`subfinder`/`amass`) + the takeover
-  checks (`dnsreaper`/`subjack`) already covered below. Not added separately.
-- **`maigret`, `pywhat`** — on-demand OSINT/data-identification utilities (look up a
-  specific username; classify an arbitrary string), not "scan this domain" tools. Better
-  as AI-selectable Tier 2 binaries the Scripter reaches for on a specific task, not a
-  forced baseline step run against every target regardless of relevance.
-- **`waymore`, `hakrawler`, `gospider`, `cariddi`** — `katana` (already proposed below)
-  is a modern all-in-one crawler covering most of what these older/narrower crawlers do.
-  **Recommend `katana` + `gau` + `waybackurls` as the core crawl set**, with the other
-  four flagged rather than force-included — say so if you specifically want one of them
-  too (e.g. `cariddi` also does secret/endpoint pattern-matching inline, which the others
-  don't).
+## Round 7 — Phase 5 Mobile Runtime Tools as Tier 1 Candidates
 
-### Proposed `FR-BASELINE` pipeline stages (revised)
+**Status: 🔶 PENDING APPROVAL — nothing applied to any binding doc.**
 
-**Always runs (`NETWORK` targets):**
-1. Subdomain enumeration — `subfinder`, `amass`, `assetfinder` (three genuinely
-   complementary passive sources, per the portfolio's own stated rationale)
-2. DNS brute-force resolution — `puredns` (not all three DNS tools, see trim above)
-3. Live-host probing — `httpx`, `dnsx`
-4. Port scan — `naabu` (fast sweep) → `nmap -sV` (targeted, only naabu's discovered ports)
-5. Tech fingerprinting — `whatweb` + `httpx -tech-detect` (already-planned + portfolio's probe tool)
-6. Crawling/URL discovery — `katana`, `gau`, `waybackurls`
-7. Content/directory fuzzing — `ffuf`, `feroxbuster`, `gobuster` (already registered)
-8. Parameter discovery — `arjun`, `x8`
-9. Subdomain takeover check — `dnsreaper`, `subjack`
-10. Baseline vulnerability scan — `nuclei` (already registered)
-11. *(glue utilities, not standalone steps)* — `gf`/`qsreplace`/`anew` pipe between
-    stages 6→8 the way the portfolio itself describes them being used
+The arsenal's Phase 5 (2 tools): `mobsf`, `objection`. This project already has a full
+Mobile domain (`19:FR-MOBILE-01..07`, `MOBILE_BINARY` target type) — `objection` is
+already *named* there (`FR-MOBILE-03`'s cert-pinning bypass, `FR-MOBILE-05`'s utility
+list) but not registered as a formal Tier 1 schema entry the way `01`'s tools are.
+`mobsf` (Mobile Security Framework — static + dynamic analysis, its own local web UI/API)
+isn't mentioned in `19` at all yet.
 
-**Conditional (only when relevant, skipped otherwise — not wasted runtime on every target):**
-- Cloud asset discovery (`s3scanner`, `cloud_enum`, `cloudfail`, `scoutsuite`) — only if
-  a cloud-provider indicator (S3 bucket name pattern, cloud ASN) surfaces during recon.
-- Secrets scanning (`trufflehog`, `noseyparker`, `gitleaks`, `shhgit`, `git-hound`) —
-  only for `CODE_REPO` targets or when a git repository is discovered/in scope.
-- Mobile static recon (`apkleaks`, `jadx`) — only for `MOBILE_BINARY` targets.
-- GraphQL recon (`graphw00f`, `clairvoyance`) — only if a GraphQL endpoint surfaces
-  during crawling.
+> ### FR-MOBILE-08 (new): `mobsf` and `objection` as Registered Tools
+> * **Statement**: `objection` is formally registered as a Tier 1/Tier 2 tool matching
+>   its existing use in `FR-MOBILE-03`/`05` (no functional change, just formal schema
+>   registration closing the gap between "named in prose" and "actually callable via a
+>   declared schema"). `mobsf` is added as a new Tier 1 tool for static+dynamic mobile
+>   analysis, offered as an alternative/complement to the `apktool`/`jadx` + manual-Frida
+>   path `FR-MOBILE-01`/`02` already specify — not a replacement for the
+>   runtime-first-never-decompile-first methodology `FR-MOBILE-01` mandates.
+> * **Edge & Failure Behaviors**: `mobsf` typically runs as a local service (own web
+>   UI/API) rather than a one-shot CLI invocation — needs a design decision on whether
+>   it's spawned per-task or kept as a longer-lived local service the Scripter calls
+>   into; flagging this rather than assuming.
+> * **Target Verification**: *(new test row needed in `09`)*
 
-**This is a large new-dependency count** — roughly 25 new external binaries beyond
-`naabu` (already approved). Real provisioning implications (`FR-PRE-04`'s tool-presence
-check would need to cover all of them). Flagging the scale explicitly before drafting
-the actual `01`/`03`/`09`/`13` text — **confirm this stage breakdown and the four trims
-above, and I'll draft the full requirement text next** (this message is the design/scope
-proposal; the formal `CLAUDE.md` §5.2 requirement blocks are the next step once you've
-confirmed the shape, since re-drafting after a trim-disagreement would waste both our
-time).
+**Also touches**: `06:FR-MOBILE-06`'s hardware-constraint note (emulator RAM budget)
+already covers `mobsf`'s likely resource footprint if it needs an emulator too — no new
+constraint, just confirming it applies.
 
-### Separately flagged: Phase 3/4/5 tools as Tier 1 *candidates* (AI-gated loop, not baseline)
+---
 
-Not part of this round's ask, but surfaced since you mentioned "every possible tool":
-`semgrep` (SAST, `CODE_REPO`), `log4j-scan`, `graphql-cop`, `jwt_tool`, `byp4xx`/
-`whatwaf`/`unwaf` (WAF-bypass), `dalfox`/`xsstrike` (XSS), `ghauri` (blind-SQLi, sqlmap
-alternative), `fuxploider` (upload testing). **Not flagging** `hashcat`/`cewler`/`cupp`/
-`trevorspray`/`kerbrute`/`interactsh-client` — these look like they already overlap
-`19:FR-CRED`'s wordlist/spray pipeline and `interactsh-client`'s existing wrap in
-`oob_listener.py` (per `ASSET-CLASSIFICATION.md`) — would need checking for actual gaps
-before proposing, not assumed. Say if you want this list turned into its own round.
+## Round 6 — Phase 4 Exploitation Tools as Tier 1 Candidates (AI-Gated Loop Only)
+
+**Status: 🔶 PENDING APPROVAL — nothing applied to any binding doc.**
+
+The arsenal's Phase 4 (11 tools). **Confirmed staying out of `FR-BASELINE`'s zero-AI
+pipeline** — these are exploitation-class, gated through the normal Gate 1/Gate 2/
+Adjudicator loop like any other Tier 2 action, same as `sqlmap` (already registered)
+already works today.
+
+**Genuinely new capability, no current overlap** — straightforward Tier 1 additions:
+- `dalfox`, `xsstrike` — XSS scanning/confirmation (no dedicated XSS tool currently registered)
+- `ghauri` — blind-SQLi specialist, complements rather than replaces `sqlmap`
+- `fuxploider` — file-upload RCE testing (no current equivalent)
+
+**Needs a gap-check before registering, not assumed redundant** — flagging these as
+*likely* overlapping existing project mechanisms, rather than either registering or
+skipping them without checking first:
+- `hashcat`, `cewler`, `cupp`, `trevorspray`, `kerbrute` — `19:FR-CRED-01` already
+  specifies a 4-stage credential-attack pipeline (wordlist gen, breach enrichment,
+  employee OSINT, live spray). Worth checking whether these five tools are the
+  *implementation* of stages `FR-CRED-01` already calls for, or genuinely new capability
+  it's missing — my guess is the former (these look like exactly the tools that pipeline
+  would use), meaning this is a "confirm it's built," not "register something new."
+- `interactsh-client` — already wrapped by `oob_listener.py` per
+  `ASSET-CLASSIFICATION.md`'s own finding. Almost certainly already covered; would need
+  confirming `oob_listener.py` is actually wired to a Tier 1 schema, not just archived
+  as reference material.
+
+**Recommend**: approve the 4 genuinely-new tools now; treat the credential/OOB five as a
+"verify existing coverage" task rather than a registration task, since duplicating an
+already-built mechanism under a new name would be worse than doing nothing.
 
 ---
 
 ## Archive — Resolved / Merged Items (newest first)
+
+### Round 5 — Expand `FR-BASELINE` With the Full Personal Tool Arsenal
+
+**Status: ✅ MERGED in full**, with a correction applied after initial merge (`01`, `09`,
+`13`, `18`; decision #76 in `10`, amended by a same-session follow-up).
+
+- Pulled the actual 72-tool arsenal from the operator's portfolio report; scoped to
+  Phase 1+2+3 (recon, enumeration, **and assessment** — assessment folded in per
+  operator correction, since those tools are detection/read-only probes, not
+  exploitation) for the zero-AI `FR-BASELINE` pipeline. Phase 4/5 (exploitation, mobile
+  runtime) confirmed excluded, spun into their own rounds below (6, 7).
+- Trigger point moved: runs between Phase 1 and Phase 2 (before the first model loads
+  at all), not after Phase 3 — resolved without renumbering any phase, since the
+  pipeline's direct safe-subprocess dispatch doesn't need Phase 3's AI-facing schema
+  registration.
+- Execution model: 4 dependency waves, bounded parallel execution within each wave
+  (default 8 concurrent) — `naabu` (fast sweep) → `nmap -sV` (targeted, naabu's ports
+  only) satisfies "use both naabu and nmap."
+- **Post-merge correction** (operator: "overlap is always welcome, even when purposes
+  overlap"): the initial merge trimmed several overlapping-purpose tools for efficiency
+  (a judgment call, not requested) — reversed on operator correction. Added back
+  `bbot`/`theHarvester`/`knockpy`/`dnsrecon`/`massdns`/`shuffledns` (Wave 1) and
+  `waymore`/`hakrawler`/`gospider`/`cariddi`/`aquatone`/`eyewitness` (Wave 3); `sublert`
+  now runs in both `FR-BASELINE` (one-shot) and `FR-MONITOR` (continuous) rather than
+  only the latter. Only `maigret`/`pywhat` stay Tier-2-only — not a trim, an input-shape
+  mismatch (username/string input, not domain/IP, so a blind per-target pipeline has
+  nothing to feed them).
+
+Traceability: `18` doc `01` 109→119 (78 covered); corpus baseline 348→361 (185 covered).
+
+---
 
 ### Round 4 — Baseline Recon Pipeline, Efficiency Re-Check, Deferred-Gap Integration Points
 

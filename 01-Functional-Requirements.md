@@ -97,7 +97,7 @@ exists in raw `llama.cpp` — load/unload is explicit process spawn/terminate vi
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR-TOOL-01 | Provide schema-validated Tier 1 wrappers for: `nmap`, `masscan`, `nuclei`, `ffuf`, `feroxbuster`, `gobuster`, `sqlmap`, `nikto`, `whatweb`, `wafw00f`, `testssl`, `naabu` (fast async port sweep — `FR-BASELINE-01`), `script_runner` (`FR-TOOL-16`). | M |
+| FR-TOOL-01 | Provide schema-validated Tier 1 wrappers for the original core set: `nmap`, `masscan`, `nuclei`, `ffuf`, `feroxbuster`, `gobuster`, `sqlmap`, `nikto`, `whatweb`, `wafw00f`, `testssl`, `script_runner` (`FR-TOOL-16`); plus the full recon/enumeration/assessment roster registered for the baseline pipeline (`FR-BASELINE-06`'s table) — `naabu`, `subfinder`, `amass`, `assetfinder`, `bbot`, `theHarvester`, `knockpy`, `sublert`, `dnsrecon`, `massdns`, `puredns`, `shuffledns`, `httpx`, `dnsx`, `aquatone`, `eyewitness`, `katana`, `gau`, `waybackurls`, `waymore`, `hakrawler`, `gospider`, `cariddi`, `gf`, `qsreplace`, `anew`, `arjun`, `x8`, `dnsreaper`, `subjack`, `semgrep`, `log4j-scan`, `graphql-cop`, `jwt_tool`, `byp4xx`, `whatwaf`, `unwaf`, `s3scanner`, `cloud_enum`, `cloudfail`, `scoutsuite`, `trufflehog`, `noseyparker`, `gitleaks`, `shhgit`, `git-hound`, `apkleaks`, `jadx`, `graphw00f`, `clairvoyance`; plus `maigret`, `pywhat` (input-shape mismatch for the baseline pipeline — username/string, not domain/IP — registered as AI-selectable Tier 2 tools only, `FR-BASELINE-07`). All available to the AI-driven Phase 4.2 loop too, not exclusively the deterministic baseline pipeline. | M |
 | FR-TOOL-02 | Each Tier 1 wrapper declares recognized flags, required arguments, and execution profiles machine-readably for Gate 2 validation. In Autonomous Mode, destructive capabilities (such as direct file wipes, database alters, drops, deletes, updates, or DoS triggers) are blocked to maintain non-destructive testing. In Human-Operator-Directed Mode, all wrapper flag restrictions and parameter suppressions stand down completely to execute the exact requested parameters. | M |
 | FR-TOOL-03 | Tier 2 dynamic bridge (`run_security_command`): eligible binary MUST resolve (invocation path, not symlink target) inside `/usr/bin/`, `/usr/sbin/`, or `/opt/`; execution within scope is fully autonomous, no per-binary approval. | M |
 | FR-TOOL-04 / 04a | Non-shell execution (`shell=False`, explicit argv) — no model output ever becomes a shell string; every subprocess spawns in its own session (`start_new_session=True`) so the kill-switch can reach its whole process group. | M |
@@ -122,18 +122,53 @@ exists in raw `llama.cpp` — load/unload is explicit process spawn/terminate vi
 
 ---
 
-## FR-BASELINE — Deterministic Baseline Reconnaissance (Phase 3 → 4.1 Bridge)
+## FR-BASELINE — Deterministic Baseline Reconnaissance, Enumeration & Assessment (Phase 1 → 2 Bridge)
 
-Runs once per target, automatically, with **zero AI model invocation** — a fixed
-pipeline, not an AI-selected one. Its whole purpose is to hand the Lead Strategist a
-real, already-discovered starting surface instead of a blank target.
+Runs once per target, automatically, with **zero AI model invocation** — a fixed,
+bounded-parallel pipeline, not an AI-selected one. Its whole purpose is to hand the Lead
+Strategist a real, already-discovered starting surface instead of a blank target, and to
+do it using the RAM Phase 1 just freed, before any model competes for that memory.
+
+**Trigger point (revised): runs between Phase 1 and Phase 2, not after Phase 3.** Tool
+invocation here uses the same safe-subprocess conventions Tier 1/Tier 2 use
+(`shell=False`, `preexec_fn=os.setsid`, tiered timeouts) directly — it does not require
+Phase 3's AI-facing Tier 1 schema registration to be complete first, since no AI ever
+selects a tool here. This lets the whole pipeline run immediately after Phase 1's
+headroom check passes, fully before Phase 2 loads the first model, maximizing available
+RAM/CPU for parallel execution. Phase 2 and Phase 3 keep their existing numbers and
+scope (Phase 3's Tier 1/Tier 2 schema registration still exists for the AI-driven Phase
+4.2 loop) — only the wall-clock position of this new pipeline changes.
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR-BASELINE-01 | Immediately after Phase 3 completes for a target (first time only — skipped on `resume` if already run for that target, matching `06:OPS-LIFECYCLE-02`'s "don't redo completed work" pattern), the system MUST automatically run a fixed pipeline in order: (1) `naabu` fast async port sweep, (2) `whatweb` tech fingerprinting (writes `discovered_entities` rows with `entity_type = 'tech_fingerprint'`, feeding `FR-TOOL-18`), (3) `ffuf`/`feroxbuster` content discovery, (4) `nuclei` baseline-template scan. | M |
-| FR-BASELINE-02 | Each pipeline step's raw output persists via the existing `tool_execution_logs`/`artifacts_index` path — ordinary Tier 1 execution, deterministically sequenced instead of AI-selected; no new storage mechanism. | M |
-| FR-BASELINE-03 | A structured summary (ports found, technologies fingerprinted, discovered paths, baseline `nuclei` hits) is assembled directly from those persisted rows and injected verbatim into the Lead Strategist's first Phase 4.1 invocation as a `<baseline_recon_findings>` context block — MUST NOT be re-summarized by a model first, to avoid hallucinating detail into a deterministic result. | M |
-| FR-BASELINE-04 | If any individual pipeline step fails or times out, log it and continue to the next step — a partial baseline (e.g. port sweep succeeded, content discovery timed out) is still handed to the Strategist with the gap explicitly noted, never blocking Phase 4.1 entirely on one slow/failed tool. | M |
+| FR-BASELINE-01 | Immediately once Phase 1's headroom check (`FR-ENV-08`) passes — before Phase 2 begins loading any model, and before `FR-ENV-08a`'s dashboard/console auto-launch if both land at the same trigger point, dashboard/console auto-launch takes priority so the Human Operator has visibility while this pipeline runs — the system MUST automatically run the fixed tool set in `FR-BASELINE-06`'s table, grouped into dependency waves (`FR-BASELINE-02`). First-run-per-target only; skipped on `resume` if already completed for that target (matching `06:OPS-LIFECYCLE-02`'s "don't redo completed work" pattern). | M |
+| FR-BASELINE-02 | Tools within the same wave (`FR-BASELINE-06`'s "Wave" column) MUST run in parallel with each other, bounded by a configurable max-concurrency cap (default 8 concurrent subprocesses) — never unbounded, to avoid CPU/network contention and to keep `FR-TOOL-14`'s per-target spawn-rate guardrails meaningful even during this deterministic phase. A wave MUST NOT start until every tool in the prior wave has completed or timed out — later waves consume earlier waves' outputs (e.g. `nmap -sV` in Wave 2 targets only the ports `naabu` found in Wave 1). | M |
+| FR-BASELINE-03 | Each tool's raw output persists via the existing `tool_execution_logs`/`artifacts_index` path — ordinary Tier 1/Tier 2-shaped execution, deterministically dispatched instead of AI-selected; no new storage mechanism. | M |
+| FR-BASELINE-04 | A structured summary (subdomains, live hosts, ports, technologies fingerprinted, discovered paths/parameters, baseline `nuclei`/assessment-tool hits) is assembled directly from those persisted rows and injected verbatim into the Lead Strategist's first Phase 4.1 invocation as a `<baseline_recon_findings>` context block — MUST NOT be re-summarized by a model first, to avoid hallucinating detail into a deterministic result. | M |
+| FR-BASELINE-05 | If any individual tool fails or times out, log it and continue — a partial baseline is still handed to the Strategist with the specific gap noted, never blocking Phase 2/Phase 4.1 on one slow/failed tool. A whole wave delayed past a fixed ceiling (default: the Targeted-Scans 900s tier) proceeds with whatever completed, rather than blocking Phase 2 indefinitely. | M |
+| FR-BASELINE-06 | **Tool roster, by wave and condition.** Conditional waves/tools only run when their trigger condition is met for this target — skipped, not run-and-discarded, when not applicable (see table below). | M |
+| FR-BASELINE-07 | `sublert`'s technique (continuous CT-log monitoring for new subdomains over time) additionally runs on `FR-MONITOR-01`'s schedule, since that's the correct home for a *continuous* check — it is also included in Wave 1 below for its one-shot value. Per operator direction, overlapping-purpose tools are welcomed rather than trimmed: every tool in the arsenal that can run against a domain/IP/repo input is included in the pipeline it fits, even where another tool already covers similar ground. `maigret`/`pywhat` are the only two kept out of the fixed wave table — not a redundancy trim, but an input-shape mismatch (they take a username/arbitrary string, not a domain/IP, so a blind per-target pipeline has nothing to feed them); both remain registered, AI-selectable Tier 2 tools for the Scripter to reach for on a matching task. | M |
+
+**FR-BASELINE-06's tool roster:**
+
+| Wave | Condition | Tools |
+|---|---|---|
+| 1 (parallel) | Always (`NETWORK` targets) | `subfinder`, `amass`, `assetfinder`, `bbot`, `theHarvester`, `knockpy`, `sublert` (subdomain/OSINT enumeration — all included together, per operator direction not to trim for overlap) · `dnsrecon`, `massdns`, `puredns`, `shuffledns` (DNS resolution/brute-force, all four) · `naabu` (fast async port sweep) |
+| 1 (parallel) | `CODE_REPO` target, or a repo discovered/in scope | `trufflehog`, `noseyparker`, `gitleaks`, `shhgit`, `git-hound` (secrets scanning) · `semgrep` (SAST) |
+| 1 (parallel) | Cloud-provider indicator present (S3 bucket pattern, cloud ASN) | `s3scanner`, `cloud_enum`, `cloudfail`, `scoutsuite` |
+| 1 (parallel) | `MOBILE_BINARY` target | `apkleaks`, `jadx` (static mobile recon) |
+| 2 (parallel, needs Wave 1) | Always | `httpx`, `dnsx` (live-host probing) · `nmap -sV` (targeted deep scan, ports from Wave 1's `naabu` only) · `dnsreaper`, `subjack` (subdomain takeover check) |
+| 3 (parallel, needs Wave 2) | Always | `whatweb` + `httpx -tech-detect` (tech fingerprinting → `discovered_entities.entity_type = 'tech_fingerprint'`, feeds `FR-TOOL-18`) · `katana`, `gau`, `waybackurls`, `waymore`, `hakrawler`, `gospider`, `cariddi` (crawling/URL discovery — full set, `cariddi` additionally does inline secret/endpoint pattern-matching the others don't) · `ffuf`, `feroxbuster`, `gobuster` (content/directory fuzzing) · `nuclei` (baseline-template scan) · `aquatone`, `eyewitness` (visual/screenshot triage of live hosts) · `byp4xx`, `whatwaf`, `unwaf` (WAF detection/bypass probing) · `log4j-scan` |
+| 4 (needs Wave 3's crawl/fuzz output) | Always | `arjun`, `x8` (parameter discovery — fed via `gf`/`qsreplace`/`anew` piping Wave 3's crawl output) |
+| 4 (needs Wave 3) | A GraphQL endpoint surfaced during crawling | `graphw00f`, `clairvoyance`, `graphql-cop` |
+| 4 (needs Wave 3) | A JWT surfaced during crawling/parameter discovery | `jwt_tool` |
+
+*(Not in this pipeline at all — genuinely exploit-class, stay AI-gated in the normal
+Phase 4.2 loop, never run unattended without Gate 1/Gate 2/Adjudicator review:
+`sqlmap`, `dalfox`, `xsstrike`, `ghauri`, `fuxploider`, `hashcat`, `cewler`, `cupp`,
+`trevorspray`, `kerbrute`, `interactsh-client`, `mobsf`, `objection` — see
+`STAGING-Pending-Discussions-and-Fixes.md` for their own staged rounds as Tier 1
+*candidates* for that loop, not this one.)*
 
 ---
 
@@ -259,7 +294,7 @@ system never self-schedules or runs continuously in the background.
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR-MONITOR-01 | `monitor <engagement_id>` performs a fixed recon-diff subset against registered targets, compares to a stored `monitoring_baseline`, logs any diff to `discovered_entities`. | M |
+| FR-MONITOR-01 | `monitor <engagement_id>` performs a fixed recon-diff subset against registered targets, compares to a stored `monitoring_baseline`, logs any diff to `discovered_entities`. Continuous subdomain/CT-log watching (`sublert`'s technique — new subdomains appearing over time, not a one-shot baseline) belongs here, invoked on the same external cron/systemd-timer schedule as any other monitoring subset — explicitly not part of `FR-BASELINE`'s one-shot pipeline (`FR-BASELINE-07`). | M |
 | FR-MONITOR-02 | Changes are logged by default; --monitor-auto-scan queues targeted non-destructive discovery tasks into Phase 4.2. | M |
 | FR-MONITOR-03 | Scheduled monitoring performs deterministic baseline recon without requiring resident model inference or full council startup. | M |
 | FR-MONITOR-04 | Does not create an `engagements` row and does not participate in FR-CTRL-09's lock — may run against any engagement status, including concurrently with an active one. | M |
