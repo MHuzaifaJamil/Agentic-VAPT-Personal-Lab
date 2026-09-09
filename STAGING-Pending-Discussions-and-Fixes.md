@@ -26,26 +26,31 @@ purpose is to show how a fix evolved, not just its final state.
 **Status: 🔶 PENDING APPROVAL — nothing applied to any binding doc.**
 
 You asked for wireless/Bluetooth task support plus "every possible tool" from
-`kali-linux-everything` — that metapackage is several hundred tools; enumerating them
-all by name in a requirement doc isn't practical or maintainable. The actual gap isn't
-tool *coverage* — `FR-TOOL-03`'s Tier 2 dynamic bridge already lets the AI invoke *any*
-resolvable binary in `/usr/bin`/`/usr/sbin`/`/opt` without a fixed schema. The real gap
-is **discoverability**: nothing currently tells the AI *which* binaries exist for a task
-domain that doesn't already have named Tier 1 tools, like WiFi/Bluetooth.
+`kali-linux-everything`, and pushed back (correctly) on "too many to enumerate" —
+**the fix was simpler than I made it sound**: put the full list in a separate reference
+file, not inside the requirements corpus. Done — `KALI-TOOL-CATALOG.md` (repo root) now
+has the complete, current tool set for every one of Kali's ~29 official tool categories
+plus everything else `kali-linux-everything` bundles directly, pulled straight from this
+machine's own `apt-cache show` output (not reconstructed from memory). `FR-TOOL-03`'s
+Tier 2 dynamic bridge already lets the AI invoke any resolvable binary — the missing
+piece was purely *discoverability*, which the new file now solves directly.
 
-> ### FR-DISCOVER-01: Domain-Tagged Tool Candidate Lists
-> * **Statement**: The system MUST maintain a curated, extensible mapping from task
->   domain (starting with `wifi` and `bluetooth`, extensible to any future domain) to a
->   list of candidate tool binary names known to serve that domain — e.g. `wifi`:
->   `airmon-ng`/`airodump-ng`/`aireplay-ng`/`aircrack-ng`/`wifite`/`hcxdumptool`/
->   `hcxpcapngtool`/`bettercap`/`reaver`/`bully`/`mdk4`; `bluetooth`:
->   `bluetoothctl`/`hcitool`/`gatttool`/`btlejack`/`bettercap`/`spooftooph`.
+> ### FR-DISCOVER-01: Consult `KALI-TOOL-CATALOG.md` for Undefined Task Domains
+> * **Statement**: When a task falls in a domain with no dedicated Tier 1 schema (e.g.
+>   wireless, Bluetooth, forensics, hardware), the system MUST consult
+>   `KALI-TOOL-CATALOG.md` (repo root — a reference file, not a requirement doc, kept
+>   current against `apt-cache show kali-linux-everything` and its category
+>   metapackages) for candidate tool names in that category, rather than the Scripter
+>   guessing at binary names or the corpus trying to enumerate every tool inline.
 > * **Pre-conditions & Inputs**: A task is tagged with a domain that has no dedicated
 >   Tier 1 tool already covering it.
-> * **Post-conditions & State Mutations**: The domain's candidate list is surfaced to
->   the Scripter as available options for that task, resolved through `FR-DISCOVER-02`.
-> * **Edge & Failure Behaviors**: An untagged/unknown domain falls back to `FR-TOOL-03`'s
->   generic Tier 2 bridge unchanged — this is additive, not a replacement.
+> * **Post-conditions & State Mutations**: The matched category's candidate list is
+>   surfaced to the Scripter as available options for that task, resolved through
+>   `FR-DISCOVER-02`.
+> * **Edge & Failure Behaviors**: An untagged/unknown domain, or one not found in the
+>   catalog, falls back to `FR-TOOL-03`'s generic Tier 2 bridge unchanged — this is
+>   additive, not a replacement. If the catalog file itself is missing/unreadable, log
+>   degraded and fall back the same way — never block the task on a reference-file read.
 > * **Target Verification**: *(new test row needed in `09`)*
 
 > ### FR-DISCOVER-02: Presence Check Before Suggesting
