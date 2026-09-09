@@ -94,6 +94,14 @@ immediately rather than only after the next push. Folds into "Push history" abov
 | `16-Actual-Setup-Reuse-and-Integration-Map.md` | modified | — (follow-up) | `TR-BRIDGE-03` corrected: cited `npx @caido/mcp-server` (no such official package exists) — fixed to the actual community server (`c0tton-fluff/caido-mcp-server`) and its real PAT/OAuth auth mechanism, matching `Actual-Setup/mcp/caido-mcp-client/`'s reference client exactly. Found via direct comparison against the operator's live reference toolkit. |
 | `04-Interface-and-Integration-Requirements.md` | modified | — (follow-up) | `IR-MCP` section retitled — its old title ("Burp Suite / Caido MCP Integration") implied Burp uses MCP, contradicting `16:TR-BRIDGE-01`'s explicit direct-REST-only requirement for Burp. Requirement text clarified to say which parts apply to Burp's REST bridge vs. Caido's actual MCP integration. |
 
+| `01-Functional-Requirements.md` | modified | #75 | New `FR-BASELINE` cluster (deterministic Phase-3→4.1 recon pipeline); `naabu` added to `FR-TOOL-01`'s roster; `FR-TOOL-17/18/19` added (session reuse, fingerprint-triggered EOL/CVE lookup, multipart Tier 1 tool). |
+| `03-Data-and-Storage-Requirements.md` | modified | #75 | `DR-SCHEMA-22: auth_sessions`, `DR-SCHEMA-23: tech_fingerprint_intel` added. |
+| `05-Security-Safety-and-Compliance-Requirements.md` | modified | #75 | `SEC-DATA-04` added — session credentials follow the existing correlation-hash pattern, never raw in logs. |
+| `09-Acceptance-Criteria-and-Test-Plan.md` | modified | #75 | New `TP-BASELINE` and `TP-TOOLEXT` clusters added. |
+| `13-Implementation-Architecture-Bridge.md` | modified | #75 | Module tree gained `baseline_recon.py`. |
+| `16-Actual-Setup-Reuse-and-Integration-Map.md` | modified | #75 | `TR-SCRIPT-06` rewritten concretely, pointing to `01:FR-BASELINE` for the actual pipeline spec. |
+| `18-Requirement-to-Test-Traceability-Matrix.md` | modified | #75 | Doc `01` 109→116 (75 covered); doc `03` 34→36 (24 covered); doc `05` 28→29 (19 covered); corpus baseline 348→358 (182 covered). |
+
 ## Earlier decisions not yet mapped to a specific commit
 
 Decisions #34–54 in the decision log predate this index's practice of citing commit

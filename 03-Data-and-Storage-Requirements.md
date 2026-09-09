@@ -354,6 +354,46 @@ Populated by the same write path as `tool_execution_logs` (one row each, at the 
 point in execution) — never a second source of truth for *what happened*, only for
 *has this exact vector been tried yet*.
 
+### DR-SCHEMA-22: `auth_sessions`
+
+Backs `01:FR-TOOL-17` (authenticated session reuse). Distinct from `FR-TOOL-15`'s
+credential propagation (that's for spray/brute-force identities; this is for a single
+established, reusable logged-in session).
+
+```sql
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    session_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    engagement_id INTEGER NOT NULL REFERENCES engagements(engagement_id),
+    target_id INTEGER NOT NULL REFERENCES targets(target_id),
+    auth_type TEXT NOT NULL CHECK (auth_type IN ('cookie', 'bearer', 'basic')),
+    credential_ref TEXT NOT NULL, -- sha256(...)[:12] correlation hash, same pattern as FR-TOOL-15; never the raw secret
+    established_at TEXT NOT NULL,
+    last_validated_at TEXT,
+    valid INTEGER NOT NULL DEFAULT 1
+);
+```
+
+`valid = 0` the moment a session is known-invalidated (logout, expiry) — surfaced via
+`OPS-NOTIFY`, never silently left stale.
+
+### DR-SCHEMA-23: `tech_fingerprint_intel`
+
+Backs `01:FR-TOOL-18` (fingerprint-triggered EOL/CVE lookup). One row per
+`discovered_entities` row with `entity_type = 'tech_fingerprint'` that's been checked.
+
+```sql
+CREATE TABLE IF NOT EXISTS tech_fingerprint_intel (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity_id INTEGER NOT NULL REFERENCES discovered_entities(id),
+    eol_status TEXT, -- e.g. 'EOL', 'SUPPORTED', 'UNKNOWN'
+    known_cves TEXT, -- JSON array
+    checked_at TEXT NOT NULL
+);
+```
+
+Enrichment only — an EOL/CVE hit here is corroborating evidence for the
+Reporter/Adjudicator, never a finding by itself.
+
 ---
 
 ## DR-CONCURRENCY — SQLite Adequacy

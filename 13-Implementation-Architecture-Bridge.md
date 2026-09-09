@@ -256,6 +256,7 @@ vapt_agent/
 │   ├── hibernation.py          # environment/hibernation prep, calls freezer_helper client
 │   ├── phase_lifecycle.py      # engagement-lifecycle state machine, control_intent handling; Phase 4.2 runs its batch-sequential dual-scripter handoff here — run_phase_4_2a() (Primary Scripter) → full unload → memory-settle gate → run_phase_4_2b() (Secondary Scripter), never concurrent (`01:FR-COUNCIL-11d`)
 │   ├── engine_client.py        # Local Engine Client abstraction over the inference backend
+│   ├── baseline_recon.py       # deterministic Phase-3→4.1 pipeline, zero AI (`01:FR-BASELINE`): naabu port sweep → whatweb fingerprint → ffuf/feroxbuster content discovery → nuclei baseline scan; assembles `<baseline_recon_findings>` for the Lead Strategist's first invocation
 │   └── council/
 │       ├── strategist.py       # scope/task-queue planning model (Lead Strategist)
 │       ├── strategy_auditor.py # deterministic Tier 0 scope check (every task) + contextual Tier 1 sanity-check (non-human-operator-origin tasks only) — Strategy Auditor role

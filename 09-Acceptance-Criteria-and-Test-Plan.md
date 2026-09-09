@@ -82,6 +82,28 @@ derive authoritatively from the Security Specification (`05`).
 | Context ceiling enforced | Test | All 6 models truncate/summarize on overflow, never error. |
 | Endpoint stable across backend swap | Test | Identical OpenAI-compatible surface for both backends. |
 
+## TP-BASELINE — Deterministic Baseline Reconnaissance
+
+| Test | Method | Pass Criteria |
+|---|---|---|
+| Pipeline runs automatically, zero AI | Test | Immediately after Phase 3 completes for a target, `naabu` → `whatweb` → `ffuf`/`feroxbuster` → `nuclei` run in order with no model invocation. |
+| Not re-run on resume | Test | A target with a completed baseline pass, on `resume`, does not re-execute the pipeline — prior results are reused. |
+| Tech fingerprints recorded | Inspection | `whatweb` step writes `discovered_entities` rows with `entity_type = 'tech_fingerprint'`. |
+| Strategist receives findings verbatim | Test | The Lead Strategist's first Phase 4.1 invocation context includes a `<baseline_recon_findings>` block sourced directly from persisted rows, not model-summarized. |
+| Partial failure doesn't block Phase 4.1 | Test (fault injection) | One pipeline step forced to fail/timeout; the remaining steps still run, and Phase 4.1 proceeds with the gap noted, not blocked. |
+
+## TP-TOOLEXT — Session Reuse, Fingerprint Intel & Multipart Tool
+
+| Test | Method | Pass Criteria |
+|---|---|---|
+| Session credentials injected automatically | Test | A Tier 1/Tier 2 call scoped to an established `auth_sessions` row receives its auth material without re-authenticating. |
+| Invalidated session surfaced, not silent | Test | A session marked `valid = 0` mid-engagement triggers an `OPS-NOTIFY` event; no auto-retry login occurs. |
+| Session credential never raw in logs | Inspection | `auth_sessions.credential_ref` is a `sha256(...)[:12]` hash in every row, matching `FR-TOOL-15`'s pattern. |
+| New tech fingerprint triggers EOL/CVE lookup | Test | A new `tech_fingerprint` `discovered_entities` row automatically queues a follow-on Tier 2 task; a repeat sighting does not. |
+| EOL/CVE feed unreachable degrades, doesn't block | Test (fault injection) | Feed unreachable → logged degraded, pipeline continues uninterrupted. |
+| Multipart tool schema-validated | Inspection | The multipart parser-confusion tool exposes `{target_upload_endpoint, file_path, variant_name}` declaratively — no interactive prompts. |
+| Multipart tool workspace boundary enforced | Test | `file_path` outside the artifact workspace is rejected via the same check as `script_runner`'s `workspace_subdir`. |
+
 ## TP-COUNCIL1 — Two-Tier Scope Gate
 
 | Test | Method | Pass Criteria |

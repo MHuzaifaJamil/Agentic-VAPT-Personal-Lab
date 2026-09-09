@@ -84,6 +84,7 @@ final and supreme authority over all Security, Safety, and Control matters.**
 | --- | --- |
 | SEC-DATA-01 | All target findings, credentials, and scan data remain strictly local. No telemetry, unencrypted exfiltration, or external SaaS calls occur without intentional, explicit Human Operator instruction. |
 | SEC-DATA-02 | Raw evidence artifacts (including full responses, captured tokens, and dumps) are preserved verbatim on the local system for evidentiary integrity. Redaction applies only to finalized, external-facing summary reports as configured by the Human Operator. |
+| SEC-DATA-04 | Authenticated-session credentials (`03:DR-SCHEMA-22`, `01:FR-TOOL-17`) follow `SEC-DATA-01`'s local-only rule and `FR-TOOL-15`'s existing correlation-hash pattern identically — `credential_ref` is a `sha256(...)[:12]` hash, never the raw session token/cookie, in any log or database row. |
 | SEC-DATA-03 | Inference endpoints and internal orchestration APIs bind to local loopback (`127.0.0.1`) by default. Binding to external or routable interfaces is fully supported via intentional Human Operator configuration. |
 
 ## SEC-SYS — System Cohesion & Control Traceability
