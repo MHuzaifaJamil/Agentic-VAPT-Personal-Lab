@@ -21,9 +21,21 @@ purpose is to show how a fix evolved, not just its final state.
 
 ## Currently Pending Approval
 
+*(nothing pending — Round 9 approved 2026-09-12; see Archive below.)*
+
+---
+
+## Archive — Resolved / Merged Items (newest first)
+
 ### Round 9 — Three Items Closed Out of a "Close the Remaining Open Items" Pass, One Real Design Gap Found, Two Deliberately NOT Attempted
 
-**Status: 🟡 AWAITING REVIEW.** Context: the operator asked to close every remaining item
+**Status: ✅ APPROVED (2026-09-12).** 9.1 (17 tools installed/wired) and the `knockpy`
+correction were already-completed implementation work, now formally on record. 9.2's
+`tool_api_keys`/`get_env_for_tool` design and 9.4's `task_queue.origin_purpose = 'LOGIN_FLOW'`
+tag are approved as designs — **not yet implemented**, queued as real follow-on work (each
+is a genuine build, not a one-line change). 9.3's phased `OPS-NOTIFY` build-out is approved
+as a plan; also **not yet implemented** — same reasoning, a multi-session body of work, not
+started this pass. Original context: the operator asked to close every remaining item
 from an earlier audit (`FR-TOOL-17`'s real session mechanism, the rest of `FR-BASELINE-06`'s
 tool roster, `mobsf`) and to detail any real issues here instead of forcing them. Three of
 four sub-items below were genuinely closed (tool installs); one surfaced a real, scoped
@@ -152,8 +164,6 @@ tool with no sudo needed at all. Noted here only because the earlier report spec
 called this out as blocked — it no longer is.
 
 ---
-
-## Archive — Resolved / Merged Items (newest first)
 
 ### Round 8 — Dynamic Domain-Based Tool Discovery (WiFi/Bluetooth, and the Wider Kali Catalog)
 
