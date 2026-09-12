@@ -21,6 +21,82 @@
 
 ---
 
+## 2026-09-12 — New capability: system suspend inhibited for the duration of an active engagement
+
+**Status: ✅ IMPLEMENTED, ✅ APPROVED, unit-tested (real, live `systemd-inhibit` registration
+confirmed via `systemd-inhibit --list`, not mocked). Full writeup, the live verification
+that preceded it, and the options considered are in `STAGING-Pending-Discussions-and-
+Fixes.md`'s Archive, Round 11.**
+
+### What the requirement says
+
+Nothing, currently — no numbered requirement doc (`01`–`24`) mentions system suspend/sleep
+at all. This is a genuinely new capability, not a literal-text conflict with an existing
+requirement.
+
+### What real code now does
+
+A real live probe this session (`STAGING` Round 10.2's Option C latency measurement) caught
+the host suspending itself mid-engagement (`s2idle`, `xfce4-power-manager`-triggered idle
+timeout) while a council model was actively computing — survived unharmed only because
+Linux's monotonic clock stops advancing during suspend, uncounted against any timeout
+budget. Nothing previously prevented this. `vapt_agent/cli/run.py::run()` now wraps its
+`run_full_engagement(...)` call in a new `hold_system_inhibition()` context manager, which
+holds a real `systemd-inhibit --what=sleep:idle --mode=block` lock (via a `sleep infinity`
+child process, no new Python dependency) for exactly the duration of active orchestration —
+covering both the tmux-relaunched auto-start path and a direct/manual invocation uniformly,
+since both converge on that one call site. Releases automatically on any exit path (normal
+completion, PAUSE escalation, exception) via a `finally:` block, and is orphan-safe under
+`vaptctl abort`'s process-group kill and a `systemd-oomd` cgroup-wide kill (Round 10.1)
+alike, since it's a child in the same process group/cgroup rather than its own session.
+Degrades to holding no lock (never fails the engagement) on a non-systemd host.
+
+### Why this deviates / where it should land in the corpus
+
+Candidate home: `06-Operational-Requirements.md` (engagement lifecycle) or
+`05-Security-Safety-and-Compliance-Requirements.md` (a "the system must not silently lose
+progress to an OS-level event" framing) — not yet decided, flagged here for the next
+requirements-sync pass rather than picked unilaterally.
+
+---
+
+## 2026-09-12 — Strategist role's dedicated inference timeout raised from 1800s to 9000s, backed by a real measured ceiling
+
+**Status: ✅ IMPLEMENTED, ✅ APPROVED. Full writeup, the uncapped probe that produced the
+real number, and the options considered are in `STAGING-Pending-Discussions-and-Fixes.md`,
+Round 10.2.**
+
+### What the requirement says
+
+`IR-TOOL-03`/`FR-TOOL-05`'s fixed timeout tiers (Quick Probes 180s / Targeted Scans 900s /
+Deep-Full-Range 1800s) govern TOOL subprocess timeouts (`nmap`, `sqlmap`, etc.) — a
+completely separate mechanism from `STRATEGIST_TIMEOUT_S`, which is the Strategist
+council-role's own dedicated AI-model inference-call timeout (`vapt_agent/council/
+strategist.py`), already documented in that file's own comments as intentionally NOT
+sharing the generic 900s tool-timeout default. No numbered requirement doc names this
+constant or its value at all — it has never been part of the literal spec text.
+
+### What real code now does
+
+A standalone, uncapped probe (bypassing `STRATEGIST_TIMEOUT_S` entirely, real baseline-recon
+context reused verbatim from a completed engagement) measured the TRUE completion latency
+for a real Phase 4.1 Strategist turn on this CPU-only reference host: **7043.4s (117.4 min,
+~1h57m)** for a 12,449-prompt-token / 5,207-completion-token real exchange, producing a
+genuinely coherent, target-appropriate attack plan. `STRATEGIST_TIMEOUT_S`
+(`vapt_agent/council/strategist.py:48`) raised from `1800.0` to `9000.0` (150 min, ~28%
+headroom over the measured ceiling) — with `FR-GATE-08`'s existing one-shot restart+retry,
+a single attempt at this budget should now suffice without ever needing the retry. Full
+suite re-verified clean after the change (1079 passed, 0 failed, 3 skipped).
+
+### Why this deviates / where it should land in the corpus
+
+Same candidate home as the suspend-inhibition entry above — this constant has never had a
+documented home in the numbered corpus at all (unlike the tool-timeout tiers, which are
+explicitly speced); flagged for the same future reconciliation pass rather than invented a
+new requirement ID unilaterally.
+
+---
+
 ## 2026-09-11 — `FR-BASELINE-06`: 17 more tools installed, verified, and wired for real
 
 **Status: ✅ IMPLEMENTED, unit/integration-tested, several real invocations confirmed
@@ -250,7 +326,18 @@ wave per repo.
 - `FR-BASELINE-06`'s remaining tool-roster gaps (GraphQL/JWT Wave 4 branches at 0%, most of
   Wave 1's "Always" OSINT/DNS-brute extras, Wave 3's crawler/WAF-probing extras) — see
   `orchestrator/baseline_recon.py`'s own module docstring for the current, honest list.
-- `mobsf` — still unbuildable/unverifiable on this host, unchanged from the prior entry.
+- `mobsf` — **UPDATE 2026-09-12: now confirmed fully working**, this line's prior
+  "unbuildable/unverifiable" status is stale. Pulled the official Docker image
+  (`opensecurity/mobile-security-framework-mobsf:latest`), ran it, and did real
+  verification (not just a successful pull): Django migrations applied, superuser created,
+  gunicorn bound to `0.0.0.0:8000`, `curl -L http://127.0.0.1:8000/` returns a genuine
+  `<title>Sign In</title>` page (302→200), MobSF v4.5.2, REST API key issued. Zero
+  mentions of `mobsf` were found anywhere in `implementation/` (not even a schema stub) —
+  the prior attempt never got far enough to leave a trace, which is why this line existed
+  with no further detail. Docker-image verification only — `mobsf` is still NOT yet
+  schema-registered as a Tier 1 tool (`19:FR-MOBILE-08`'s design, approved in Round 7,
+  remains unimplemented) or wired into any wave; this entry corrects the "can't even get
+  it running" status, it does not close `FR-MOBILE-08` itself.
 
 ---
 

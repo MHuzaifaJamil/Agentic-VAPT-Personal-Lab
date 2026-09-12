@@ -12,20 +12,427 @@
 
 # Pending Discussions & Fixes — Awaiting Operator Approval
 
-**Ordering convention:** newest items on top. New pending items get added directly below
-this line, ahead of everything already resolved. Once an item is approved and merged, it
-moves down into the dated archive further below rather than being deleted — this file's
+**Ordering convention:** newest items on top within each section below. New genuinely
+undecided items go into **Currently Pending Approval**. Once the operator decides, an item
+moves into **Still Open** if any of its sub-items/action-steps remain unfinished (most often
+because they need the operator's own `sudo`, which this assistant does not have passwordless
+access to) — **a Round stays in Still Open, at the top, for as long as ANY part of it is
+unfinished, even after every other part has been approved and/or implemented.** Only once a
+Round is fully, completely done does it move down into the dated Archive. This file's
 purpose is to show how a fix evolved, not just its final state.
 
 ---
 
 ## Currently Pending Approval
 
-*(nothing pending — Round 9 approved 2026-09-12; see Archive below.)*
+*(Genuinely new, undecided items — awaiting the operator's own review/choice.)*
+
+### Round 12 — Task-Dispatched Knowledge Ingestion: Bridging 818+ Security Skills Directly Into Council Tasks
+
+**Status: 🟢 PROPOSAL & SPECIFICATION.** Supersedes the earlier, lighter Round 12 draft
+(a simpler `skill_lookup` Tier 2 tool sketch) with a fully worked design the operator
+provided directly. Same origin as before: `mukul975/Anthropic-Cybersecurity-Skills` (818
+Claude-Code Skill files, installed via `npx skills add ...`, symlinked under
+`~/.agents/skills/<skill-name>/SKILL.md` on this host) can't be "installed into" Mugheeraat
+directly (Skills are a Claude-Code-specific mechanism; the council has no dynamic
+skill-loading tool of its own) — but the underlying content is real, local, and reachable.
+This version replaces the earlier "explicit tool call" framing with a fully automatic,
+task-dispatch-driven design.
+
+#### 1. Conceptual Architecture & Shift: Task-Driven vs. Tool-Driven
+
+Instead of exposing an explicit tool that models must discover, call, and wait for,
+**knowledge ingestion is entirely task-driven and orchestrated automatically**:
+
+1. **Strategic Task Emission:** The Lead Strategist (`DeepSeek-R1-0528-Qwen3-8B`) generates
+   an execution graph containing concrete tasks stored in `state.db`. Each task record
+   includes a `task_id`, `hypothesis`, `technique`, and `target_asset`.
+2. **Pre-Dispatch Ingestion:** When the orchestrator dispatches an active task to a Scripter
+   (`Primary Scripter` or `Secondary Scripter`), it matches the task's hypothesis, technique,
+   and target metadata against the local skills index.
+3. **Automatic Context Augmentation:** If a relevant skill matches above the confidence
+   threshold, the orchestrator extracts its operational playbook sections and injects them
+   directly into the task context block before the model begins token generation.
+4. **Zero Model Overhead:** The Scripter does not spend a tool-call turn or infer
+   parameters; the domain expertise is already present in its task assignment prompt.
+
+```
+[ Phase 4.1: Lead Strategist Plan in state.db ]
+                    │
+                    ▼ (Task Dispatch Event: task_id, hypothesis, technique)
+┌────────────────────────────────────────────────────────────────────────┐
+│ Dynamic Skill Matcher (BM25 / Keyword Overlap on Local Repository)     │
+│   ├── Scans ~/.agents/skills/ & /opt/mughiraat/skills/                 │
+│   ├── Evaluates Task Hypothesis against YAML frontmatter & tags        │
+│   └── Matches Top Skill (Score ≥ Threshold τ)                          │
+└────────────────────────────────────────────────────────────────────────┘
+                    │
+                    ▼ (Structural Section Filter)
+┌────────────────────────────────────────────────────────────────────────┐
+│ Operational Playbook Extractor                                         │
+│   ├── Discards: Theory, introduction, references, verbose history      │
+│   └── Retains: Vectors, syntax, parameter mutations, payload examples   │
+└────────────────────────────────────────────────────────────────────────┘
+                    │
+                    ▼
+[ Injected into Scripter Context: <task_reference> ]
+                    │
+                    ▼
+[ Phase 4.2A / 4.2B: Scripter Generates AST-Valid Attack Code ]
+```
+
+#### 2. Future-Proofing for 818+ Current and Incoming Skills
+
+To ensure any new skill dropped into the system works immediately without code refactoring:
+
+- **Dynamic Repository Traversal:** The indexer walks all configured skill directories
+  (`~/.agents/skills/`, `/opt/mughiraat/skills/`, etc.) at startup or cache invalidation.
+- **Standardized Frontmatter Parsing:** Parses the standardized YAML frontmatter present in
+  modern security playbooks:
+  ```yaml
+  ---
+  name: graphql-introspection-abuse
+  description: Playbook for querying hidden GraphQL schemas and bypassing batch limits.
+  tags: [graphql, api, introspection, batching, nosql]
+  mitre: [T1190, T1059]
+  ---
+  ```
+- **Hybrid Lexical Matcher (BM25 / Token Ingestion):** Matches the incoming task description
+  against the indexed `name`, `description`, and `tags` using a pure Python BM25 or
+  set-intersection algorithm. Sub-millisecond execution time, zero GPU/CPU LLM inference
+  cost, exactly 0 MB memory footprint during idle states.
+- **Fallback Behavior:** If no skill scores above the confidence threshold, the orchestrator
+  injects nothing, and the Scripter executes using its base pre-trained knowledge without
+  latency penalties.
+
+#### 3. Hardware Constraints & Operational Context Limits
+
+Under this host's 15.3 GiB physical RAM and single-model residency policy, the allocated
+context length in `llama.cpp` (`-c`) must remain bounded to protect the memory budget:
+
+| Model Role | Quantization | Native Capability | Bound Runtime Allocation (`-c`) | Allocated KV-Cache Footprint |
+|---|---|---|---|---|
+| Lead Strategist (`DeepSeek-R1-Qwen3-8B`) | `Q8_0` (~8.7 GB) | 128k tokens | **16,384 tokens** | ~1.5 GB |
+| Strategy Auditor (`Hermes-3-Llama-3.1-8B`) | `Q8_0` (~8.5 GB) | 128k tokens | **8,192 tokens** | ~0.8 GB |
+| Primary Scripter (`Qwen2.5-Coder-7B`) | `Q8_0` (~8.1 GB) | 128k tokens | **16,384 tokens** | ~1.3 GB |
+| Secondary Scripter (`DeepSeek-Coder-6.7B`) | `Q8_0` (~7.2 GB) | 16k tokens | **16,384 tokens** | ~1.2 GB |
+| Criterion Adjudicator (`Mistral-7B-v0.3`) | `Q8_0` (~7.7 GB) | 32k tokens | **16,384 tokens** | ~1.4 GB |
+| Executive Reporter (`Ministral-8B-2410`) | `Q8_0` (~8.5 GB) | 128k tokens | **16,384 tokens** | ~1.5 GB |
+
+*Context Budget Rule:* within a 16k context window, reserving 2,000–4,000 tokens for system
+prompts and history leaves ample room, but streaming thousands of irrelevant tokens on CPU
+compute degrades prompt processing speed (`O(N)` latency) — directly relevant given Round
+10.2's now-measured real prefill/generation speeds on this exact hardware.
+
+#### 4. Structural Extraction Over Blind Truncation or Complex Chunking
+
+Passing multi-thousand-word Markdown documents in sequential chunks is counterproductive for
+single-pass code synthesis, while blind character truncation (`[:1000]`) risks chopping off
+mid-command or mid-payload. Instead, the extractor performs **Deterministic Structural
+Parsing**:
+
+1. Ingests the raw `SKILL.md`.
+2. Strips out academic preamble, background history, author metadata, and generic
+   remediation sections.
+3. Extracts only actionable headings: `## Attack Vectors` / `## Verification Procedure` /
+   `## Payloads` / `## CLI Examples` / `## Headers`.
+4. The extracted section is capped structurally at ~500–800 tokens — dense, high-signal
+   technical instructions without wasting context space or slowing down CPU inference.
+
+#### 5. Context Enclosure & Prompt Assembly
+
+Since all skill files reside locally on this secured, operator-controlled host, they are
+fully trusted operational assets — the `<tool_output_untrusted>` quarantine wrapper this
+project uses for live target data is deliberately omitted. Instead, a clean, semantic
+structural container (`<task_reference>`) separates guidance from output constraints:
+
+```xml
+<active_task id="TSK-042" target="https://api.internal.lab/v1/graphql">
+  <hypothesis>Bypass access control via GraphQL introspection and nested batch mutations</hypothesis>
+  <assigned_operator>SECONDARY_SCRIPTER</assigned_operator>
+
+  <task_reference source_skill="graphql-introspection-and-query-abuse">
+    Key Tactical Vectors:
+    - Probe schema availability: POST /graphql with {"query": "{__schema{types{name}}}"}
+    - Test mutation batching bypass: Array-wrapped payloads [{"query":"..."}, {"query":"..."}]
+    - Check alias overloading to force resource exhaustion / state changes:
+        query { a: node(id:1){id} b: node(id:1){id} }
+  </task_reference>
+
+  <negative_constraints>
+    Operator Alpha already ran basic ffuf directory enumeration on /graphql.
+    Do NOT rerun basic dictionary scans. Generate custom Python scripts to test batching or introspection.
+  </negative_constraints>
+</active_task>
+```
+
+#### 6. Role Scope Mapping
+
+- **Primary Scripter (`Qwen2.5-Coder-7B`) & Secondary Scripter (`DeepSeek-Coder-6.7B`):**
+  **Primary Consumers.** Receives the specific tactical playbook whenever an active task
+  involves an identified protocol, framework, or vulnerability class.
+- **Lead Strategist (`DeepSeek-R1-0528-Qwen3-8B`):** **Strategic Baseline Only.** Receives
+  top-level summary tags during Phase 4.1 attack-graph generation to assist in branching
+  hypotheses.
+- **Strategy Auditor, Criterion Adjudicator, Executive Reporter:** **Excluded.** The Auditor
+  checks scope rules; the Adjudicator evaluates raw HTTP/OS evidence against deterministic
+  criteria; the Reporter structures verified findings into NIST/CWE reporting standards —
+  none of the three need tactical attack playbooks for their own jobs.
+
+#### 7. Implementation Plan
+
+1. **`vapt_agent/knowledge/skills_index.py`** — `SkillIndex` class using `pathlib` to
+   discover all `SKILL.md` files; parse YAML frontmatter (`yaml.safe_load`); implement
+   `match_skill(query_text: str) -> Optional[SkillMatch]`.
+2. **`vapt_agent/knowledge/skill_extractor.py`** — markdown AST or heading-based parser to
+   pull execution/payload sections per §4 above.
+3. **`vapt_agent/orchestrator/phase_lifecycle.py`** — in the dispatch pipeline for Phase
+   4.2A and Phase 4.2B, call `SkillIndex.match_skill()` using the current task's hypothesis
+   and technique; inject the formatted `<task_reference>` block directly into the prompt
+   context.
+
+**Still genuinely open, not settled by this spec**: the exact BM25/keyword-overlap
+confidence threshold `τ`; whether `/opt/mughiraat/skills/` (a second, project-owned skills
+directory alongside `~/.agents/skills/`) actually needs to exist yet or is aspirational;
+test coverage plan for the matcher/extractor before any of this touches a real role prompt.
+Not yet built — awaiting operator approval before any code is written.
+
+---
+
+## Still Open — Approved, Action Items Remain
+
+*(Decided by the operator, but not fully finished — usually because a step needs the
+operator's own `sudo`, which this assistant has no passwordless access to. Stays here, at
+the top of this section, until every sub-item is done — even once some parts are already
+implemented and verified.)*
+
+### Round 10 — Two Real Findings From the 2026-09-12 Live Benchmark: `systemd-oomd` Kills, and the Strategist's CPU-Only Latency Ceiling
+
+**Status: ✅ APPROVED (2026-09-12) — PARTIALLY IMPLEMENTED, `sudo` STEPS STILL OPEN.**
+
+| Item | Decision | Status |
+|---|---|---|
+| 10.1 — `systemd-oomd` drop-in | Option A (90%/60s session override) | 🔲 **Not yet applied — needs the operator's own `sudo`** (commands below) |
+| 10.2 Option A — raise `STRATEGIST_TIMEOUT_S` | Approved as the concrete next step once Option C's real number was in | ✅ **Done** — `vapt_agent/council/strategist.py:48`, `1800.0 → 9000.0`, full suite re-verified clean (1079/0/3) |
+| 10.2 Option B — Intel Level Zero/OpenCL driver | Approved as the real long-term fix | 🔲 **Not yet applied — needs the operator's own `sudo`** (commands below) |
+| 10.2 Option C — uncapped latency probe | Approved, run to completion | ✅ **Done** — real result: 117.4 min, see below |
+| 10.2 Option D — downgrade to 3B model | Explicitly rejected | ❌ Rejected, not revisited |
+
+10.1: **Option A** (session drop-in,
+`ManagedOOMMemoryPressureLimit=90%`/`ManagedOOMMemoryPressureDurationSec=60s`) —
+Option B rejected (strips protection entirely, a real risk if an unrelated app leaks
+memory), Option C rejected (its `systemd-run --scope -p` mechanism already confirmed
+failing live on this systemd 261, not worth the extra engineering for a personal
+dev/test host). 10.2: **Option C first** (raw uncapped latency probe, in progress),
+**then Option B** (install the missing Intel Level Zero/OpenCL compute runtime so real
+GPU offload becomes possible) as the permanent fix — Option D (downgrade to a 3B model)
+explicitly rejected, since a smaller model would compromise the Strategist's actual
+planning/reasoning quality, not just its speed; Option A (blindly raise the timeout
+further) also rejected as premature until Option C's real number is known. Both 10.1's
+drop-in and 10.2's driver install need root (`sudo`), which this session has no
+passwordless access to for general commands — commands below are ready to run by the
+operator directly; implementation-side work (the Option C probe) proceeds in parallel.
+
+```bash
+# 10.1 — systemd-oomd session drop-in (Option A)
+sudo mkdir -p /etc/systemd/system/user@1000.service.d/
+sudo tee /etc/systemd/system/user@1000.service.d/20-vapt-oomd-override.conf << 'EOF'
+[Unit]
+Description=Permit High Memory Pressure for Local VAPT LLM Execution
+
+[Service]
+ManagedOOMMemoryPressureLimit=90%
+ManagedOOMMemoryPressureDurationSec=60s
+EOF
+sudo systemctl daemon-reload
+
+# 10.2 Option B — Intel Level Zero / OpenCL compute runtime (verify AFTER Option C's probe)
+sudo apt update
+sudo apt install -y intel-opencl-icd intel-level-zero-gpu level-zero libze1 libze-dev
+clinfo | grep "Device Name"
+```
+
+---
+
+**Status (superseded by the approval above): 🟡 AWAITING REVIEW.** Both items came out of 4 real, live full-engagement runs
+against JuiceShop/MediaCMS this pass (see
+`local-llm-agentic-vapt/implementation`'s session memory,
+`vapt_venv_rebuild_and_benchmark_2026_09_12`, for the full run-by-run detail). Neither is a
+code-correctness bug — both are real operational/hardware constraints this host's config
+runs into, laid out here with concrete options rather than a unilateral pick, per this file's
+usual purpose for exactly this kind of decision.
+
+#### 10.1 — `systemd-oomd` kills the whole engagement's cgroup under memory pressure, ignoring the project's own `oom_score_adj` protection
+
+**The problem, confirmed live and root-caused precisely.** Engagement 17 was SIGKILLed in
+its entirety (orchestrator, `llama-server`, every tool subprocess — 29 processes at once)
+~9 minutes into Strategist model loading, even though `MemAvailableGate` (`FR-GATE-10`) had
+already cleared the load, and even though `security/kill_switch.py`'s `oom_score_adj=-900`
+protection was correctly applied to the orchestrator process. Root cause:
+**`systemd-oomd`**, a separate userspace daemon from the kernel's own OOM killer (which never
+fired — nothing in `dmesg`), watches per-cgroup **PSI (pressure stall information)**, not
+per-process `oom_score_adj`, and Kali ships a default drop-in
+(`/usr/lib/systemd/system/user@.service.d/10-oomd-user-service-defaults.conf`) that arms
+`ManagedOOMMemoryPressure=kill` with `ManagedOOMMemoryPressureLimit=50%` on every user
+session's `user@1000.service` slice — meaning ANY cgroup under the desktop session
+(including the tmux-spawned scope `vaptctl start` launches the orchestrator into) gets
+killed outright if memory pressure sits above 50% for a sustained ~20s window, independent
+of whether the process holding that memory is well-behaved, self-throttling, or already has
+its own kernel-level OOM protection. On a 15GB host running an 8.7GB Q8_0 model, crossing
+that 50% pressure threshold during model load/reload is close to inevitable, not a fluke —
+this WILL recur on any future live run unless addressed.
+
+**What I verified live this session, so the options below are fact-checked, not
+speculative:**
+- Confirmed via `journalctl -u systemd-oomd` (the kernel's own OOM killer log, `dmesg`,
+  showed nothing — a real trap for anyone debugging this by kernel log alone).
+- Confirmed the exact drop-in file and its two relevant settings (above).
+- Tried the two "fix it live, narrowly, per-invocation" mechanisms first (lowest blast
+  radius): `systemctl --user set-property <tmux-scope> ManagedOOMMemoryPressure=no` and
+  `systemd-run --user --scope -p ManagedOOMMemoryPressure=no -- ...`. **Both failed** with
+  `Failed to set unit properties: Invalid argument` on this host's systemd 261 — this
+  property does not appear to be settable imperatively per-scope via either mechanism here
+  (possibly requires a declarative unit **file**, not a runtime/creation-time property
+  injection; not fully root-caused since further live experimentation risked destabilizing
+  the operator's real desktop session mid-investigation).
+- Did **not** attempt the remaining candidate fix (a real `/etc/systemd/system/` drop-in
+  file) live: it requires root, this session has no passwordless `sudo` for general commands
+  (confirmed: `sudo -n` demands a password for anything outside the one narrowly-scoped
+  `vapt-freezer-helper` NOPASSWD rule), and a system-wide daemon config change is exactly the
+  kind of action this file exists to route through the operator first rather than applying
+  unilaterally.
+
+**Options:**
+
+| # | Option | Feasibility | Blast radius / impact | Pros | Cons |
+|---|---|---|---|---|---|
+| A | **Drop-in override raising the limit/duration for `user@1000.service`** — e.g. `/etc/systemd/system/user@1000.service.d/20-vapt-oomd-override.conf` setting `ManagedOOMMemoryPressureLimit=90%` and/or `ManagedOOMMemoryPressureDurationSec=60s` | High — standard, well-documented systemd mechanism (`systemd.resource-control(5)`), just needs root once to create the file + `systemctl daemon-reload` (no reboot) | **Whole desktop session** — every app under this user session gets more pressure headroom before `systemd-oomd` intervenes, not just VAPT | Simple, one file, easy to revert (`rm` + reload), no code changes to the project at all | Weakens `systemd-oomd`'s protection for everything else running in the session too (browser tabs, etc.) — the exact class of problem `systemd-oomd` exists to catch; a runaway *unrelated* app would now get more rope before being killed |
+| B | **Disable `ManagedOOMMemoryPressure` entirely for `user@1000.service`** (`ManagedOOMMemoryPressure=no` in the same drop-in) | High — same mechanism as A, just a different value | Whole desktop session, same as A but total removal rather than a raised threshold | Fully eliminates this specific failure mode, permanently, with certainty | Same session-wide tradeoff as A, but total rather than partial — no pressure-based protection left for the whole desktop session at all (kernel OOM killer still exists as a last resort, just much blunter and later-triggering) |
+| C | **Narrow, code-level fix**: change `cli/run.py::launch_in_tmux` to launch the orchestrator via `systemd-run --user --unit=vapt-orchestrator-<engagement_id> --scope ...` instead of a bare `tmux new-session`, giving it a **stable, predictable** unit name, then ship a matching **project-owned** drop-in (`~/.config/systemd/user/vapt-orchestrator-@.scope.d/oomd.conf` or similar templated path) that exempts ONLY VAPT's own orchestrator scope, leaving the rest of the desktop session's `systemd-oomd` protection fully intact | Medium — real code change (`launch_in_tmux` + its tests + `engagement_tmux_session_names` interplay all need updating), and the earlier live "Invalid argument" failures mean the declarative-file half of this needs to be verified working BEFORE relying on it, not assumed | Narrowest possible — only VAPT's own engagement processes are exempted; everything else in the desktop session keeps full `systemd-oomd` protection | Correctly scoped, permanent, doesn't weaken protection for anything unrelated to VAPT | More engineering than A/B; not yet verified end-to-end (the declarative-drop-in half of the mechanism is untested); still needs one root-owned file created once, same as A/B |
+| D | **Keep the current workaround** (reduce memory footprint before each run — stop non-essential MediaCMS workers, close idle apps, JuiceShop-only when tight) and accept `systemd-oomd` as an occasional real constraint rather than something to engineer around | High — zero new config, this is what's already been done live, twice, successfully | None — no system changes at all | Zero risk, zero new surface area, already proven to work | Not "permanent" in the sense the operator asked for — requires the operator (or me) to actively manage memory headroom before every future run; doesn't fix the underlying fragility, just avoids triggering it |
+
+My recommendation if asked to pick one: **A**, as the pragmatic middle ground — real,
+permanent, one file, easily reversible, and 90%/60s still leaves *some* protection rather
+than none (unlike B), while being far simpler and more certain to actually work than C given
+C's core mechanism is still unverified on this host. B is reasonable if the operator would
+rather have zero risk of this recurring and is comfortable losing pressure-based protection
+session-wide. C is the "correct" long-term answer if this project ever runs on a host where
+protecting *other* unrelated apps from `systemd-oomd` actually matters, but shouldn't be
+built until A/B's simpler file-based mechanism is confirmed to actually work as designed
+(neither A nor B has been applied/tested live yet either — both need root, not available to
+me this session).
+
+#### 10.2 — Strategist role's CPU-only inference exceeds the current 2×30min timeout budget, confirmed reproducible
+
+**UPDATE 2026-09-12, Option C run to completion — the real number.** A standalone probe
+(`engine/client.py` called directly, bypassing `STRATEGIST_TIMEOUT_S`, real baseline-recon
+context reused verbatim from engagement 18's completed run — 33,318 chars / 12,449 prompt
+tokens) **completed successfully**: `elapsed_s: 7043.4` (**117.4 min, ~1h57m**),
+`completion_tokens: 5207`, producing a genuinely good, coherent attack-plan (IDOR on
+product-detail IDs, SSRF via an image-fetch feature pivoting to the internal CUPS service on
+`:631`, unauthenticated `/admin`, CUPS path traversal) — real validation that the council
+architecture works, not just a latency number. **~1h57m is the true CPU-only ceiling for
+this role on this hardware and this prompt size**, roughly 4x the current 1800s
+(`STRATEGIST_TIMEOUT_S`) per-attempt budget — explains why both real attempts (60.5min/
+60.3min combined, i.e. 2×1800s) never finished: the model was still working, just needed
+about twice that.
+
+**A second, unplanned finding from the same run, worth its own line:** `journalctl` shows
+the host **suspended itself mid-probe** (`xfce4-power-man`-triggered `s2idle` suspend,
+16:49:48 → 18:45:40, 1h56m) while the model was actively computing. The probe survived this
+completely unharmed — Linux's monotonic clock (which both my Python timer and, very likely,
+the underlying socket-timeout mechanism use) simply stops advancing during `s2idle` suspend,
+so neither the client's timeout nor my own elapsed-time measurement counted the sleep at
+all; the process resumed exactly where it left off on wake and finished normally. **This is
+good news for this specific probe's result being clean, but it surfaces a real, previously
+undocumented gap**: nothing in this project currently inhibits system suspend during an
+active engagement. This particular run got lucky (whatever timeout was in effect at each
+moment happened to still have headroom left when suspend hit); a real orchestrator run using
+the 1800s `STRATEGIST_TIMEOUT_S` could suspend and resume with a very different, less
+forgiving outcome depending on exact timing, and the Blueprint document's own claim that the
+system "runs unattended for hours if needed" implicitly assumes the OS won't nap through
+part of that unattended stretch. Flagging as a candidate for its own follow-up item
+(inhibit suspend for the duration of an active engagement, e.g. via `systemd-inhibit
+--what=sleep` wrapping the orchestrator process) rather than folding it into 10.2's own
+timeout-tuning decision, since it's a different mechanism entirely — not staged as a full
+proposal yet, just recorded here so it isn't lost.
+
+**Original two data points (engagements 18/19, both hit the OLD 2×30min budget before this
+Option C run measured the true number):** Two independent full engagements (18, 19), each running the identical
+Strategist Phase 4.1 turn 1 call against `DeepSeek-R1-0528-Qwen3-8B-Q8_0.gguf` (no GPU
+offload available — `libze_intel_gpu.so` absent from this host, confirmed every preflight
+run), both timed out on BOTH the initial attempt and `FR-GATE-08`'s one automatic
+restart+retry, landing within 12 seconds of each other: **3631.8s (60.5 min)** and
+**3619.9s (60.3 min)** combined, neither producing a response. Both times the engagement
+degraded gracefully to `PAUSED` exactly as `FR-GATE-08` designs it to — zero data loss, zero
+orphaned processes, full RAM recovery both times. This is NOT new: the 2026-09-09 session
+memory (`vapt_2026_09_09_mem_gate_and_app_teardown`) already flagged "Strategist inference
+exceeding the 900s client timeout (~30min+ actual)" as the real blocker back then too —
+`STRATEGIST_TIMEOUT_S` was already raised once (to 1800s, from whatever it was at 900s) in
+response, and the model still exceeds twice that. **The true completion latency ceiling on
+this hardware remains unmeasured beyond "more than 60 minutes."** Every one of the 1076
+passing tests that exercise Strategist logic does so against a fake/mocked engine
+(`_FakeBenchEngine` and similar) — the test suite has never validated real end-to-end
+Strategist latency, only the interface contract; this benchmark pass is the first time real
+GGUF inference has been exercised live to a terminal outcome at all.
+
+**Options:**
+
+| # | Option | Feasibility | Impact | Pros | Cons |
+|---|---|---|---|---|---|
+| A | **Raise `STRATEGIST_TIMEOUT_S` further** (`vapt_agent/council/strategist.py:48`, currently `1800.0`) | Trivial — one constant | Delays the PAUSE escalation further; does not change how long inference actually takes | Zero engineering risk, five-minute change | The true ceiling is unmeasured — could need hours, not minutes; raising blindly risks a multi-hour hang before the safety-net (graceful pause) even fires, with no new information gained about whether it will EVER finish |
+| B | **Get real GPU offload working** (install the Intel Arc/Meteor Lake iGPU compute driver so `libze_intel_gpu.so` exists) | Medium — a real Kali/Intel oneAPI driver install, outside this project's own codebase entirely (an OS/driver-layer change, similar class of decision to 10.1) | Could plausibly cut inference time substantially (iGPU offload for a Q8_0 7-8B model is often several times faster than CPU-only on this class of hardware) — the ONLY option here that could make full engagements complete in reasonable wall-clock time rather than just tolerating slowness | Addresses the root cause (speed) rather than working around it; `run_gpu_offload_benchmark` (`FR-PRE-08`) already exists specifically to quantify this once available — no new code needed, just the driver | Real install effort/risk on the host outside this project's control; not guaranteed to be dramatically faster on an iGPU class this small; preflight would need to be re-verified after |
+| C | **Run one uncapped raw latency probe** (bypass the orchestrator's timeout entirely, call the Strategist model directly via `engine/client.py` with a very large or no timeout, just to learn the TRUE number) | High — straightforward script, no code changes | One-time cost: as much as another 60-90+ minutes of wall-clock/CPU for a single data point | Answers "how long does it actually take" definitively, which every other option here is currently guessing at; informs whether A (raising the timeout) is even viable at all | Pure information-gathering, no functional improvement by itself; expensive in wall-clock time for one number; was already flagged as an option in the prior session and deliberately not run unilaterally given the cost |
+| D | **Swap the Strategist role to a smaller/faster model** (`vapt_agent/config/defaults.yaml`'s `models.strategist`, e.g. to one of the already-downloaded smaller GGUFs like `qwen2.5-coder-3b-instruct-q8_0.gguf`) | High — one config line, but changes WHAT is being benchmarked/used for real engagements, not just how fast | Directly reduces compute cost proportional to model size; likely the single fastest practical win available today (no driver install, no hardware dependency) | Immediate, low-risk, no OS-level change needed, testable in one more live cycle | A smaller model may reason noticeably worse for the Strategist's planning role specifically — this is a real capability/quality tradeoff the operator should decide, not something to silently downgrade |
+
+My recommendation if asked to pick one: **C first** (cheap relative to the others in
+engineering risk, and every other option is currently a guess without it), **then D** as the
+most practical standing fix if C's number turns out to be large, with **B** as the "do this
+eventually regardless" long-term answer and **A** only as a follow-on tuning step once C's
+real number is known (raising a timeout blindly, without knowing the ceiling, risks a
+multi-hour silent hang for no better outcome than what already happens today).
+
+**Now that C's real number is in (~117 min), the concrete next step is A**: raise
+`STRATEGIST_TIMEOUT_S` (`vapt_agent/council/strategist.py:48`) from `1800.0` to something
+with real margin over the measured ceiling — e.g. `9000.0` (150 min) leaves ~28% headroom
+over the observed 117.4 min for prompt-size/run-to-run variance the 2026-09-02 docstring
+finding already documented (763.8s vs. 900s+ on two real attempts at a SHORTER prompt back
+then). With `FR-GATE-08`'s existing one-shot restart+retry, a single attempt at 9000s should
+now be enough to finish without ever needing the retry — worth a live confirmation run once
+approved. **B (GPU driver) remains the real long-term fix** — a ~118min single-turn latency
+makes a full multi-target, multi-role engagement a many-hours-to-overnight affair even once
+A is applied; B is what would actually bring that down. D stays rejected (capability
+tradeoff, not revisited by this update).
 
 ---
 
 ## Archive — Resolved / Merged Items (newest first)
+
+### Round 11 — Prevent System Suspend During an Active Engagement
+
+**Status: ✅ APPROVED AND IMPLEMENTED (2026-09-12).** Operator approved Option A with an
+explicit code pattern. Implemented in `vapt_agent/cli/run.py` as `hold_system_inhibition()`,
+wrapping the `run_full_engagement(...)` call inside `run()`'s `try:` block — covers both the
+tmux-relaunched auto-start path and a direct/manual invocation (e.g. after `vaptctl resume`)
+uniformly, since both converge on that one call site. Holds a real
+`systemd-inhibit --what=sleep:idle --mode=block` lock via a `sleep infinity` child process
+for exactly the duration of that call; releases it (SIGTERM, falling back to SIGKILL after a
+3s grace period) in a `finally:` block on any exit path — normal completion, PAUSE
+escalation, or exception. Deliberately NOT spawned with its own process group
+(`start_new_session` left at its default `False`) so it dies automatically alongside the
+orchestrator under `vaptctl abort`'s `os.killpg` and under a Round 10.1-style
+`systemd-oomd` cgroup-wide kill, without any separate cleanup path. Degrades to holding no
+lock (never fails the engagement) if `systemd-inhibit` isn't on `PATH`.
+
+**Verified, not just implemented**: 3 new real tests in `tests/test_cli_run.py` —
+`test_hold_system_inhibition_registers_and_releases_a_real_lock` (genuinely calls
+`systemd-inhibit --list` and confirms the entry appears during the `with` block and is gone
+after), `test_hold_system_inhibition_terminates_lock_process_on_exception` (same, but
+raising inside the block), `test_hold_system_inhibition_degrades_gracefully_when_binary_absent`.
+Full suite: **1079 passed, 0 failed, 3 skipped**; `ruff` clean; `mypy` clean on the touched
+files. Fully done — no `sudo` was needed for this Round at all.
+
+---
 
 ### Round 9 — Three Items Closed Out of a "Close the Remaining Open Items" Pass, One Real Design Gap Found, Two Deliberately NOT Attempted
 
