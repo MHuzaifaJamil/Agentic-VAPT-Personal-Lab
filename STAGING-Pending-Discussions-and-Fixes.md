@@ -214,7 +214,7 @@ implemented and verified.)*
 |---|---|---|
 | 10.1 — `systemd-oomd` drop-in | Option A (90%/60s session override) | ✅ **Done (2026-09-13)** — operator ran it; confirmed live via `systemctl show user@1000.service -p ManagedOOMMemoryPressureLimit -p ManagedOOMMemoryPressureDurationUSec` returning `3865470566` (systemd's fraction-of-`UINT32_MAX` encoding of 90%: `4294967295 × 0.9 ≈ 3865470566`) and `1min` |
 | 10.2 Option A — raise `STRATEGIST_TIMEOUT_S` | Approved as the concrete next step once Option C's real number was in | ✅ **Done** — `vapt_agent/council/strategist.py:48`, `1800.0 → 9000.0`, full suite re-verified clean (1079/0/3) |
-| 10.2 Option B — Intel Level Zero/OpenCL driver | Approved as the real long-term fix | 🔲 **Not yet applied — needs the operator's own `sudo`** (commands below) |
+| 10.2 Option B — Intel Level Zero/OpenCL driver | Approved as the real long-term fix | ✅ **Done (2026-09-13)** — operator ran `intel-opencl-icd`/`intel-level-zero-gpu`/`level-zero`/`libze1`/`libze-dev` install; confirmed live in-process via `orchestrator/preflight.py::check_gpu_offload()` returning `passed=True`, `intel_gpu_driver_present=True`, `level_zero_loader_present=True`, `render_nodes=['/dev/dri/renderD128']`. FR-PRE-08 `run_gpu_offload_benchmark` (real tok/s delta, `primary_scripter` role) run immediately after — see result below once logged |
 | 10.2 Option C — uncapped latency probe | Approved, run to completion | ✅ **Done** — real result: 117.4 min, see below |
 | 10.2 Option D — downgrade to 3B model | Explicitly rejected | ❌ Rejected, not revisited |
 
