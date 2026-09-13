@@ -89,6 +89,10 @@ Build agents and code generators must strictly avoid ingesting non-actionable in
 * **Deterministic Grounding:** Before a report draft is approved, the grounding engine must verify that every cited endpoint, parameter, and payload exists verbatim in `artifacts_index` and `tool_execution_logs`.
 * **Deterministic CVSS:** Language models only propose CVSS 3.1 individual metric values with justifications. The final numeric score and vector string are computed via deterministic Python math utilities.
 
+### 4. Testing & Benchmark Reporting
+
+* Governed by **`Testing-Rules.md`** (same directory as this file) — binding for every future engagement report, benchmark report, and probe writeup. In short: per-engagement narrative summaries are capped at 5 sentences / 50–80 words, and every real timing/outcome number belongs in `implementation/reports/LLM-Council-Benchmarks.md` as an appended table row, not only buried in prose. Read `Testing-Rules.md` directly before writing any such report.
+
 ---
 
 ## 5. Dual-File Requirements & Test Plan Specification (Req. Spec. Agent Only)
