@@ -27,9 +27,22 @@ purpose is to show how a fix evolved, not just its final state.
 
 *(Genuinely new, undecided items — awaiting the operator's own review/choice.)*
 
+---
+
+## Still Open — Approved, Action Items Remain
+
+*(Decided by the operator, but not fully finished — usually because a step needs the
+operator's own `sudo`, which this assistant has no passwordless access to. Stays here, at
+the top of this section, until every sub-item is done — even once some parts are already
+implemented and verified.)*
+
+---
+
+## Archive — Resolved / Merged Items (newest first)
+
 ### Round 12 — Task-Dispatched Knowledge Ingestion: Bridging 818+ Security Skills Directly Into Council Tasks
 
-**Status: 🟢 PROPOSAL & SPECIFICATION.** Supersedes the earlier, lighter Round 12 draft
+**Status: ✅ APPROVED (2026-09-13) AND IMPLEMENTED (2026-09-13).** Supersedes the earlier, lighter Round 12 draft
 (a simpler `skill_lookup` Tier 2 tool sketch) with a fully worked design the operator
 provided directly. Same origin as before: `mukul975/Anthropic-Cybersecurity-Skills` (818
 Claude-Code Skill files, installed via `npx skills add ...`, symlinked under
@@ -197,18 +210,41 @@ directory alongside `~/.agents/skills/`) actually needs to exist yet or is aspir
 test coverage plan for the matcher/extractor before any of this touches a real role prompt.
 Not yet built — awaiting operator approval before any code is written.
 
----
+**UPDATE 2026-09-13 — approved with constraints, built same day.** Operator approved with:
+`~/.agents/skills` primary + `./custom_skills` fallback (no `/opt/`); `τ = 0.65` on a
+Szymkiewicz-Simpson overlap coefficient (chosen over raw BM25 — BM25's per-term IDF needs
+corpus-wide document-frequency stats and its score is unbounded, neither of which maps
+cleanly onto one fixed threshold the way a naturally-0..1-bounded overlap coefficient does)
+or `≥2` explicit tag intersections as a fallback; strict silence (inject nothing) below
+threshold; `3000`-char (~750 token) extraction ceiling. Implemented in the `implementation`
+repo, commit `fbe56e4`: new `vapt_agent/knowledge/skills_index.py` (parses `SKILL.md`
+frontmatter, matches) + `skill_extractor.py` (slices the matched skill's operational
+section). 17 new real tests, full suite clean (1096 passed, 0 failed, 3 skipped), ruff/mypy
+clean.
 
-## Still Open — Approved, Action Items Remain
+Two real deviations from the approved design, found by checking assumptions against the
+actual corpus/codebase before implementing literally, both documented in-line in the code:
 
-*(Decided by the operator, but not fully finished — usually because a step needs the
-operator's own `sudo`, which this assistant has no passwordless access to. Stays here, at
-the top of this section, until every sub-item is done — even once some parts are already
-implemented and verified.)*
+1. **The approved anchor header list didn't match the real corpus.** `## (Attack
+   Vectors|Verification|Exploitation|Payloads|Commands|Methodology)` was checked against all
+   819 real installed skill files (`find ~/.agents/skills -name SKILL.md | xargs grep -h
+   '^## ' | sort | uniq -c`) before implementing it — none of those six headers appear with
+   any meaningful frequency (`Verification`: 36/819; the other five: **0**). Implementing the
+   approved list literally would have returned **empty extraction for the overwhelming
+   majority of skills**, silently defeating the whole feature. The real dominant operational
+   section is `Workflow` (604/819, ~74%), with `Common Scenarios` (319 — worked examples,
+   concrete commands), `Steps` (65), `Instructions` (40), `Objectives` (95), `Core Concepts`
+   (58), and `Overview` (369, last-resort fallback) used in that priority order instead.
+2. **`dispatch_task_to_scripter()` doesn't exist in this codebase.** The real Phase 4.2A/4.2B
+   dispatch loops live in `orchestrator/phase_lifecycle.py::run_phase_4_2a`/`run_phase_4_2b`
+   — hooked there instead (one `load_skills_index()` call per phase invocation, one
+   `find_relevant_skill()` match per task, passed to both the first-attempt and Gate-2-retry
+   calls for that task via a new `skill_reference` kwarg on
+   `run_primary_scripter_command(_retry)`/`run_secondary_scripter_command(_retry)`).
 
----
-
-## Archive — Resolved / Merged Items (newest first)
+Both deviations are corrections to keep the approved *design intent* actually working against
+real data/code, not scope changes — flagged here per this file's own purpose rather than
+silently substituted.
 
 ### Round 13 — Real Production Bug: `llama-server` Default `-np`/`--parallel` Reserved ~4x the KV Cache This System Ever Uses
 

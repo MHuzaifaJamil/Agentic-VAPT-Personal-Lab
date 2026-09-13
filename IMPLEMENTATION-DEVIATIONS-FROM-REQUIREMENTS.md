@@ -21,6 +21,48 @@
 
 ---
 
+## 2026-09-13 — New capability: task-dispatched knowledge ingestion from a local skill corpus
+
+**Status: ✅ IMPLEMENTED, ✅ APPROVED (with constraints). Full design, the approval
+constraints, and the two real-corpus/real-codebase corrections made during implementation
+are in `STAGING-Pending-Discussions-and-Fixes.md`'s Archive, Round 12.**
+
+### What the requirement says
+
+Nothing — no numbered requirement doc (`01`–`24`) mentions a skill corpus, a matcher, or a
+`<task_reference>` prompt block. This is a genuinely new capability, not a literal-text
+conflict with an existing requirement.
+
+### What real code now does
+
+New `vapt_agent/knowledge/` package: `skills_index.py` walks `~/.agents/skills/*/SKILL.md`
+(configurable via `config['skills']['paths']`, `defaults.yaml`), parses each file's YAML
+frontmatter once, and matches a task description against the indexed corpus via a
+Szymkiewicz-Simpson token-overlap coefficient (`τ = 0.65`) or a `≥2` explicit-tag-intersection
+fallback — strict silence (no injection) below both. `skill_extractor.py` slices the matched
+skill's operational section (real-corpus-derived anchor priority: `Workflow` → `Common
+Scenarios` → `Steps` → `Instructions` → `Objectives` → `Core Concepts` → `Overview`),
+truncated to `config['skills']['max_reference_chars']` (3000 chars / ~750 tokens). Wired into
+`orchestrator/phase_lifecycle.py`'s real Phase 4.2A/4.2B dispatch loops
+(`run_phase_4_2a`/`run_phase_4_2b`) — one index load per phase call, one match per task,
+passed through a new `skill_reference` kwarg to
+`run_primary_scripter_command(_retry)`/`run_secondary_scripter_command(_retry)`
+(`council/primary_scripter.py`/`secondary_scripter.py`), appended to the prompt as a
+`<task_reference>` block outside `wrap_untrusted` (trusted, system-curated content, not
+target-derived — same treatment `bridge/tool_discovery.py::format_discovery_block`'s existing
+CANDIDATE TOOLS block already gets). 17 new tests, full suite reverified clean (1096 passed,
+0 failed, 3 skipped).
+
+### Why this deviates / where it should land in the corpus
+
+Same class as the suspend-inhibition and Strategist-timeout entries below — never had a
+documented home in the numbered corpus at all. Candidate home:
+`01-Functional-Requirements.md`, a new `FR-COUNCIL-1x` alongside the existing dispatch-flow
+requirements (`FR-COUNCIL-07`/`09`/`10`), or `14-...md` §3 alongside the Scripter role
+descriptions — flagged for the next reconciliation pass rather than invented unilaterally.
+
+---
+
 ## 2026-09-13 — `LlamaCppEngineClient.load()` now pins `llama-server` to a single request slot (`-np 1`)
 
 **Status: ✅ IMPLEMENTED, ✅ unconditional correctness fix (no operator decision needed).
