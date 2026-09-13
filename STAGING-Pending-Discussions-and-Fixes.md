@@ -206,16 +206,60 @@ operator's own `sudo`, which this assistant has no passwordless access to. Stays
 the top of this section, until every sub-item is done — even once some parts are already
 implemented and verified.)*
 
+---
+
+## Archive — Resolved / Merged Items (newest first)
+
+### Round 13 — Real Production Bug: `llama-server` Default `-np`/`--parallel` Reserved ~4x the KV Cache This System Ever Uses
+
+**Status: ✅ FOUND AND FIXED (2026-09-13), unconditionally — no decision needed, filed for
+the record.**
+
+Found while running the Round 10 council-wide latency probe (below): `secondary_scripter`
+(`deepseek-coder-6.7b-instruct-q8_0.gguf`) got the background probe process killed by this
+host's own memory guard 5 times in a row before being root-caused. `llama-server`'s own
+default `-np`/`--parallel` is `-1` ("auto"), which resolved to `n_slots = 4` on this host —
+confirmed directly from the server's own startup log: `n_slots = 4, n_ctx_slot = 15360`.
+Each of those 4 slots gets its own full KV cache sized to `n_ctx_slot` — meaning the
+*default* configuration reserves KV cache for **~4x the concurrent-request capacity this
+system ever actually uses**. `FR-GATE-02` is this project's own hard single-model-residency
+architecture; `LlamaCppEngineClient` only ever issues one `chat_completion` call at a time
+per handle — there is no legitimate use anywhere in this codebase for more than 1 slot.
+
+**Confirmed live, not just theoretically:** `deepseek-coder-6.7b-instruct-q8_0.gguf`
+(7.16GB weights) measured **13.67GB real RSS** at `-np 1` (1 slot, same `n_ctx_slot`). The
+old 4-slot default would imply roughly **~33GB** for the same model — far beyond this 15GB
+host's total RAM+swap capacity. This means the *default* configuration was never actually
+safe to run this role on this host at all, independent of the benchmark that surfaced it —
+a real crash risk for any live production engagement using this role, not an artifact of
+how the probe was constructed.
+
+**Fix:** `vapt_agent/engine/client.py::LlamaCppEngineClient.load()` — added `-np`, `1` to
+the fixed `llama-server` launch args (with a full in-line comment recording this finding).
+`tests/fixtures/fake_llama_server.py` updated to accept (and ignore) the new `-np`/
+`--parallel` flag the same way it already accepts `-t`/`--threads` — its `argparse` setup
+was rejecting the unrecognized flag, which broke 4 `test_engine_client.py` tests (the fake
+server subprocess exited on an unparseable arg before ever reaching `/health`, so
+`LlamaCppEngineClient._wait_for_health()` timed out). Full suite reverified clean after both
+changes: **1079 passed, 0 failed, 3 skipped.**
+
+Committed to the `implementation` repo as `978eb21` (message: "Fix real host-memory-pressure
+bug: llama-server default -np/--parallel=4"), already pushed. No decision was needed from
+the operator — this is a zero-functional-tradeoff correctness fix (identical behavior for
+this system's actual single-request-at-a-time usage pattern, just without wasting ~3 slots'
+worth of KV cache RAM), filed here purely for the record per this file's own stated purpose
+("show how a fix evolved, not just its final state").
+
 ### Round 10 — Two Real Findings From the 2026-09-12 Live Benchmark: `systemd-oomd` Kills, and the Strategist's CPU-Only Latency Ceiling
 
-**Status: ✅ APPROVED (2026-09-12) — PARTIALLY IMPLEMENTED, `sudo` STEPS STILL OPEN.**
+**Status: ✅ APPROVED (2026-09-12) — FULLY IMPLEMENTED AND VERIFIED (2026-09-13). Moved to Archive.**
 
 | Item | Decision | Status |
 |---|---|---|
 | 10.1 — `systemd-oomd` drop-in | Option A (90%/60s session override) | ✅ **Done (2026-09-13)** — operator ran it; confirmed live via `systemctl show user@1000.service -p ManagedOOMMemoryPressureLimit -p ManagedOOMMemoryPressureDurationUSec` returning `3865470566` (systemd's fraction-of-`UINT32_MAX` encoding of 90%: `4294967295 × 0.9 ≈ 3865470566`) and `1min` |
 | 10.2 Option A — raise `STRATEGIST_TIMEOUT_S` | Approved as the concrete next step once Option C's real number was in | ✅ **Done** — `vapt_agent/council/strategist.py:48`, `1800.0 → 9000.0`, full suite re-verified clean (1079/0/3) |
-| 10.2 Option B — Intel Level Zero/OpenCL driver | Approved as the real long-term fix | ✅ **Done (2026-09-13)** — operator ran `intel-opencl-icd`/`intel-level-zero-gpu`/`level-zero`/`libze1`/`libze-dev` install; confirmed live in-process via `orchestrator/preflight.py::check_gpu_offload()` returning `passed=True`, `intel_gpu_driver_present=True`, `level_zero_loader_present=True`, `render_nodes=['/dev/dri/renderD128']`. FR-PRE-08 `run_gpu_offload_benchmark` (real tok/s delta, `primary_scripter` role) run immediately after — see result below once logged |
-| 10.2 Option C — uncapped latency probe | Approved, run to completion | ✅ **Done** — real result: 117.4 min, see below |
+| 10.2 Option B — Intel Level Zero/OpenCL driver | Approved as the real long-term fix | ✅ **Done (2026-09-13)** — operator ran `intel-opencl-icd`/`intel-level-zero-gpu`/`level-zero`/`libze1`/`libze-dev` install; confirmed live in-process via `orchestrator/preflight.py::check_gpu_offload()` returning `passed=True`, `intel_gpu_driver_present=True`, `level_zero_loader_present=True`, `render_nodes=['/dev/dri/renderD128']`. **FR-PRE-08 `run_gpu_offload_benchmark` result (real, 2026-09-13): GPU offload is NOT beneficial on this host** — `primary_scripter` (qwen2.5-coder-7b-instruct-q8_0), same prompt, CPU-only `-ngl 0` = **2.50 tok/s**, GPU-offload `-ngl 99` = **1.91 tok/s**. `offload_beneficial=False`. See analysis below — driver install was still worth doing (correctness/completeness, `intel_gpu_driver_present` no longer a false negative in preflight) but does NOT deliver the speedup Option B's own writeup predicted |
+| 10.2 Option C — uncapped latency probe | Approved, run to completion | ✅ **Done** — real result: 117.4 min (large 33k-char/~12k-prompt-token context). A second, independent uncapped Strategist run on 2026-09-13 (part of the council-wide probe below, smaller ~3k-token prompt) completed in **43.23 min** (2594.1s), 4618 completion tokens, 1.78 tok/s generation — both real data points now on record; generation speed (~1.7-1.8 tok/s CPU) is consistent across both runs, confirming this role's cost scales primarily with reasoning-trace + prompt length, not a fixed constant |
 | 10.2 Option D — downgrade to 3B model | Explicitly rejected | ❌ Rejected, not revisited |
 
 10.1: **Option A** (session drop-in,
@@ -399,14 +443,105 @@ over the observed 117.4 min for prompt-size/run-to-run variance the 2026-09-02 d
 finding already documented (763.8s vs. 900s+ on two real attempts at a SHORTER prompt back
 then). With `FR-GATE-08`'s existing one-shot restart+retry, a single attempt at 9000s should
 now be enough to finish without ever needing the retry — worth a live confirmation run once
-approved. **B (GPU driver) remains the real long-term fix** — a ~118min single-turn latency
-makes a full multi-target, multi-role engagement a many-hours-to-overnight affair even once
-A is applied; B is what would actually bring that down. D stays rejected (capability
-tradeoff, not revisited by this update).
+approved.
 
----
+**UPDATE 2026-09-13 — Option B's own predicted payoff did NOT materialize; B was worth doing
+anyway, but for a different reason.** Once the driver was installed and `check_gpu_offload()`
+confirmed working (see table above), `FR-PRE-08`'s `run_gpu_offload_benchmark` was run for
+real against `primary_scripter` (qwen2.5-coder-7b-instruct-q8_0.gguf, identical short fixed
+prompt both ways):
 
-## Archive — Resolved / Merged Items (newest first)
+| Backend | tok/s |
+|---|---|
+| CPU-only (`-ngl 0`) | **2.50** |
+| GPU-offload (`-ngl 99`) | **1.91** |
+
+`offload_beneficial=False`, `gpu_load_error=None` — GPU offload loaded and ran successfully,
+it is just genuinely *slower* than CPU-only on this host's Intel iGPU for this model/
+quantization. Best-guess explanation, not yet independently verified: this laptop's Arc/Iris
+Xe-class iGPU shares system RAM/memory bandwidth with the CPU rather than having dedicated
+VRAM, and this host's CPU-only generation speed was already established (2026-09-12,
+`Assumptions-Not-Approved.md`) to be **memory-bandwidth-bound, not thread-count-bound**
+(`-t 18` barely moved generation speed vs `-t 8`) — if the iGPU draws from the same memory
+bus with its own driver/offload overhead on top, it has no bandwidth headroom left to turn
+into a speed advantage, only added overhead. This reframes Option B: it remains correct to
+have installed (closes a real preflight false-negative, `intel_gpu_driver_present` now
+correctly reports `True`, and `FR-PRE-08`'s benchmark can now run and self-correctly choose
+CPU-only every time via `offload_beneficial`), but it is **not** the "bring multi-hour
+engagements down to a reasonable wall-clock" fix the original Option B writeup hoped for —
+this host's CPU-only path already *is* the fast path. D (downgrade to a 3B model) remains
+the only lever actually available on this hardware for cutting Strategist latency further,
+and remains rejected for the same reasoning-quality tradeoff as before, not revisited by
+this update.
+
+**UPDATE 2026-09-13 — full council-wide uncapped latency/reliability probe (Round 12's
+"task-dispatched knowledge ingestion" motivation aside, this answers a separate, simpler
+question the operator asked directly: how long does EVERY council role actually take, not
+just the Strategist).** Same methodology as Option C's original single-role probe — each of
+the 6 real production role wrapper functions (`council/strategist.py::run_strategist`,
+`strategy_auditor.py::run_gate1_semantic`, `primary_scripter.py::run_primary_scripter_command`,
+`secondary_scripter.py::run_secondary_scripter_command`, `criterion_adjudicator.py::
+run_adjudicator`, `reporter.py::run_reporter`) called directly (`conn=None`, a documented
+safe no-op passthrough in every one of these functions — no DB/logging side effects), each
+against a real loaded model via `LlamaCppEngineClient`, with a realistic synthetic
+task/finding/evidence input per role, load→call→unload sequential (this system's own
+`FR-GATE-02` hard single-model-residency means no two roles ever run concurrently in
+production either). Not run through the orchestrator's own timeout wrappers — role-
+appropriate generous `max_tokens` bounds were used instead (1024 for the 5 non-reasoning
+roles, whose real completions never exceeded 382 tokens; 6000 for the Strategist, a
+DeepSeek-R1 reasoning model that emits a long internal trace before its JSON answer) as a
+safety valve against a genuinely pathological non-terminating generation, NOT a
+reintroduction of a timeout — every real completion below finished well under its cap.
+
+| Role | Model | Load | Wall time | Prompt tok | Completion tok | tok/s | Result |
+|---|---|---|---|---|---|---|---|
+| Auditor (Gate-1) | Hermes-3-Llama-3.1-8B | 15.3s | 85.6s (1.4min) | 660 | 94 | 1.10 | ✅ real `approve` verdict |
+| Criterion Adjudicator | Mistral-7B-Instruct-v0.3 | 9.6s | 235.8s (3.9min) | 1380 | 382 | 1.62 | ✅ real `CONFIRMED` verdict |
+| Reporter | Ministral-8B-Instruct-2410 | 10.7s | 198.8s (3.3min) | 1185 | 294 | 1.48 | ✅ real finding report drafted |
+| Secondary Scripter | deepseek-coder-6.7b-instruct | 1.1s | n/a | ~1400 avg | 1024 (×3) | n/a | ❌ **real failure** — see below |
+| Primary Scripter | qwen2.5-coder-7b-instruct | 4.8s | 179.4s (3.0min) | 1721 | 91 | 0.51 | ✅ real Tier-1 tool-invocation JSON |
+| Lead Strategist | DeepSeek-R1-0528-Qwen3-8B | 5.2s | 2594.1s (43.2min) | 3011 | 4618 | 1.78 | ✅ real 5-hypothesis attack-plan JSON |
+
+**Secondary Scripter's real failure, root-caused, not a fluke:** `StructuredOutputError:
+exhausted 2 retries (3 attempts total)`. All 3 real attempts (411.2s, 297.2s, 302.7s —
+~16.85 min total) hit **exactly** the 1024-token `max_tokens` ceiling every single time
+(`completion_tokens: 1024, 1024, 1024`) — it never once emitted a natural stop token within
+budget. This exact model file also logs a real warning at raw `llama-server` startup:
+`GENERATION QUALITY WILL BE DEGRADED! CONSIDER REGENERATING THE MODEL` (missing/incorrect
+pre-tokenizer type, plus a `special_eos_id is not in special_eog_ids` tokenizer-config
+warning) — a plausible, concrete root cause for why this specific GGUF never reliably
+terminates its own output, independent of prompt content or the cap size chosen. This is a
+real production-relevant finding: **the Secondary Scripter role, on the currently-installed
+`deepseek-coder-6.7b-instruct-q8_0.gguf`, cannot be trusted to reliably produce valid
+structured output** — worth the operator's attention (re-download/regenerate the GGUF with a
+correct tokenizer, or swap the model) independent of anything else in this Round. Filed as a
+new observation here rather than a numbered fix option, since no code-level remediation
+exists — this is a model-artifact quality issue, not a bug in this codebase.
+
+**Real production bug found and fixed while running this probe (unrelated to the above, but
+found because of it):** `llama-server`'s own default `-np`/`--parallel` is `-1` ("auto"),
+which resolved to `n_slots=4` on this host — confirmed via the server's own startup log
+(`n_slots = 4, n_ctx_slot = 15360`) — meaning **every real engagement's model load has been
+reserving KV cache for ~4x the concurrent-request capacity this system ever actually uses**
+(`FR-GATE-02` is hard single-model-residency; `LlamaCppEngineClient` only ever issues one
+`chat_completion` call at a time per handle). Confirmed live: `deepseek-coder-6.7b-instruct`
+(7.16GB weights) measured **13.67GB RSS** at `-np 1` (1 slot) vs. an implied ~33GB at the old
+4-slot default — far beyond this 15GB host's total RAM+swap capacity, meaning the *default*
+configuration was never actually safe to run on this host for this model, independent of
+this benchmark. Fixed for real in `vapt_agent/engine/client.py::LlamaCppEngineClient.load()`
+(`-np 1` added to the fixed server-launch args, full doc-comment explaining the finding
+in-line), `tests/fixtures/fake_llama_server.py` updated to accept the new flag (was
+rejecting it via `argparse`, breaking 4 engine-client tests), full suite reverified clean
+(1079 passed, 0 failed, 3 skipped). Committed to the `implementation` repo as `978eb21`. This
+is an unconditional, zero-functional-tradeoff production fix — filed here for the record,
+not as a numbered option, since there was nothing to decide (no legitimate use for >1
+concurrent slot exists anywhere in this codebase's actual usage pattern).
+
+**B (GPU driver) remains correctly installed** — a ~43-117min single-turn Strategist latency
+(depending on prompt size) makes a full multi-target, multi-role engagement a many-hours-to-
+overnight affair regardless of backend; CPU-only was already confirmed the faster backend on
+this host (see the GPU benchmark update above), so there is no further backend-level lever
+left to pull here. D stays rejected (capability tradeoff, not revisited by this update).
 
 ### Round 11 — Prevent System Suspend During an Active Engagement
 

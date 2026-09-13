@@ -21,6 +21,46 @@
 
 ---
 
+## 2026-09-13 — `LlamaCppEngineClient.load()` now pins `llama-server` to a single request slot (`-np 1`)
+
+**Status: ✅ IMPLEMENTED, ✅ unconditional correctness fix (no operator decision needed).
+Full writeup, the real host-memory incident that surfaced it, and the live RSS measurements
+are in `STAGING-Pending-Discussions-and-Fixes.md`'s Archive, Round 13.**
+
+### What the requirement says
+
+Nothing names `llama-server`'s own `-np`/`--parallel` flag anywhere in the numbered corpus.
+`FR-GATE-02` establishes hard single-model-residency (loading a second model unloads the
+resident one first) and `01`'s Council Roster implies one role's call in flight at a time —
+both consistent with 1 request slot being correct, but neither literally specifies the
+server-launch flag.
+
+### What real code now does
+
+`vapt_agent/engine/client.py::LlamaCppEngineClient.load()`'s server-launch command now
+includes `-np`, `1` alongside the existing `--model`/`--host`/`--port`/`-t` args.
+`llama-server`'s own default (`-np -1`, "auto") had been resolving to `n_slots = 4` on the
+reference host (confirmed via the server's own startup log), each slot getting its own full
+KV cache — a real, live-confirmed ~4x RAM overallocation (13.67GB measured RSS for a
+7.16GB model at 1 slot vs. an implied ~33GB at the old 4-slot default) that a real
+background benchmark run tripped over repeatedly before being root-caused. `tests/
+fixtures/fake_llama_server.py` updated to accept (and ignore) the new flag, matching its
+existing `-t`/`--threads` handling. Full suite re-verified clean after the change (1079
+passed, 0 failed, 3 skipped).
+
+### Why this deviates / where it should land in the corpus
+
+Not a conflict with existing spec text so much as a gap the spec never closed — `FR-GATE-02`
+describes the *model*-residency contract (one model loaded at a time) but says nothing about
+the *request-concurrency* contract for the engine process itself, which turned out to matter
+a great deal for real memory safety on constrained hardware. Candidate home:
+`05-Security-Safety-and-Compliance-Requirements.md` or `06-Operational-Requirements.md`
+alongside `NFR-RES-02`'s existing 1.5GB safety-margin language, as an explicit statement
+that the local inference engine MUST be launched with request concurrency bounded to what
+this system's own architecture actually uses (1), not left to the binary's own default.
+
+---
+
 ## 2026-09-12 — New capability: system suspend inhibited for the duration of an active engagement
 
 **Status: ✅ IMPLEMENTED, ✅ APPROVED, unit-tested (real, live `systemd-inhibit` registration
