@@ -246,6 +246,38 @@ Both deviations are corrections to keep the approved *design intent* actually wo
 real data/code, not scope changes — flagged here per this file's own purpose rather than
 silently substituted.
 
+**UPDATE 2026-09-13 — post-implementation external code review, 2 real bugs found and fixed,
+2 concerns checked and resolved as non-issues (with real numbers, not just reasoning).**
+
+1. **Matcher false positives — REAL, confirmed against the actual 819-skill corpus, fixed.**
+   `find_relevant_skill()` had no stopword filtering; even after adding one, the
+   Szymkiewicz-Simpson ratio alone (`min(|query|,|skill|)` denominator) let a short query
+   clear `τ=0.65` on just 2 shared content words against any skill. Real repro: *"Analyze the
+   response from the server."* scored 0.8 against a memory-forensics skill (stopword-driven),
+   then 0.67 against an unrelated malware-analysis skill (2-word coincidence) after stopwords
+   alone were removed. Fixed with a stopword list + a minimum absolute overlap-count floor
+   (`_MIN_OVERLAP_TOKENS=3`) required alongside the ratio — every genuine match re-checked
+   had ≥3 overlapping tokens, every confirmed false positive had exactly 2.
+2. **Unclosed code fences on truncation — REAL, far more common than expected, fixed.** The
+   naive `body[:max_chars]` cut left an odd (unclosed) `` ``` `` count for **405 of 818 real
+   skill files (~49.5%)** — not a rare edge case. Fixed: truncation now backs up to drop an
+   entire dangling fenced block rather than serve a mangled/unclosed fragment. Re-verified:
+   0/818 real skills produce an unclosed fence post-fix.
+3. **`load_skills_index()` caching — checked, not an issue at this scale.** Measured 1.05s to
+   parse all 818 real files; the wiring already calls it once per `run_phase_4_2a`/
+   `run_phase_4_2b` invocation (confirmed by re-reading the actual call sites, both outside
+   the task loop) — at most 2 calls, ~2.1s total, per multi-hour engagement, not per task.
+   Not worth the added complexity of a cross-phase cache at this scale.
+4. **Prompt-token cost of the injected reference — real tradeoff, already accepted by
+   design, not yet independently measured.** The 750-token (~3000-char) ceiling is a real
+   added prefill cost on every match; the approved design already weighed this against
+   answer quality. Worth watching in `implementation/reports/LLM-Council-Benchmarks.md` once
+   a live engagement produces a real skill-reference-injected data point — not fixed further
+   now since nothing here is actually broken.
+
+4 new regression tests added (2 per real fix), full suite reverified clean (1100 passed, 0
+failed, 3 skipped), `ruff`/`mypy` clean. Committed to the `implementation` repo as `b9ce91f`.
+
 ### Round 13 — Real Production Bug: `llama-server` Default `-np`/`--parallel` Reserved ~4x the KV Cache This System Ever Uses
 
 **Status: ✅ FOUND AND FIXED (2026-09-13), unconditionally — no decision needed, filed for
