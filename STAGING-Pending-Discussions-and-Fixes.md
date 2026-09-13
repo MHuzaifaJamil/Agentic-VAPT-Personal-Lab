@@ -554,6 +554,49 @@ correct tokenizer, or swap the model) independent of anything else in this Round
 new observation here rather than a numbered fix option, since no code-level remediation
 exists — this is a model-artifact quality issue, not a bug in this codebase.
 
+**UPDATE 2026-09-13 — root-caused precisely and FIXED, live-verified.** Direct GGUF header
+inspection (`gguf` PyPI package's `GGUFReader`, then a raw manual KV-pair parser for a
+header-only range-request sample before the full file finished downloading) confirmed the
+installed file has **no `tokenizer.ggml.pre` key at all** and **no `tokenizer.chat_template`**
+— llama.cpp's "missing pre-tokenizer type, using: 'default'" warning is real, not cosmetic:
+without it, llama.cpp falls back to a generic BPE pre-tokenizer regex that doesn't match this
+model's actual training-time tokenization, which is exactly llama.cpp's own stated
+consequence ("GENERATION QUALITY WILL BE DEGRADED"). Traced to source: this file is
+`TheBloke/deepseek-coder-6.7B-instruct-GGUF`'s Q8_0 (confirmed via a matching `<|EOT|>`
+EOS-token convention and the repo's own stated "llama.cpp from August 27th [2023]" build
+date) — roughly 8-9 months before llama.cpp added per-model BPE pre-tokenizer detection
+(mid-2024). Found and verified a corrected re-conversion:
+`QuantFactory/deepseek-coder-6.7b-instruct-GGUF`'s Q8_0 file has `tokenizer.ggml.pre =
+"deepseek-coder"` and a real embedded `tokenizer.chat_template`, with **identical**
+`bos_token_id`/`eos_token_id`/`padding_token_id` (32013/32021/32014) to the broken file —
+genuinely the same underlying model and tokenizer, just correctly converted.
+
+Downloaded (7,163,751,392 bytes, byte-exact match against the repo's declared
+`content-length` — this host's network was repeatedly flaky for large transfers this
+session; `curl` failed 5 different ways (HTTP/2 stream resets, truncated responses,
+persistent low-level connection drops) and `huggingface_hub`'s `hf_xet` chunked downloader
+also failed once near the end (a reconstruction error) and once to the host's own memory
+guard; what actually worked was a plain single-connection Python `requests` streamer with
+real `Range`-header resume on every failure, run to completion over ~19 retry cycles).
+Old file backed up (not deleted) as
+`deepseek-coder-6.7b-instruct-q8_0.gguf.old-missing-pretoken`; corrected file swapped into
+its place. Verified via a fresh raw `llama-server` startup: **the "missing pre-tokenizer
+type"/"GENERATION QUALITY WILL BE DEGRADED" warnings are gone.** (Two other, unrelated
+warnings persist on both files — `<｜fim▁hole｜>`/`<｜fim▁begin｜>`/`<｜fim▁end｜>` "control-looking
+token" type-override notices, and `special_eos_id is not in special_eog_ids` — these trace
+to the underlying HF `tokenizer.json`/`tokenizer_config.json` itself, not the GGUF
+conversion, and are almost certainly benign: llama.cpp auto-corrects the FIM-token typing
+itself per its own log line, and the model's actual `eos_token_id` — `<|EOT|>`, 32021 — is
+still the one explicitly configured and honored regardless of whether it's also present in
+llama.cpp's broader heuristic end-of-generation-id scan.)
+
+**Real re-test, same production code path, same synthetic task** (`council/
+secondary_scripter.py::run_secondary_scripter_command`, `conn=None`, `-np 1 -c 3072`):
+**succeeded on the first attempt in 153.7s**, producing valid structured JSON (a real
+`sqlmap` UNION-based command) — versus the old file's 3 failed attempts totaling ~16.85 real
+minutes, every one hitting the `max_tokens` ceiling without ever emitting a stop token. Fix
+confirmed working, not just theorized.
+
 **Real production bug found and fixed while running this probe (unrelated to the above, but
 found because of it):** `llama-server`'s own default `-np`/`--parallel` is `-1` ("auto"),
 which resolved to `n_slots=4` on this host — confirmed via the server's own startup log
