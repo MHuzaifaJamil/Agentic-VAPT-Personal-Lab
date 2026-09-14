@@ -40,6 +40,59 @@ implemented and verified.)*
 
 ## Archive — Resolved / Merged Items (newest first)
 
+### Round 14 — Root Cause of Zero Confirmed Vulnerabilities Across Every Real Engagement: Gate 1 Never Checked a Command's Actual Destination
+
+**Status: ✅ APPROVED (2026-09-14, operator selected "Both: explicit host param + Gate 1
+host-scope check") AND IMPLEMENTED (2026-09-14).** Full technical record in
+`Assumptions-Not-Approved.md` item #60 and `IMPLEMENTATION-DEVIATIONS-FROM-REQUIREMENTS.md`.
+Triggered by the operator's own question: *"OWASP Juice Shop is a Vulnerable Application...
+Why No Vulnerabilities has been found across 23 Engagements!?"*
+
+**Investigation.** Of the 23 engagements ever created, only 1 (engagement 23) ever fully
+completed — the rest were aborted during setup/dev iteration or crashed (the
+`StructuredOutputError` bug, separately fixed the same session). Even that one engagement
+only processed 4 of 35 Strategist-proposed hypotheses. Of the real Scripter-generated
+commands traced across the 3 engagements that got far enough to run one, at least 2 never
+touched the real target at all: a Primary Scripter task generated `curl
+http://example.com/api/users` (a real request to IANA's internet placeholder domain) and a
+Secondary Scripter task generated `nmap --script http-enum target_system_ip` (an unresolved
+literal placeholder, 0 hosts scanned) — both logged `EXECUTED`/`SUCCESS`. Root cause: neither
+Scripter's prompt ever stated the real target host explicitly (only 3 of 25 real task
+descriptions in the database ever mentioned it), and Gate 1 Tier 0's scope check validated
+the task's own static registered target string — trivially always in scope — never the
+proposed command's actual `argv`.
+
+**Fix, operator-selected from 3 options (explicit-host-only / both / defer):**
+1. `run_primary_scripter_command(_retry)`/`run_secondary_scripter_command(_retry)` gained a
+   required `target_host` parameter, injected as an explicit `TARGET` prompt field with an
+   imperative "never substitute a placeholder" instruction, reinforced in both role system
+   prompts.
+2. `check_tier0` gained a new, 100% deterministic (no LLM) destination-scope check per the
+   operator's own follow-up constraints: exact IP/CIDR/DNS-suffix matching only; the argv
+   parser must isolate the real network destination without misidentifying HTTP headers,
+   secondary parameter values, or local bind flags (closed via the tool's own declarative
+   Tier 1 schema — the same one Gate 2 validates against — walked using its `takes_value`
+   metadata so a header/bind/output-path value is never touched, regardless of shape); and
+   restricted to autonomous council tasks only, operator-directed tasks bypass entirely
+   (true by construction — `check_tier0` was never reachable from the `HUMAN_OPERATOR`
+   origin path to begin with).
+
+A real regression was caught during implementation itself (not by the operator): an early
+version of the schema-driven check validated a required positional's raw string against
+scope without extracting the host from it first, breaking 2 pre-existing tests for tools
+whose required positional is a full URL (`graphql_scanner`, `credential_spray`) rather than
+a bare host — found via the full test suite, fixed before this round closed.
+
+**Verification:** both real historical incidents reproduced against the exact recorded
+`argv` and confirmed now rejected; the corresponding real legitimate commands confirmed
+still approved; 27 new/updated regression tests; full suite 1126 passed, 0 failed, 3
+skipped; `ruff`/`mypy` clean. Per the operator's explicit instruction this same session
+("Do NOT Test-Run the Models until I ask to do so"), this round was verified entirely via
+deterministic/fake-engine tests — no live model engagement was run to confirm it end-to-end;
+that remains for the next live engagement the operator requests.
+
+---
+
 ### Round 12 — Task-Dispatched Knowledge Ingestion: Bridging 818+ Security Skills Directly Into Council Tasks
 
 **Status: ✅ APPROVED (2026-09-13) AND IMPLEMENTED (2026-09-13).** Supersedes the earlier, lighter Round 12 draft

@@ -2399,3 +2399,96 @@ values.
 item #55's values (`Strategist: 10.7, 850.0`) or the original spec
 placeholders (`Gatekeeper: 11.0, 8.0`; `Operator: 28.5, 15.0`) — a
 self-contained data change with no other coupling.
+
+---
+
+## 60. Explicit `TARGET` prompt field + deterministic argv-destination extraction for Gate 1 Tier 0 (2026-09-14, real fix — root cause of "zero vulnerabilities found across 23 engagements")
+
+**What I assumed:** Two coupled implementation decisions, neither specified anywhere in
+`01`–`24`, made to close a real, live-confirmed gap: (1) the Primary/Secondary Scripter
+prompts (`council/primary_scripter.py`, `council/secondary_scripter.py`) never stated the
+actual target host/IP anywhere — `FR-COUNCIL-07`/`09`/`10` describe the Scripter turning a
+Gate-1-approved task into a command, but say nothing about how it learns *what host* to
+point that command at, and in practice the Strategist's own free-text `task_description`
+rarely restated it (a database audit of every real task description on record found only 3
+of 25 ever mentioned the target's IP at all). (2) Gate 1 Tier 0's "scope membership" check
+(`FR-COUNCIL-03a`) validated the task's STATIC registered `targets.host_or_domain` string
+against `scope_rules` — trivially always true, since that string is literally where the
+scope rule came from — never the proposed command's own `argv`, which is the only place the
+command's REAL destination actually lives.
+
+**Confirmed live, not theoretical:** across the only real completed/near-completed
+engagements this system has ever run (21, 22, 23), the Primary Scripter twice produced
+`curl http://example.com/api/users` (IANA's real internet placeholder domain — a genuine
+outbound request left this host) and the Secondary Scripter once produced `nmap --script
+http-enum target_system_ip` (a literal unresolved placeholder token; nmap correctly failed
+to resolve it and scanned 0 hosts). All three were logged `EXECUTED`/`SUCCESS`, because
+nothing in the pipeline ever checked a command's actual network destination against the
+engagement's scope. This is the direct, root-caused answer to why OWASP Juice Shop — a
+deliberately vulnerable target — produced zero confirmed findings across every real
+engagement run: the tooling had barely ever actually reached it.
+
+**Why (spec basis):** `01:FR-COUNCIL-03a` says Tier 0 is "non-bypassable under any
+configuration" and lists scope-membership as one of its checks, but its literal text (and
+the corresponding `05` security requirements) never says WHICH string that check must
+validate — the task's registered target, or the command's own destination. Read narrowly,
+the requirement was technically satisfied (a scope check runs); read for its actual intent
+(deterministic code gates are supposed to make a wrong destination structurally
+impossible, per `CLAUDE.md` Directive 2), it was not.
+
+**What real code now does:**
+- `run_primary_scripter_command(_retry)`/`run_secondary_scripter_command(_retry)` gained a
+  required `target_host: str` parameter, injected into the user prompt as an explicit,
+  imperative `TARGET (the exact host/IP every command below must resolve its network
+  destination to ... never substitute a placeholder, documentation example, or any other
+  host)` field, reinforced in both `ROLE_BLOCK_PRIMARY_SCRIPTER`/`ROLE_BLOCK_SECONDARY_
+  SCRIPTER` (`council/prompts.py`). `orchestrator/phase_lifecycle.py`'s `run_phase_4_2a`/
+  `run_phase_4_2b` now fetch it once per task via a new `_fetch_target_host` helper
+  (`targets.host_or_domain`).
+- `council/strategy_auditor.py::check_tier0` gained a new NETWORK-only check (after the
+  existing static scope check, so it never runs for CONTRACT/MOBILE_BINARY/CODE_REPO
+  targets): `extract_destination_candidates(argv)` returns every token that plausibly names
+  the command's real destination, via three combined rules —
+  - **Rule A** (any tool, tier-agnostic): a URL-shaped token (`scheme://...`) anywhere in
+    `argv`, except as the value of a small, explicit non-destination-value flag denylist
+    (`-H`/`--header`, `-e`/`--referer`, `-x`/`--proxy*`) — a referer/proxy/header can
+    legitimately carry an unrelated URL without that being where the command's traffic is
+    aimed, and must never be misread as the target.
+  - **Rule B** (Tier 1 tools only, schema-driven): the tool's own declarative schema
+    (`bridge/tier1/schema.py`, the same one Gate 2 validates against) is resolved from
+    `argv[0]` and used to walk `args`, consuming each recognized flag's value via the
+    schema's own `takes_value` — never guessed — so this never touches a header/bind/
+    output-path/NSE-script-name value regardless of shape. Whatever bare positional tokens
+    remain, the LAST `required_positional_count` of them are checked REGARDLESS OF SHAPE
+    (extracting a URL's host first, if the positional is a full URL rather than a bare
+    host — several schemas, e.g. `graphql_scanner`/`credential_spray`, declare their
+    required positional as "the endpoint URL") — this is what catches an unresolvable
+    placeholder like `target_system_ip`, which doesn't look host-shaped at all.
+  - **Rule C** (any tool, defense in depth): a bare, unconsumed positional token that
+    independently looks like an IP/CIDR or a proper multi-label hostname is also checked —
+    the only rule that still applies to a Tier 2 binary with no schema to drive Rule B.
+  - Restricted to autonomous council-origin tasks by construction, not by an added
+    condition: `check_tier0` (and therefore this new check) is only ever called from
+    `task_runner.run_gated_task`'s non-`HUMAN_OPERATOR` branch and from Phase 4.1's
+    pre-command pass — a `HUMAN_OPERATOR`-origin task never reaches it at all
+    (`FR-INTERVENE-06a`'s existing, unmodified bypass).
+
+**Where it's used:** `council/primary_scripter.py`, `council/secondary_scripter.py`,
+`council/prompts.py`, `council/strategy_auditor.py` (`extract_destination_candidates`,
+`check_tier0`), `orchestrator/phase_lifecycle.py` (`_fetch_target_host`).
+
+**Verification:** 2 real historical incidents reproduced and confirmed rejected
+(`curl http://example.com/...` and `nmap ... target_system_ip`, both against the exact real
+`argv` recorded in `model_invocation_logs`); a real regression found and fixed during this
+same pass — an early version of Rule B checked a required positional's raw string against
+scope without extracting the host first, which broke 2 pre-existing tests for tools whose
+required positional is a full URL (`graphql_scanner`, `credential_spray`) — fixed, full
+suite re-verified clean afterward. 27 new/updated regression tests (`tests/
+test_council_scope_gate.py`, `tests/test_council_operator.py`); full suite: 1126 passed, 0
+failed, 3 skipped. `ruff`/`mypy` clean on every touched file.
+
+**What changes if disapproved:** the `TARGET` prompt field and its wording could be
+restructured without touching the Gate 1 check; the Gate 1 destination check could be
+loosened to a pure warning (log, don't reject) if the operator judges deterministic
+rejection too strict for some future tool pattern this design didn't anticipate — both are
+self-contained, revertible independently of each other.

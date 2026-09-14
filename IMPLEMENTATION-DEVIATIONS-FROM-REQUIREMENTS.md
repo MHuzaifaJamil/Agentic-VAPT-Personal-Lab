@@ -21,6 +21,141 @@
 
 ---
 
+## 2026-09-14 — Gate 1 Tier 0 now checks a command's ACTUAL network destination, not just the task's static registered target
+
+**Status: ✅ IMPLEMENTED, ✅ APPROVED (operator explicitly selected this exact design —
+"Both: explicit host param + Gate 1 host-scope check" — after asking why OWASP Juice Shop
+had produced zero confirmed vulnerabilities across every real engagement run to date). Full
+write-up, the two reproduced real incidents, and the extraction-rule design are recorded in
+`Assumptions-Not-Approved.md` item #60.
+
+### What the requirement says
+
+`01:FR-COUNCIL-03a` requires Gate 1 Tier 0 to be a "non-bypassable" deterministic scope
+check, and lists scope-membership as one of its sub-checks, but its literal text never
+specifies WHICH string that check validates. `FR-COUNCIL-07`/`09`/`10` describe the Primary/
+Secondary Scripter turning a Gate-1-approved task into a concrete command, but never state
+how the Scripter learns which host to actually send that command to.
+
+### What real code did before this fix, and the real incident that exposed it
+
+Gate 1 Tier 0's scope check (`council/strategy_auditor.py::check_tier0`) validated the
+task's own STATIC registered `targets.host_or_domain` string against `scope_rules` —
+trivially always true, since that string is literally where the scope rule came from.
+Nothing anywhere checked a proposed command's own `argv` for what host it would actually
+reach. Separately, neither Scripter's prompt (`council/primary_scripter.py`/
+`secondary_scripter.py`) ever stated the real target host explicitly — a database audit
+found only 3 of 25 real Strategist-authored task descriptions ever mentioned the target's IP
+at all, leaving the model to infer a destination from context that usually wasn't there.
+
+Confirmed live, twice, across the only real completed/near-completed engagements this
+system has run: the Primary Scripter produced `curl http://example.com/api/users` (a real
+outbound request to IANA's internet placeholder domain, not the target) and the Secondary
+Scripter produced `nmap --script http-enum target_system_ip` (a literal unresolved
+placeholder; nmap correctly resolved 0 hosts). Both were logged `EXECUTED`/`SUCCESS`. This
+is the direct root cause behind "zero vulnerabilities found across 23 engagements" against
+a deliberately vulnerable target — the tooling had barely ever actually reached it.
+
+### What real code now does
+
+`run_primary_scripter_command(_retry)`/`run_secondary_scripter_command(_retry)` gained a
+required `target_host: str` parameter, injected as an explicit, imperative `TARGET` prompt
+field ("every command below must resolve its network destination to ... never substitute a
+placeholder, documentation example, or any other host"), reinforced in both role system
+prompts (`council/prompts.py`). `orchestrator/phase_lifecycle.py` fetches it once per task
+from `targets.host_or_domain` via a new `_fetch_target_host` helper.
+
+`check_tier0` gained a new, NETWORK-pattern-kind-only check (deterministic, zero LLM
+involvement, per `FR-COUNCIL-03a`'s own non-bypassable requirement) that inspects the
+proposed command's real `argv` via `extract_destination_candidates` — three combined rules:
+a URL-shaped token anywhere (excluding a small denylist of flags whose value can
+legitimately carry an unrelated URL — headers, referer, proxy); the Tier 1 tool's own
+declarative schema (`bridge/tier1/schema.py`, the same one Gate 2 validates against) walked
+via its `takes_value` metadata to correctly isolate genuinely unconsumed positional
+arguments, checking the tool's `required_positional_count` of them regardless of shape
+(extracting a URL's host first when the positional is a full URL, not a bare host); and a
+shape-match fallback (IP/CIDR/proper hostname) for a Tier 2 binary with no schema to lean
+on. Restricted to autonomous council-origin tasks by construction — `check_tier0` is never
+called on the `HUMAN_OPERATOR`-origin path at all (`FR-INTERVENE-06a`'s existing bypass),
+satisfying the operator's explicit constraint that this must never intercept a direct
+operator instruction.
+
+A real regression was found and fixed during the same implementation pass: an early version
+of the schema-driven positional check validated a required positional's raw string against
+scope without first extracting the host from it, which broke 2 pre-existing tests for tools
+whose required positional is a full URL rather than a bare host (`graphql_scanner`,
+`credential_spray`) — fixed before merge, full suite re-verified clean.
+
+**Verification:** both real historical incidents reproduced against the exact `argv`
+recorded in `model_invocation_logs` and confirmed rejected; both real legitimate commands
+(the same tools, correctly targeting the real host) confirmed still approved; 27 new/updated
+regression tests; full suite 1126 passed, 0 failed, 3 skipped; `ruff`/`mypy` clean.
+
+### Why this deviates / where it should land in the corpus
+
+`01:FR-COUNCIL-03a`'s scope-check text would need to explicitly name the command's own
+destination (not just the task's registered target) as what Tier 0 validates. `14-System-
+Prompt-Templates.md`'s Primary/Secondary Scripter role-block excerpts would need a `TARGET`
+field added to match the real prompt. Flagged for the next reconciliation pass.
+
+---
+
+## 2026-09-13 — `StructuredOutputError` (retry-budget exhaustion) now degrades one task instead of crashing the whole engagement
+
+**Status: ✅ IMPLEMENTED, ✅ unconditional correctness fix (no operator decision needed —
+the alternative was an engagement-ending crash, not a design choice with a real
+counter-option). Full write-up and the real crash data are in `../implementation/reports/
+BENCHMARK-REPORT-2026-09-13.md` §12.
+
+### What the requirement says
+
+`01:FR-COUNCIL-09` requires a Gate-2-rejection retry budget (3 attempts) and that an
+exhausted task is "never dropped or force-executed" — silent on what happens when the
+model's STRUCTURED-OUTPUT retry budget (`IR-STRUCTURED-03`, a different, inner 3-attempt
+budget that absorbs a genuine schema-invalid-JSON miss, not a Gate-2-rejection) is the one
+that exhausts instead.
+
+### What real code did before this fix, and the real incident that exposed it
+
+`StructuredOutputError` was not caught anywhere between `orchestrator/phase_lifecycle.py`
+and `cli/run.py`. When a council role's structured-output budget genuinely exhausted (a
+real, occasional, expected model miss — exactly the class of failure that retry budget
+exists to absorb), the exception propagated unhandled and crashed the entire orchestrator
+process, ending the whole engagement over one task. Confirmed live, twice, in real
+engagements (2026-09-13): both crashes' `tmux` panes went dead immediately following this
+exact exception.
+
+### What real code now does
+
+`orchestrator/phase_lifecycle.py` now catches `StructuredOutputError` around the Primary/
+Secondary Scripter's command-generation calls (`run_phase_4_2a`/`run_phase_4_2b`) and marks
+the single task `GATE2_BLOCKED` — `task_queue.status`'s CHECK constraint (`03:DR-SCHEMA-05`)
+has no dedicated value for this distinct failure mode; reusing `GATE2_BLOCKED` is the
+closest existing terminal state matching `FR-COUNCIL-09`'s own "never dropped or
+force-executed" language (a different reuse than `Assumptions-Not-Approved.md` item #29's,
+which covers Gate-2-rejection-retry exhaustion specifically — this is a structured-output
+failure, distinguished by a `MODEL_STRUCTURED_OUTPUT_FAILURE:` rationale prefix) — and the
+engagement continues to the next task instead of crashing.
+
+**Verification:** 2 new real regression tests exercising the actual retry-exhaustion code
+path (a fake engine client returns 3 real schema-invalid responses, driving
+`get_structured_completion` to genuinely raise through its own real logic); 18 real
+reproduction attempts against the exact prompt that crashed both live engagements, all
+clean (consistent with a real, low-frequency, non-reliably-reproducible model miss, not a
+deterministic bug); a subsequent live engagement (23) completed fully with 12/12 real
+invocations succeeding, no crash. Full suite clean at the time (1108 passed, 3 skipped).
+
+### Why this deviates / where it should land in the corpus
+
+`01:FR-COUNCIL-09`'s text could be extended to explicitly cover a structured-output-budget
+exhaustion (distinct from a Gate-2-rejection-budget exhaustion) reaching the same
+`GATE2_BLOCKED` terminal state. Left unfixed for the other 4 council roles (Strategist,
+Auditor, Adjudicator, Reporter) — the same theoretical gap likely exists there too, but none
+have been empirically observed to crash, so intentionally left out of scope here to keep
+this fix scoped to the confirmed, real failure; flagged as a follow-up.
+
+---
+
 ## 2026-09-13 — New capability: task-dispatched knowledge ingestion from a local skill corpus
 
 **Status: ✅ IMPLEMENTED, ✅ APPROVED (with constraints). Full design, the approval
