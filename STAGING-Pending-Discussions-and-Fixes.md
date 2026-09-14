@@ -27,6 +27,20 @@ purpose is to show how a fix evolved, not just its final state.
 
 *(Genuinely new, undecided items — awaiting the operator's own review/choice.)*
 
+### Round 15 — Auditor (Gate-1 LLM) reasons incorrectly that 127.0.0.1 is out of scope / externally unreachable
+
+Found live in engagement 24 (2026-09-14), the first live test of Round 14's target_host fix.
+Of 7 Strategist hypotheses, the Auditor approved only 1; it rejected/revised the other 6,
+several citing rationale like "127.0.0.1 ... is not reachable from the external network" or
+"not in the authorized scope" — even though `scope_rules` explicitly allows `127.0.0.1` and
+every one of those tasks had already passed the deterministic Tier 0 scope check before
+reaching the Auditor. This is the Auditor LLM's own reasoning, not a scope-rules or Gate 1
+bug. Two candidate directions, not yet chosen: (a) add an explicit "loopback/private-IP
+targets ARE in scope when listed in scope_rules — do not reason about internet
+reachability" clarification to the Auditor's prompt, or (b) leave as-is, since lab-only
+targets being 127.0.0.1 is a testing-environment artifact that won't occur against a real
+external engagement scope. Not yet implemented — awaiting operator decision.
+
 ---
 
 ## Still Open — Approved, Action Items Remain
