@@ -21,6 +21,71 @@
 
 ---
 
+## 2026-09-16 — Engagement lifecycle now loops council rounds until real coverage exists; Auditor loses all scope authority; Scripters get verified ports
+
+**Status: ✅ IMPLEMENTED, ✅ APPROVED (explicit operator directives, same day, following
+engagement 24's live results — the first real test of the 2026-09-14 target_host/Gate-1
+fix).** Full write-up in `STAGING-Pending-Discussions-and-Fixes.md` Rounds 15/16 (Archive).
+
+### What the requirements say, and where these diverge
+
+- `FR-COUNCIL-11`/`11a` describe a per-target task cap and a "zero-yield circuit breaker" as
+  loop-bound config values, but no code anywhere consumed either (confirmed by grep — both
+  were dead config). `01`'s Council Roster never states the engagement-level stop condition
+  for how many full Strategist→Scripter→Adjudicator→Reporter cycles a single engagement runs;
+  every real engagement to date (including engagement 24) ran exactly one. This is now a
+  bounded loop, config-driven (`loop_bounds.min_confirmed_reports`,
+  `.max_council_rounds`, and `.zero_yield_circuit_breaker` — now actually wired) —
+  see `orchestrator/driver.py::run_full_engagement`.
+- The Gate 1 Tier 1 semantic prompt (`ROLE_BLOCK_GATE1_SEMANTIC`, doc 14 §2) described a
+  "scope-and-risk auditor" that could reject on scope-creep grounds — but Tier 0 (the same
+  requirement doc, same section) already deterministically settles scope membership before
+  the semantic model ever runs. Doc 14 never explicitly forbade the semantic Auditor from
+  re-litigating scope anyway, and it did, live (engagement 24: 6/7 hypotheses rejected/revised
+  over loopback-address reasoning). The role is now explicitly, completely stripped of any
+  scope/reachability/topology authority — renamed `ROLE_BLOCK_AUDITOR` for clarity.
+- `01`'s baseline-recon requirements (`FR-BASELINE-01..06`) never state that naabu's
+  discovered ports should reach the Scripter prompts directly — only that Wave 2's own nmap
+  call consumes them. Live: a Secondary Scripter follow-up scanned 80/443 instead of the
+  genuinely open 631/3000 baseline recon had found. New `targets.verified_open_ports` column
+  now threads that same data into every Scripter prompt.
+- `FR-COUNCIL-17`/`17b` (the Reporter/`INFO_REGISTER`) never require a markdown artifact when
+  an engagement finds nothing — `_write_or_update_info_register` was gated behind
+  `any_remediated` (regression-only). An engagement could reach `COMPLETE` with zero report
+  files of any kind. It now always writes a coverage-summary `INFO_REGISTER` document.
+
+### Why
+
+Direct operator instructions, in order, following a review of engagement 24's real results:
+"Engagements should loop between council models until a substantial amount of VAPT reports as
+Markdown files, are generated... if it does NOT produce any reports, then it is useless";
+"[Auditor's scope reasoning] should never Happen ever!! fix it"; "make sure that whenever a
+task is dispatched to Primary or Secondary Scripters: The prompt explicitly injects the
+verified active ports discovered during Phase 2 baseline recon... forbidding scans/requests
+to closed default ports (80/443) when known open ports... are already mapped." The
+`min_confirmed_reports` config default was set to 5 specifically for the operator's requested
+JuiceShop confirmation run (a deliberately vulnerable app) — see `Assumptions-Not-Approved.md`
+item #61 for the judgment calls made picking the surrounding bounds (`max_council_rounds`,
+reusing `zero_yield_circuit_breaker`) that the operator did not specify numerically.
+
+### Where used
+
+`orchestrator/driver.py` (round loop), `council/prompts.py`
+(`ROLE_BLOCK_AUDITOR`), `orchestrator/baseline_recon.py`
+(`_record_verified_open_ports`), `council/primary_scripter.py`/`secondary_scripter.py`
+(`verified_open_ports` param), `orchestrator/phase_lifecycle.py`
+(`_write_or_update_info_register` now unconditional, `_fetch_verified_open_ports`).
+
+### What changes if disapproved
+
+Revert `min_confirmed_reports`/`max_council_rounds` to effectively 1 (single-round behavior,
+the pre-2026-09-16 default); restore the Auditor's scope-judgment framing (not recommended —
+directly caused the live regression this closes); stop persisting/injecting
+`verified_open_ports` (Scripters return to guessing ports); re-gate `INFO_REGISTER` writes
+behind `any_remediated` (engagements can again complete with zero report artifacts).
+
+---
+
 ## 2026-09-14 — Gate 1 Tier 0 now checks a command's ACTUAL network destination, not just the task's static registered target
 
 **Status: ✅ IMPLEMENTED, ✅ APPROVED (operator explicitly selected this exact design —

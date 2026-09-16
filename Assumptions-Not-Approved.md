@@ -2492,3 +2492,49 @@ restructured without touching the Gate 1 check; the Gate 1 destination check cou
 loosened to a pure warning (log, don't reject) if the operator judges deterministic
 rejection too strict for some future tool pattern this design didn't anticipate — both are
 self-contained, revertible independently of each other.
+
+## 61. Multi-round council loop bounds (2026-09-16) — the operator specified the goal, not the exact numeric bounds around it
+
+**What I assumed:** The operator's directive ("loop between council models until a
+substantial amount of VAPT reports... are generated," "at least 05 md Reports... it should
+never end until...") states the GOAL precisely but leaves the surrounding safety bounds
+unspecified — I picked three numeric values to make the loop safe rather than open-ended:
+
+1. `loop_bounds.max_council_rounds: 15` — a hard ceiling on round COUNT, independent of the
+   existing `session_budget_hours: 12` wall-clock ceiling. Chosen because a single
+   Strategist call has been measured taking up to 138.8 real CPU-minutes on this host
+   (engagement 24, `LLM-Council-Benchmarks.md`) — 15 rounds is generous headroom under a
+   12-hour budget even at that ceiling, while still being A number, not literally unbounded.
+2. Reused the existing `loop_bounds.zero_yield_circuit_breaker` (`FR-COUNCIL-11a`, config
+   value `3`, previously dead — nothing in the codebase consumed it) as the "how many
+   CONSECUTIVE rounds may approve zero new Gate-1 tasks before giving up on this target as
+   exhausted" signal, rather than inventing a new, separate config key with its own number.
+   Judgment call: the requirement's own name and intent ("zero-yield circuit breaker")
+   matched exactly what I needed, so reusing it seemed more correct than adding a
+   near-duplicate knob — but the operator never explicitly approved wiring this
+   previously-inert value into new, real behavior.
+3. `loop_bounds.min_confirmed_reports: 5` (the global default, not yet a per-engagement
+   setting — see the 2026-09-16 `IMPLEMENTATION-DEVIATIONS-FROM-REQUIREMENTS.md` entry's
+   "honest limitation" note on `vaptctl run` having no working `--config` override path) —
+   the "5" itself IS the operator's own explicit number ("at least 05 md Reports"), not my
+   assumption; what IS my judgment call is applying it as the new *global* default rather
+   than building a per-engagement override mechanism (a real, separate `vaptctl run --config`
+   plumbing change I did not build today, out of scope for getting this specific run
+   launched quickly).
+
+**Where used:** `orchestrator/driver.py::run_full_engagement` (the round loop and its 4 stop
+conditions: goal met, zero-yield exhausted, round ceiling, session budget), `config/
+defaults.yaml` (the three `loop_bounds` values), `data/db.py`/`data/schema.sql`
+(`targets.verified_open_ports`, an unrelated same-day column addition — see item below).
+
+**Verification:** 2 new real regression tests exercise both stop paths directly
+(`test_run_full_engagement_loops_council_rounds_until_zero_yield_circuit_breaker_trips`,
+`test_run_full_engagement_stops_early_once_min_confirmed_reports_is_reached`); full suite
+1134 passed, 0 failed, 3 skipped. Not yet confirmed against a real multi-hour live
+engagement — that run was launched immediately after this implementation, autonomously, per
+the operator's own explicit instruction not to hover over it with manual intervention.
+
+**What changes if disapproved:** all three numbers are single named config values in
+`defaults.yaml` with no other code depending on their specific magnitude — trivially
+adjustable (including back to effectively single-round behavior, `min_confirmed_reports: 0`
+or `max_council_rounds: 1`) without touching `driver.py`'s loop logic itself.
