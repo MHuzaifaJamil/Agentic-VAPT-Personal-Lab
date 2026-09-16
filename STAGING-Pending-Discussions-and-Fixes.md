@@ -40,6 +40,42 @@ implemented and verified.)*
 
 ## Archive — Resolved / Merged Items (newest first)
 
+### Round 17 — `vaptctl run` never ran app teardown when `start --no-run` deferred it (Chrome/Thunar/Mousepad silently never closed)
+
+**Status: ✅ APPROVED ("Fix it", 2026-09-16/17) AND IMPLEMENTED.**
+
+Operator noticed live, watching engagement 25 launch, that Chrome/Thunar/Mousepad were never
+closed despite hibernation defaulting on. Root cause: `vaptctl start --no-run` (used every
+time this session to launch an engagement, so the tmux dashboard/console windows could be
+watched from the start) intentionally defers Phase 1 app teardown — the operator might not
+`vaptctl run` for hours, so closing apps immediately would be premature — but `vaptctl run`
+itself never had a teardown call of its own. Confirmed: Chrome/Mousepad weren't running at
+the time (nothing to detect), but Thunar's background daemon was, and `hibernated_sessions`
+had zero rows for engagement 25 — teardown had genuinely never run, for any engagement
+launched this way this whole project.
+
+**Fix:** moved the reusable core out of `cli/start.py::_run_app_teardown` into
+`orchestrator/app_teardown.py::run_app_teardown` (presentation-agnostic via injected
+`echo`/`err_echo` callables, matching every other `orchestrator/*` module's click-free
+convention), kept a thin delegating wrapper in `cli/start.py` so existing monkeypatches/call
+sites are unaffected, and added the same call to `cli/run.py` (gated on `with_hibernation`,
+right before models load) with matching `--app-timeout`/`--force-app-close` options threaded
+through `launch_in_tmux`'s subprocess re-invocation.
+
+**Self-caught issue during testing, not by the operator:** an existing `test_cli_run.py`
+test lacked `--no-hibernation`, and once `run()` actually touched real processes, it
+genuinely `SIGTERM`'d this dev machine's real Thunar daemon during a live test-suite run —
+caught by directly checking `ps aux` after the run showed Thunar gone. Restored it
+immediately (`thunar --daemon &`), fixed the test to match this file's own established
+defensive convention (every `launch_in_tmux(..., with_hibernation=False)` call elsewhere in
+that file already does this), and added 2 new regression tests mocking `run_app_teardown`
+itself so a future change can't silently reintroduce a real-system side effect in the test
+suite. Full suite: 1134 passed, 2 failed (pre-existing, unrelated — a real-swap-threshold
+test and a real-HIBP-network-call test, both environment-dependent, neither touching any
+file this fix changed), 3 skipped. `ruff`/`mypy` clean (same pre-existing `cvss` stub note).
+
+---
+
 ### Round 16 — Engagement 24's follow-on findings: council loops until real coverage, ports threaded into Scripter prompts
 
 **Status: ✅ APPROVED (2026-09-16, explicit operator directives, in order) AND IMPLEMENTED
