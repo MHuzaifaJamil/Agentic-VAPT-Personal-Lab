@@ -40,6 +40,64 @@ implemented and verified.)*
 
 ## Archive — Resolved / Merged Items (newest first)
 
+### Round 20 — Round-loop stop condition + operator-directed recalibration: per-vector zero-yield breaker, Strategist diversification, self-monitoring
+
+**Status: ✅ APPROVED (2026-09-17, explicit operator directives, in order) AND IMPLEMENTED.**
+
+Three related fixes, same day as Round 19, all direct consequences of watching engagement 26 to completion:
+
+1. **The round loop kept proposing/approving work no target could ever execute.** After
+   Round 19's reopen fix let a `COMPLETE` target accept new work, its next real execution
+   tripped the (then 3-attempt) zero-yield breaker, marking it `CIRCUIT_BROKEN` — genuinely
+   permanent, unlike `COMPLETE`. Nothing then stopped the round loop: Gate 1 kept approving
+   fresh hypotheses every round (satisfying the loop's own progress check), but
+   `run_phase_4_2a`/`4_2b` are permanent no-ops once every target is terminal. Confirmed live:
+   7 straight real hours (rounds 2-9) of Strategist+Auditor compute that could never reach a
+   Scripter. Fixed: `orchestrator/driver.py`'s round loop now also breaks entirely once
+   `next_pivot_target` finds nothing left to work on, right after the Round 19 reopen check.
+2. **Operator diagnosis, adopted verbatim as directed ("Select (c) Both, but do not treat
+   them with equal weight... the Strategist fixation (b) is the true root cause, while the
+   safety breaker (a) is an operational threshold that needs calibration"):** applying the
+   fix confirmed engagement 26 completed with 0 confirmed findings — the target's OWN
+   3-attempt zero-yield breaker retired it after nothing but SSRF-variant attempts,
+   regardless of the round-loop fix above. Two changes, exactly as directed:
+   - **Breaker recalibration:** the zero-yield breaker (`ZERO_YIELD_BREAKER = 3`) is now
+     scoped to ONE (target, vulnerability_class) pair via new `target_vector_loop_state`
+     (`council/loop_bounds.py::record_vector_outcome`/`exhausted_vectors_for_target`) —
+     exhausting SSRF no longer exhausts the whole host. The WHOLE-TARGET `CIRCUIT_BROKEN`
+     threshold is separately raised to `GLOBAL_TARGET_EXHAUSTION_CEILING = 12` (operator's
+     "10-12 total diverse attempts," upper end chosen for maximum exploration room).
+   - **Strategist diversification:** `ROLE_BLOCK_STRATEGIST` gained the operator's three
+     rules verbatim in substance (DIVERSIFICATION, NEGATIVE FEEDBACK LOOP, TECHNOLOGY-SPECIFIC
+     MAPPING) plus a controlled vulnerability-class vocabulary; the Strategist's structured
+     output now requires a `vulnerability_class` per hypothesis (`engine/schemas.py`,
+     deliberately lenient — any non-empty string, not a strict enum, to avoid a schema-retry
+     costing this ~30-130min role a second full attempt over a phrasing mismatch); new
+     `task_queue.vulnerability_class` column; a new "CLOSED VULNERABILITY CLASSES" prompt
+     block (`council/dedup.py::build_closed_vectors_block`) gives the model deterministic
+     ground truth on what's already exhausted per target. Per this project's own CLAUDE.md
+     Directive 2 ("deterministic code gates over heuristic prompt gates"), an exhausted
+     vector is ALSO deterministically rejected at Gate 1 Tier 0 time in `run_phase_4_1` —
+     never sent to the Auditor at all — rather than trusting the prompt instruction alone.
+3. **Self-monitoring gap, direct operator feedback ("Why you yourself did NOT check it...
+   Why you need me to ask you"):** the assistant had no mechanism to notice the 7-hour stall
+   itself between operator messages. Addressed procedurally this session (a background
+   `Monitor` watcher polling engagement health — round changes, confirmed-finding changes,
+   abnormally long model calls, terminal status — every 2 minutes) rather than a code change;
+   documented here since it's a direct, real behavioral finding from this engagement.
+
+New tests: 1 in `test_orchestrator_driver.py` (round-loop stop), 10 in
+`test_loop_bounds.py`/`test_council_dedup.py`/`test_orchestrator_phase_lifecycle.py` (per-
+vector breaker, closed-vectors block, deterministic exhausted-vector rejection), plus fixture
+updates across 5 test files for the new required `vulnerability_class` field. `Assumptions-
+Not-Approved.md` #64: `GLOBAL_TARGET_EXHAUSTION_CEILING=12`, the controlled vocabulary list,
+and the lenient (non-enum) schema check are judgment calls translating the operator's stated
+intent into exact numbers/wording. Full suite: 1159 passed, 3 skipped, 0 failed; `ruff`/`mypy`
+clean (same pre-existing missing-stub notes for `cvss`/`weasyprint`/`plotext`/two sandboxed
+tool modules).
+
+---
+
 ### Round 19 — A "COMPLETE" target was never reopened for later council rounds; dashboard/console showed false status with no round/goal context
 
 **Status: ✅ APPROVED (operator directly asked for engagement 26's status, then flagged

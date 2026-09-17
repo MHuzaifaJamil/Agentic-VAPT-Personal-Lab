@@ -2593,3 +2593,48 @@ practice — that's only confirmable by the operator using it live.
 
 **What changes if disapproved:** both are plain string formatting / one constant, in one
 function each — trivially reworded or re-thresholded without touching any other logic.
+
+## 64. Per-vector zero-yield breaker: exact ceiling, vocabulary, and schema strictness (2026-09-17)
+
+**What I assumed:** The operator's directive gave the shape of the fix precisely ("scope the
+3-attempt exhaustion threshold to the specific attack technique... raise the global target
+retirement threshold to 10-12 total unproductive attempts across diverse techniques") but left
+three concrete choices to me:
+
+1. `GLOBAL_TARGET_EXHAUSTION_CEILING = 12` — picked the upper end of the operator's own
+   "10-12" range for maximum exploration room, not independently measured against how many
+   real attempts it typically takes to find something on a target like this.
+2. The controlled vulnerability-class vocabulary (`SQLI, NOSQLI, IDOR, BROKEN_AUTH, BFLA,
+   MASS_ASSIGNMENT, SSRF, SSTI, LFI, INSECURE_DESERIALIZATION, RACE_CONDITION, JWT,
+   SUBDOMAIN_TAKEOVER, XSS, SECURITY_MISCONFIG, CSRF, RCE, PROMPT_INJECTION, OTHER`) — the
+   operator's own example list (SQLi, Broken Auth/JWT, IDOR/BOLA, XSS, Security Misconfig) was
+   illustrative, not exhaustive; I extended it to match this prompt's own pre-existing bug-class
+   catalog (`ROLE_BLOCK_STRATEGIST`'s "Reach for a specific, testable bug class" section) so
+   the two lists stay consistent, and added an `OTHER` catch-all so a genuinely novel finding
+   is never blocked by the vocabulary being incomplete.
+3. `engine/schemas.py::validate_strategist_output` checks `vulnerability_class` as "any
+   non-empty string," not a strict enum against that vocabulary — a deliberate looseness, not
+   an oversight: a schema-validation failure costs one of `get_structured_completion`'s scarce
+   retries against a role whose own single call already takes 30-130+ real minutes
+   (`STRATEGIST_TIMEOUT_S = 9000.0`), and a reasoning model's own free-form phrasing (e.g.
+   "SQL_INJECTION" instead of "SQLI") mismatching a strict enum is exactly the kind of failure
+   likely to trigger that retry for no real safety benefit. The consequence: if the model
+   drifts from the vocabulary's exact tokens, `target_vector_loop_state`'s per-vector grouping
+   could fragment (two spellings of the same class tracked as two separate, never-exhausting
+   vectors) — an accepted risk, not yet observed in a real run.
+
+**Where used:** `council/loop_bounds.py` (`GLOBAL_TARGET_EXHAUSTION_CEILING`,
+`record_vector_outcome`, `exhausted_vectors_for_target`), `council/prompts.py`
+(`ROLE_BLOCK_STRATEGIST`'s vocabulary list), `engine/schemas.py::validate_strategist_output`.
+
+**Verification:** 10 new tests directly exercise the per-vector breaker's independence from
+the whole-target one, the deterministic Gate 1 rejection of an exhausted vector, and the
+closed-vectors prompt block. Full suite: 1159 passed, 3 skipped, 0 failed. Not yet confirmed
+against a real live engagement actually finding more than one vulnerability class as a result
+— that requires watching a fresh run, which is the planned next step after this document.
+
+**What changes if disapproved:** the ceiling is one named constant; the vocabulary is one
+string list referenced from exactly two places (the prompt text and nowhere else
+structurally, since the schema check doesn't enforce it); the lenient schema check is one
+`for` loop's field list — all three are independently adjustable without touching the
+per-vector tracking mechanism itself.
