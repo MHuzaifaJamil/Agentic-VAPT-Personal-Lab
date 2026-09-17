@@ -40,6 +40,33 @@ implemented and verified.)*
 
 ## Archive — Resolved / Merged Items (newest first)
 
+### Round 21 — A "host:port" Strategist hypothesis target was silently dropped, not rejected
+
+**Status: ✅ APPROVED (self-caught while monitoring engagement 27 live, 2026-09-18) AND IMPLEMENTED.**
+
+Discovered live, watching engagement 27's fresh run (all Round 20 fixes already applied):
+round 1's real ~2-hour Strategist call produced a perfectly reasonable SSRF hypothesis
+against `"127.0.0.1:3000"` (naming the specific service/port it meant to exploit) — but
+`run_phase_4_1`'s target lookup was an exact string match against the engagement's
+registered bare host `"127.0.0.1"`. The whole hypothesis vanished silently: zero
+`task_queue` row, zero rejection reason, zero record anywhere, and the Strategist got no
+feedback that anything had gone wrong — the round advanced straight to round 2 with no
+Auditor call at all, and the identical mistake was free to repeat, each time burning
+another real ~2 hours for nothing. Confirmed by reading the live audit trail
+(`live_audit_trail.md`) directly, not guessed.
+
+**Fix:** `_resolve_strategist_target_id` (new) tries the exact target string first, then
+falls back to stripping a trailing `:<port>` before giving up — a natural, expected way to
+name a specific service, not a hallucinated host. Gate 1 Tier 0's own scope check now also
+receives the resolved bare host, not the raw port-suffixed string, so a legitimately
+in-scope `host:port` hypothesis doesn't separately fail scope matching on the port suffix
+alone. 4 new tests (2 unit, 1 full `run_phase_4_1` integration reproducing the exact live
+scenario, 1 negative case for a genuinely unregistered target). Full suite: 1163 passed, 3
+skipped (1 pre-existing environment-timing flake under concurrent CPU load from the live
+engagement, confirmed passing in isolation — not a regression); `ruff` clean.
+
+---
+
 ### Round 20 — Round-loop stop condition + operator-directed recalibration: per-vector zero-yield breaker, Strategist diversification, self-monitoring
 
 **Status: ✅ APPROVED (2026-09-17, explicit operator directives, in order) AND IMPLEMENTED.**
