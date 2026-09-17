@@ -2538,3 +2538,33 @@ the operator's own explicit instruction not to hover over it with manual interve
 `defaults.yaml` with no other code depending on their specific magnitude — trivially
 adjustable (including back to effectively single-round behavior, `min_confirmed_reports: 0`
 or `max_council_rounds: 1`) without touching `driver.py`'s loop logic itself.
+
+## 62. `vaptctl run` self-recovery retry count/backoff (2026-09-17) — the operator specified the requirement, not the exact numbers
+
+**What I assumed:** "There must be a Fallback / Self Recovery Option in any case!!" states
+the requirement precisely (auto-recover from a transient `EngineUnresponsiveError` instead of
+PAUSING and exiting the whole process) but not the exact retry ceiling or backoff delay. I
+chose `--max-auto-resumes` default `5` and `--auto-resume-backoff-s` default `30.0`: five
+retries gives a genuinely-transient stall (thermal throttling easing off, a one-off slow
+generation) real room to clear without letting a truly broken model/config spin the host
+forever — each retry re-enters `run_full_engagement` fresh (a new pair of FR-GATE-08 restart
+attempts inside `engine/client.py`, each up to the caller's own `timeout_s`), so 5 retries
+against a 9000s-per-attempt caller could still legitimately run for many hours before finally
+giving up; a 30s backoff is a short, fixed pause (not exponential) since the failure mode is
+"the model was thinking, not crashing" — there's no server to let cool down or rate limit to
+respect, just a moment before trying again.
+
+**Where used:** `cli/run.py::run()`'s new retry loop around `run_full_engagement`, and
+`launch_in_tmux`'s subprocess re-invocation (both new CLI options threaded through).
+
+**Verification:** 3 new regression tests directly exercise the retry-then-succeed path, the
+exhausted-retries-then-PAUSE path, and the `--max-auto-resumes 0` opt-out path, all with
+`run_full_engagement`/`time.sleep` mocked so nothing real is retried or waited on. Not yet
+confirmed against a real multi-hour stall recovering successfully live — engagement 26 was
+relaunched with this fix immediately after implementing it, autonomously, per the operator's
+own instruction not to hover over it.
+
+**What changes if disapproved:** both values are plain `@click.option` defaults with no other
+code depending on their magnitude — trivially adjustable, including `--max-auto-resumes 0` to
+fully restore the pre-2026-09-17 fail-immediately behavior for every future run without
+touching any code.

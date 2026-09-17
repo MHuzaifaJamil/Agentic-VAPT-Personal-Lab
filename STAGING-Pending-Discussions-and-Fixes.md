@@ -40,6 +40,47 @@ implemented and verified.)*
 
 ## Archive — Resolved / Merged Items (newest first)
 
+### Round 18 — `vaptctl run` had no self-recovery: one unresponsive council model PAUSED the whole engagement and exited, needing a manual restart
+
+**Status: ✅ APPROVED ("There must be a Fallback / Self Recovery Option in any case!!",
+2026-09-17) AND IMPLEMENTED.**
+
+Operator noticed engagement 26 had sat `PAUSED` for ~5 hours with no visible progress.
+Investigation (`journalctl --list-boots`, `model_invocation_logs`, tmux pane scrollback — no
+host reboot this time) found: the Strategist call (invocation 55) against DeepSeek-R1 ran for
+18018s (≈5h) before failing — FR-GATE-08's existing one-restart-and-retry inside
+`engine/client.py::chat_completion` already ran twice at a 9000s (2.5h) per-attempt timeout
+(2×9000+overhead≈18018), then correctly raised `EngineUnresponsiveError`. `orchestrator/
+driver.py` correctly caught it and marked the engagement `PAUSED` (not lost — nothing
+discarded) — but `cli/run.py::run()` then just printed a message and `sys.exit(1)`, killing
+the whole tmux orchestrator pane. Nothing re-invoked it. This directly violated the
+autonomous-operation contract ("the whole process should run without any intervention...
+until an issue needs to be fixed") — a slow-but-not-actually-broken CPU inference is an
+*expected* characteristic of this host (the known ~60–120min Strategist ceiling), not a
+defect, yet used to require a human to notice a dead pane and manually retype the command.
+
+**Fix:** `cli/run.py::run()` now wraps its `run_full_engagement` call in a retry loop. On
+`EngineUnresponsiveError`, it sleeps `--auto-resume-backoff-s` (default 30s) and re-invokes
+`run_full_engagement` on the same `engagement_id` itself, up to `--max-auto-resumes` times
+(default 5; `0` restores the old fail-immediately behavior) before finally giving up and
+exiting with the original PAUSED message. Safe because `run_full_engagement` has no
+status-gating precondition and every phase it calls is already idempotent/resumable
+(baseline recon no-ops if already completed, the council-round loop and `run_phase_4_3`
+both already tolerate being re-entered) — a retry picks up exactly where `task_queue`/
+`verified_vulnerabilities` left off, nothing generated so far is redone or lost. Both new
+options are threaded through `launch_in_tmux`'s subprocess re-invocation so they apply
+whether or not `--no-tmux` is passed. New tests: `test_run_self_recovers_from_a_transient_
+engine_unresponsive_error`, `test_run_gives_up_after_self_recovery_attempts_are_exhausted`,
+`test_run_max_auto_resumes_zero_restores_the_old_fail_immediately_behavior` — all mock
+`run_full_engagement` and `time.sleep` (plus `hold_system_inhibition`, to keep this real
+dev machine's genuine `systemd-inhibit` subprocess-wait polling out of the sleep-call
+assertions) so no test actually waits or touches a real model.
+
+**Judgment call, not operator-specified:** the exact `5`/`30s` defaults — the operator asked
+for "a fallback in any case," not specific numbers. Logged in `Assumptions-Not-Approved.md`.
+
+---
+
 ### Round 17 — `vaptctl run` never ran app teardown when `start --no-run` deferred it (Chrome/Thunar/Mousepad silently never closed)
 
 **Status: ✅ APPROVED ("Fix it", 2026-09-16/17) AND IMPLEMENTED.**
