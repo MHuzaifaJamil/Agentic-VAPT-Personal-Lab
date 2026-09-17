@@ -2568,3 +2568,28 @@ own instruction not to hover over it.
 code depending on their magnitude — trivially adjustable, including `--max-auto-resumes 0` to
 fully restore the pre-2026-09-17 fail-immediately behavior for every future run without
 touching any code.
+
+## 63. Plain-language round/goal status wording and the "awaiting execution" staleness threshold (2026-09-17)
+
+**What I assumed:** The operator's ask ("Why on Console I do NOT get the STATUS in Simple
+Language... Everything should be there in simplest possible framing") states the requirement,
+not the exact wording or thresholds. Two judgment calls:
+
+1. The exact phrasing — "Council round: N of M max | Confirmed findings: K of G goal" on the
+   dashboard, "round N/M — confirmed K/G" on the console — and which two numbers to lead with
+   (round progress and goal progress) rather than, say, elapsed wall-clock time or a percentage.
+2. `build_task_funnel_panel`'s 900-second (15 min) threshold for coloring the "Approved,
+   awaiting execution" count amber instead of cyan — no real data yet on what "stalled too
+   long" looks like now that the underlying reopen-bug (item above/Round 19) is fixed; picked
+   as a plausible round-cadence-relative figure (a healthy round's own Strategist+Auditor pass
+   already takes 30-50 minutes per `model_invocation_logs`), not a measured threshold.
+
+**Where used:** `dashboard/render.py::build_progress_line`/`build_task_funnel_panel`,
+`cli/console.py::engagement_progress_text`.
+
+**Verification:** 6 new tests assert the exact current wording/thresholds render correctly;
+none of them validate that this phrasing is what the operator actually finds clearest in
+practice — that's only confirmable by the operator using it live.
+
+**What changes if disapproved:** both are plain string formatting / one constant, in one
+function each — trivially reworded or re-thresholded without touching any other logic.

@@ -40,6 +40,45 @@ implemented and verified.)*
 
 ## Archive — Resolved / Merged Items (newest first)
 
+### Round 19 — A "COMPLETE" target was never reopened for later council rounds; dashboard/console showed false status with no round/goal context
+
+**Status: ✅ APPROVED (operator directly asked for engagement 26's status, then flagged
+console showing stale "Paused" and asked why status isn't self-evident without asking Claude,
+2026-09-17) AND IMPLEMENTED.**
+
+Investigating the operator's status question found engagement 26 had burned ~4.5 real CPU-
+hours (rounds 2-6) proposing and Gate-1-approving the exact same hypothesis every round with
+**zero execution**. Root cause: `run_phase_4_2a` marks a target `COMPLETE` once it runs out of
+un-commanded `GATE1_APPROVED` tasks — correct under the old single-round design, but the Round
+16 multi-round loop can approve fresh tasks for that same target in round 2+, and nothing ever
+reopened it; `next_pivot_target` treats `COMPLETE` as terminal, so those tasks silently rotted.
+Fixed: `council/loop_bounds.py::reopen_completed_targets_with_pending_work` (new) reopens a
+`COMPLETE` target back to `ACTIVE` right before each round's `run_phase_4_2a`, but only when it
+genuinely has fresh pending work — `CAPPED`/`CIRCUIT_BROKEN`/`UNREACHABLE` stay untouched (real
+diminishing-returns signals, not "ran out of tasks this round"). 3 new tests.
+
+Separately, the operator's console-status complaint surfaced two real display bugs, not just
+UX gaps: (1) a `model_invocation_logs` row only gets `ended_at` on a normal return — a killed/
+restarted orchestrator process always leaves one dangling, which the dashboard couldn't tell
+apart from a genuinely running call, producing a false "2 roles simultaneously non-COLD"
+integrity alert and a role stuck showing RUNNING with a climbing elapsed timer for a process
+that no longer existed; fixed by excluding any unfinalized row older than the engagement's own
+`orchestrator_pid_started_at`. (2) Neither console nor dashboard showed which council round was
+active or how close the engagement was to its own stated goal — direct operator ask: "Why on
+Console I do NOT get the STATUS in Simple Language... which cycle is it... Everything should be
+there in simplest possible framing." Fixed: new `engagements.current_council_round` (set once
+per round), a plain "Council round: N of M max | Confirmed findings: K of G goal" line on both
+surfaces, and a "Approved, awaiting execution: N" line on the Task-Queue Funnel panel — the
+visible symptom of the stall bug above, now caught at a glance instead of by hand-querying
+`task_queue`. 6 new tests. Full suite (both commits): 1147 passed, 3 skipped, 0 failed.
+
+Known limitation, disclosed to the operator: the round counter reads 0 for the remainder of
+the run already in flight when this was implemented, since that process loaded the driver code
+before the counter was added — corrects itself on the next natural restart, not worth another
+mid-flight restart just for a cosmetic figure when the underlying stall fix was already live.
+
+---
+
 ### Round 18 — `vaptctl run` had no self-recovery: one unresponsive council model PAUSED the whole engagement and exited, needing a manual restart
 
 **Status: ✅ APPROVED ("There must be a Fallback / Self Recovery Option in any case!!",
