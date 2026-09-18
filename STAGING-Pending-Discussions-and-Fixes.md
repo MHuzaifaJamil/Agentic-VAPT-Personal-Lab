@@ -40,6 +40,60 @@ implemented and verified.)*
 
 ## Archive — Resolved / Merged Items (newest first)
 
+### Round 22 — Three separate operator-directed tasks: candidate-detection ingestion gap, Scripter JSON-schema grammar, dashboard/console readability bugs
+
+**Status: ✅ APPROVED (2026-09-18, three explicit operator directives, each treated as its
+own complete task per instruction) AND IMPLEMENTED.**
+
+All three found or specified the same night, watching engagement 27 live:
+
+1. **`candidate_detection.py` was blind to the Round 20 diversification it was supposed to
+   support.** Real Scripter executions for the newly-diverse vulnerability classes (IDOR/CSRF/
+   mass-assignment/BFLA/...) are almost all Tier 2 raw `curl` (no declared `tool_name` at all),
+   which this module never inspected regardless of what they found — a real IDOR probe
+   returned a novel, successful response and stayed invisible to Gate 3 end to end. Separately,
+   `exit_code == 0` was a hard filter, but `sqlmap` legitimately exits non-zero on a normal
+   successful run — real confirmations were discarded before their raw text was ever read.
+   Fixed: `exit_code` dropped from the filter entirely; a new curl/Python HTTP-probe signal
+   path fires on a real content-based disclosure (leaked password/token/admin-role, a SQL/DB
+   error string) or, for access-control classes specifically, a bare 200/201/204 where "the
+   request simply succeeded" IS the finding — deliberately more conservative than "any 200 OK
+   is a candidate" to avoid flooding Gate 3 with ordinary traffic.
+2. **The Primary Scripter (Qwen2.5-Coder-7B) lost 3 straight hypotheses to malformed JSON** —
+   markdown fences, broken string escaping inside a multi-line embedded script value, never a
+   safety rejection, all folded into `GATE2_BLOCKED` since 2026-09-13 (a deliberate choice then,
+   to avoid a CHECK-constraint migration, that ended up conflating model unreliability with
+   real policy enforcement in every downstream reading of task status). Fixed: the failure is
+   now its own `MODEL_STRUCTURED_OUTPUT_FAILURE` status (counted separately on the dashboard
+   funnel and in the coverage-summary report), and — the actual root-cause fix — the Scripters'
+   command-generation/followup calls now pass a real JSON Schema via `response_format`, which a
+   disposable throwaway llama-server test instance (isolated port, torn down immediately after)
+   confirmed this exact build honors as a genuine token-level grammar constraint, not merely a
+   prompt-level request.
+3. **Dashboard/console readability bugs from a live operator screenshot.** A leading `~` on
+   estimate figures ("~12.1 tok/s", "~3m00s") was being misread as a minus sign at terminal
+   font sizes — dropped (the `[ESTIMATING]`/`[EST.]` suffix already disambiguates). A role
+   RUNNING past its own per-turn estimate on what looked like its last turn showed a stale
+   "ETA: 0s" reading as "already finished" — now shows an explicit "OVERRUN (+Xm Ys)". The
+   swap-thrashing alarm was checked directly and found NOT to be a bug — it was already firing
+   correctly in bold red past its threshold. The console's live journal blocks (`invocation_
+   log.py`) used to hard-clip both the ingested prompt and the model's raw output to 400 chars
+   — checked directly, `model_invocation_logs` has no prompt/output column at all, and several
+   roles never persist their full prompt/output anywhere else, so this was real, permanent data
+   loss for those roles, not merely a readability trade-off; removed entirely.
+
+**Explicitly NOT done, disclosed rather than silently skipped:** the same message's broader ask
+for a fully restructured 6-block per-turn console layout with true live per-token streaming.
+Live streaming would require switching every role's `chat_completion` call from a single
+blocking request to SSE streaming — a real architecture change judged unsafe to make unreviewed
+against a currently-running live engagement in the same session as five other real fixes.
+
+18 new/updated tests across the three tasks. Full suite: 1176 passed, 3 skipped (1 pre-existing
+environment-timing flake under concurrent CPU load from the live engagement, confirmed passing
+in isolation — not a regression); `ruff`/`mypy` clean.
+
+---
+
 ### Round 21 — A "host:port" Strategist hypothesis target was silently dropped, not rejected
 
 **Status: ✅ APPROVED (self-caught while monitoring engagement 27 live, 2026-09-18) AND IMPLEMENTED.**

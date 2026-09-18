@@ -2638,3 +2638,41 @@ string list referenced from exactly two places (the prompt text and nowhere else
 structurally, since the schema check doesn't enforce it); the lenient schema check is one
 `for` loop's field list — all three are independently adjustable without touching the
 per-vector tracking mechanism itself.
+
+## 65. Candidate-detection HTTP-probe patterns and unbounded console journal blocks (2026-09-18)
+
+**What I assumed:** Three judgment calls translating the operator's stated intent into exact
+patterns/numbers:
+
+1. The disclosure-signature regexes in `candidate_detection.py::_match_http_probe_signal`
+   (password/token/isAdmin/role/api_key JSON key:value shapes, a handful of SQL/DB error
+   strings) — the operator's own list ("admin"/"password"/"token"/"schema", DB error syntax)
+   was illustrative; I made each one require the actual key:value shape a real leak takes
+   (never a bare substring match) specifically to avoid flooding Gate 3 with false positives,
+   which is a stricter reading than "any of these words appearing anywhere."
+2. `_ACCESS_CONTROL_CLASSES = {IDOR, BFLA, BROKEN_AUTH, MASS_ASSIGNMENT, CSRF}` as the set where
+   a bare 200/201/204 status alone counts as signal — the operator's own example set matches
+   this closely; I did not add SSRF/XSS/SQLI/etc. to it since "the request simply succeeded" is
+   not itself informative for those classes the way it is for an access-control test.
+3. `invocation_log.py`'s `_SUMMARY_CHARS` was changed to `None` (fully unbounded) rather than a
+   large-but-still-bounded number (e.g. 20000 chars) — the operator's own wording ("zero string
+   truncation", "never truncate... unclipped") reads as an absolute requirement, not "raise the
+   limit," so I took it literally rather than picking a new, still-arbitrary ceiling.
+
+**Where used:** `council/candidate_detection.py` (patterns 1-2), `council/invocation_log.py`
+(3).
+
+**Verification:** the disclosure/SQL-error/access-control patterns each have a direct positive
+test plus a negative test (bare 200 with no disclosure content, on a non-access-control class,
+is NOT a candidate); the unbounded journal change has a direct test asserting a 2000-char
+marker string survives completely intact with no `...`. Full suite: 1176 passed, 3 skipped (1
+pre-existing environment flake, confirmed not a regression). Not yet confirmed against a real
+live engagement actually producing a CONFIRMED finding through this new ingestion path — that
+is the next thing to watch for once engagement 27 (or its successor) is restarted with this fix
+live.
+
+**What changes if disapproved:** the disclosure/SQL-error pattern lists and the access-control
+class set are each one Python list/set literal, trivially extended or narrowed; `_SUMMARY_CHARS`
+is one module-level constant that can be set back to any bounded integer without touching the
+call sites that slice by it (Python's `text[:N]` and `text[:None]` are both already handled by
+the same line).
