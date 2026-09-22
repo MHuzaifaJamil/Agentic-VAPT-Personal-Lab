@@ -29,12 +29,87 @@ purpose is to show how a fix evolved, not just its final state.
 
 ---
 
+### Round 25 — Should Wave 1's domain/DNS-brute recon tools skip an IP-only target entirely?
+
+**Status: ⬜ AWAITING OPERATOR DECISION.** Surfaced by a pasted external "implementing agent
+directive" (2026-09-23) reviewing `state.db` — two of its three claims did not hold up under
+direct verification (see chat: `gate1_deterministic.py` doesn't exist, and tasks 632-636
+having `NULL proposed_command` is the pipeline's normal two-phase lifecycle, not a bug —
+neither was acted on). This third point is real and independent of those two.
+
+`FR-BASELINE-06`'s Wave 1 "Always" group (`subfinder`/`assetfinder`/`knockpy`/`sublert`/
+`puredns`/`shuffledns`/`theHarvester`/`dnsrecon`/`bbot`) dispatches unconditionally regardless
+of target shape. Checked directly against real DB rows (engagement 27, tasks 596-605): 8 of
+10 exited `0` (not errors, contrary to the pasted directive's framing) but all returned
+empty/no-op output — domain/subdomain-enumeration tools have nothing to enumerate against a
+bare IP like `127.0.0.1`, by construction.
+
+| Option | Effect |
+|---|---|
+| **Leave as-is** | Matches `FR-BASELINE-06`'s literal "Always" wording exactly; wastes ~8 tool-timeout-tier calls' worth of wall-clock per IP-only target for zero possible signal. |
+| **Skip Wave 1's domain-only tools when `targets.host_or_domain` (minus port) is an IP/loopback** | Real time saved on every IP-only engagement (this project's actual test targets — Juice Shop, MediaCMS — are both IP-only); deviates from `FR-BASELINE-06`'s literal text, would need the same kind of reconciliation entry as `IMPLEMENTATION-DEVIATIONS-FROM-REQUIREMENTS.md`'s existing ones. |
+
+**Not a recommendation either way yet** — genuinely a wall-clock-vs-spec-literalism tradeoff,
+not a correctness bug like the other fixes tonight.
+
+---
+
+### Round 24 — How to resume engagement 28: blind (re-test detection capability) or pointed (feed it the 11 known findings)?
+
+**Status: ⬜ AWAITING OPERATOR DECISION.**
+
+Engagement 28 (blind, against Juice Shop `127.0.0.1:3000`) is paused at round 2, 0 confirmed,
+per explicit operator instruction not to resume any engagement this session. Since it was
+paused, this same investigation found and fixed the true reason it found nothing — a scope-
+matching bug (Gate 1 rejected 5 of its first 6 real attack tasks) plus three deeper
+candidate-detection gaps (dead access-control status check, a denylist false positive
+blocking the fix for it, and no XSS-reflection rule at all — full detail: `Assumptions-Not-
+Approved.md` items #66, `IMPLEMENTATION-DEVIATIONS-FROM-REQUIREMENTS.md`'s three new
+2026-09-22 entries). None of these fixes have been exercised in a live run yet.
+
+| Option | What it tests | Tradeoff |
+|---|---|---|
+| **Resume engagement 28 blind** (recommended) | Whether the Council, now that every known bug is fixed, independently arrives at the same 11 findings `implementation/reports/JuiceShop-VAPT-Testing-Guide-2026-09-19.md` §4 already confirmed by hand — a real detection-capability measurement. | Slower (a fresh, unguided search); the previous "0 confirmed" result was never a fair test of the fixed system, so this is the first genuinely fair blind attempt. |
+| **Restart pointed** — feed the 11 known findings via `--notes` and ask it to confirm/reproduce each from scratch | Whether the Council can confirm a *known* bug when told where to look — a weaker test (closer to "can it operate the tools correctly" than "can it find things"). | Faster, more certain to produce SOME confirmed findings, but doesn't answer the actual benchmark question the operator originally asked for ("try finding those exact issues" — read as independent rediscovery, not confirmation-when-told). |
+
+**Recommendation:** resume blind first (Option 1). If it still finds nothing after a full,
+fair run with everything fixed, that's the point to switch to the pointed variant — not
+before, since doing so now would forever leave open whether the blind approach was ever
+really given a chance.
+
+---
+
 ## Still Open — Approved, Action Items Remain
 
 *(Decided by the operator, but not fully finished — usually because a step needs the
 operator's own `sudo`, which this assistant has no passwordless access to. Stays here, at
 the top of this section, until every sub-item is done — even once some parts are already
 implemented and verified.)*
+
+---
+
+### Round 23 — 3 failed VirtualBox systemd units on the Implementing PC (unrelated to this project, needs operator's own `sudo`)
+
+**Status: ⬜ BLOCKED — needs the operator's own `sudo` password (this assistant has no
+passwordless access). Not a code/requirements item; recorded here per the operator's own
+"always stage anything that needs my input" instruction (2026-09-23), not because it belongs
+in the numbered requirement corpus.**
+
+Found during a general system-health sweep of the Implementing PC (2026-09-22/23), unrelated
+to any VAPT code: `vboxdrv.service`, `vboxautostart-service.service`,
+`vboxballoonctrl-service.service` all `failed` (`systemctl --failed`). Root cause (confirmed,
+not guessed): `/usr/lib/virtualbox/vboxdrv.sh` does not exist anywhere on disk and isn't
+owned by any installed package (`dpkg -L virtualbox`/`virtualbox-dkms` both come back empty
+for it) — a stale systemd unit left over from an old VirtualBox version, surfaced by the
+`apt upgrade` that ran during an earlier shutdown attempt this same session. This project
+only ever uses Docker (Juice Shop/MediaCMS), never VirtualBox, so this has zero bearing on
+any engagement — flagged purely as a real, found system issue.
+
+**Fix, when the operator has a moment to run it themselves:**
+```bash
+sudo systemctl disable --now vboxdrv vboxautostart-service vboxballoonctrl-service
+sudo apt install --reinstall virtualbox-dkms
+```
 
 ---
 
