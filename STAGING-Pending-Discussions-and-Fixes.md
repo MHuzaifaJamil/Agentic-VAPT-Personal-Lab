@@ -29,62 +29,28 @@ purpose is to show how a fix evolved, not just its final state.
 
 ---
 
-### Round 25 — Should Wave 1's domain/DNS-brute recon tools skip an IP-only target entirely?
-
-**Status: ⬜ AWAITING OPERATOR DECISION.** Surfaced by a pasted external "implementing agent
-directive" (2026-09-23) reviewing `state.db` — two of its three claims did not hold up under
-direct verification (see chat: `gate1_deterministic.py` doesn't exist, and tasks 632-636
-having `NULL proposed_command` is the pipeline's normal two-phase lifecycle, not a bug —
-neither was acted on). This third point is real and independent of those two.
-
-`FR-BASELINE-06`'s Wave 1 "Always" group (`subfinder`/`assetfinder`/`knockpy`/`sublert`/
-`puredns`/`shuffledns`/`theHarvester`/`dnsrecon`/`bbot`) dispatches unconditionally regardless
-of target shape. Checked directly against real DB rows (engagement 27, tasks 596-605): 8 of
-10 exited `0` (not errors, contrary to the pasted directive's framing) but all returned
-empty/no-op output — domain/subdomain-enumeration tools have nothing to enumerate against a
-bare IP like `127.0.0.1`, by construction.
-
-| Option | Effect |
-|---|---|
-| **Leave as-is** | Matches `FR-BASELINE-06`'s literal "Always" wording exactly; wastes ~8 tool-timeout-tier calls' worth of wall-clock per IP-only target for zero possible signal. |
-| **Skip Wave 1's domain-only tools when `targets.host_or_domain` (minus port) is an IP/loopback** | Real time saved on every IP-only engagement (this project's actual test targets — Juice Shop, MediaCMS — are both IP-only); deviates from `FR-BASELINE-06`'s literal text, would need the same kind of reconciliation entry as `IMPLEMENTATION-DEVIATIONS-FROM-REQUIREMENTS.md`'s existing ones. |
-
-**Not a recommendation either way yet** — genuinely a wall-clock-vs-spec-literalism tradeoff,
-not a correctness bug like the other fixes tonight.
-
----
-
-### Round 24 — How to resume engagement 28: blind (re-test detection capability) or pointed (feed it the 11 known findings)?
-
-**Status: ⬜ AWAITING OPERATOR DECISION.**
-
-Engagement 28 (blind, against Juice Shop `127.0.0.1:3000`) is paused at round 2, 0 confirmed,
-per explicit operator instruction not to resume any engagement this session. Since it was
-paused, this same investigation found and fixed the true reason it found nothing — a scope-
-matching bug (Gate 1 rejected 5 of its first 6 real attack tasks) plus three deeper
-candidate-detection gaps (dead access-control status check, a denylist false positive
-blocking the fix for it, and no XSS-reflection rule at all — full detail: `Assumptions-Not-
-Approved.md` items #66, `IMPLEMENTATION-DEVIATIONS-FROM-REQUIREMENTS.md`'s three new
-2026-09-22 entries). None of these fixes have been exercised in a live run yet.
-
-| Option | What it tests | Tradeoff |
-|---|---|---|
-| **Resume engagement 28 blind** (recommended) | Whether the Council, now that every known bug is fixed, independently arrives at the same 11 findings `implementation/reports/JuiceShop-VAPT-Testing-Guide-2026-09-19.md` §4 already confirmed by hand — a real detection-capability measurement. | Slower (a fresh, unguided search); the previous "0 confirmed" result was never a fair test of the fixed system, so this is the first genuinely fair blind attempt. |
-| **Restart pointed** — feed the 11 known findings via `--notes` and ask it to confirm/reproduce each from scratch | Whether the Council can confirm a *known* bug when told where to look — a weaker test (closer to "can it operate the tools correctly" than "can it find things"). | Faster, more certain to produce SOME confirmed findings, but doesn't answer the actual benchmark question the operator originally asked for ("try finding those exact issues" — read as independent rediscovery, not confirmation-when-told). |
-
-**Recommendation:** resume blind first (Option 1). If it still finds nothing after a full,
-fair run with everything fixed, that's the point to switch to the pointed variant — not
-before, since doing so now would forever leave open whether the blind approach was ever
-really given a chance.
-
----
-
 ## Still Open — Approved, Action Items Remain
 
 *(Decided by the operator, but not fully finished — usually because a step needs the
 operator's own `sudo`, which this assistant has no passwordless access to. Stays here, at
 the top of this section, until every sub-item is done — even once some parts are already
 implemented and verified.)*
+
+---
+
+### Round 24 — Engagement 28 resumed blind (operator-approved 2026-09-23)
+
+**Status: ✅ APPROVED (2026-09-23: "Approved — Resume Engagement 28 blind (Option 1). Now
+that the scope-rules port bug and candidate-detection gaps are resolved, allow the Council
+to run its natural discovery loop against JuiceShop.") — resume actioned same session. Stays
+in Still Open, not Archive, until the engagement itself reaches a real conclusion (goal met,
+zero-yield exhausted, round cap, or session budget) and the result is compared against
+`implementation/reports/JuiceShop-VAPT-Testing-Guide-2026-09-19.md` §4's 11-item ground
+truth.**
+
+Every fix from this investigation (scope-matching, katana/nuclei/gospider, the three
+candidate-detection gaps, and Round 25's Wave 1 IP-skip) is now live simultaneously for the
+first time. This is the first genuinely fair blind run.
 
 ---
 
@@ -97,6 +63,19 @@ implemented and verified.)*
 > `IMPLEMENTATION-DEVIATIONS-FROM-REQUIREMENTS.md` for the full ID-by-ID mapping. Nothing in
 > this file's own status lines below needed to change — they already correctly said
 > "APPROVED... AND IMPLEMENTED"; this was purely the spec catching up.
+
+---
+
+### Round 25 — Wave 1's domain/DNS-brute recon tools now skip IP-only targets
+
+**Status: ✅ APPROVED (2026-09-23: "Approved — Skip Wave 1 domain/DNS tools when the target
+host is an IPv4/IPv6 address. Record this optimization in
+IMPLEMENTATION-DEVIATIONS-FROM-REQUIREMENTS.md against FR-BASELINE-06.") AND IMPLEMENTED.**
+Full write-up: `IMPLEMENTATION-DEVIATIONS-FROM-REQUIREMENTS.md`'s new 2026-09-23 entry.
+
+New `_is_ip_or_loopback_target()` gates `subfinder`/`assetfinder`/`knockpy`/`sublert`/
+`puredns`/`shuffledns`/`theHarvester`/`dnsrecon` — `naabu` untouched. 3 new + 1 updated
+test, full suite clean (1192 passed, 3 skipped, all pre-existing unrelated flakes).
 
 ---
 
