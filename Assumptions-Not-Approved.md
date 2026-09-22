@@ -2676,3 +2676,79 @@ class set are each one Python list/set literal, trivially extended or narrowed; 
 is one module-level constant that can be set back to any bounded integer without touching the
 call sites that slice by it (Python's `text[:N]` and `text[:None]` are both already handled by
 the same line).
+
+---
+
+## 66. Deterministic curl status-marker injection + XSS-reflection detection — exact mechanism/format picked, not operator-specified (2026-09-22)
+
+**What I assumed:** Continuing item #65's own root-cause thread (candidate detection), a
+deeper pass — triggered by the operator's own "check and analyze all of the code to find the
+reason behind zero actual vulnerabilities found yet" — found that item #65's access-control
+status-code rule (`_ACCESS_CONTROL_CLASSES`, a bare 200/201/204 as signal) had never actually
+been reachable: the Scripter's real generated `curl` commands almost never include `-i`/`-D`/
+`-v`, so no "HTTP/x.x NNN"-shaped line ever appeared in raw output for that rule to match,
+regardless of what the target returned. Closing this — and a second, independently-discovered
+gap (no rule existed that could ever confirm XSS at all) — both required inventing a concrete
+mechanism the operator never specified:
+
+1. **The curl status-marker mechanism itself.** Rather than trust the model to remember the
+   right flag on every command, `bridge/tier2.py::_curl_argv_with_status_marker` now
+   deterministically appends `-w "\n__CANDIDATE_DETECTION_HTTP_STATUS__:%{http_code}\n"` to
+   every Tier 2 curl invocation that doesn't already request its own `-w`/`--write-out`,
+   injected AFTER Gate 2's denylist checks (judged safe to skip its own pass — a pure,
+   risk-free output-formatting addition, not a new capability, never touching what the
+   request itself does). The literal marker string, the choice to skip commands that already
+   have `-w`, and the decision to inject post-Gate-2 rather than pre-Gate-2 are all this
+   session's own design choices, not operator-specified.
+2. **A related, necessary side-fix**: Gate 2's denylist rule (c) was independently blocking
+   the very `curl -o /dev/null -w "%{http_code}"` idiom needed for #1 to ever have worked —
+   `/dev/null` treated as "outside the artifact store" (backwards; it discards data, cannot
+   exfiltrate anything) and curl's `-w` bundled into the same file-destination check as
+   nmap's real `-oN`/`-oX`/etc. This one is judged an unconditional correctness fix (no
+   real alternative reading — `/dev/null` genuinely cannot leak data, and curl's `-w` is
+   genuinely never a file destination for any tool in this arsenal), recorded in
+   `IMPLEMENTATION-DEVIATIONS-FROM-REQUIREMENTS.md` instead of here; noted in this item only
+   because it was found in the same investigative pass and is what makes #1 actually work
+   end to end.
+3. **The XSS-reflection payload-marker pattern.** `_XSS_PAYLOAD_MARKER_PATTERN` recognizes a
+   deliberately narrow set of payload shapes (`<script>...</script>`, `<img onerror=...>`,
+   `<svg onload=...>`, a bare `on(error|load|click|mouseover|focus)=` attribute, or a
+   `javascript:` URI) — extracted from the task's OWN request (not a guessed generic
+   pattern), then checked for a verbatim, unescaped match in the response body. Chose exact
+   substring matching over a normalized/fuzzy comparison (e.g. ignoring whitespace or
+   attribute-order differences) specifically to keep false-positive risk near zero, at the
+   cost of missing a real reflection that got reformatted (whitespace-normalized, attribute
+   order changed, etc.) on its way back — a deliberately conservative choice, same philosophy
+   `_DISCLOSURE_PATTERNS` already uses.
+
+**Why (spec basis):** No numbered requirement doc specifies curl-invocation flag conventions,
+a status-marker format, or an XSS-detection mechanism at all — `01:FR-COUNCIL-12a`'s reconciled
+text (per the 2026-09-22 requirements-sync pass) covers item #65's candidate-detection widening
+in general terms but doesn't reach this level of mechanism detail. Operator's own framing from
+the same investigation ("check and analyze all of the code to find the reason") authorized the
+investigation and the fix, not this specific implementation shape.
+
+**Where used:** `bridge/tier2.py` (`_curl_argv_with_status_marker`, `CURL_STATUS_MARKER_PREFIX`),
+`council/candidate_detection.py` (`_CURL_STATUS_MARKER_PATTERN`, `_XSS_PAYLOAD_MARKER_PATTERN`,
+`_sent_xss_payload_marker`).
+
+**Verification:** unit tests for the pure marker-injection helper (append/no-duplicate/no-op-
+for-non-curl/`-o /dev/null`-compatible), one real, unmocked-subprocess integration test
+confirming the marker actually reaches the raw artifact text (not just that the argv is built
+correctly), and 3 new `candidate_detection.py` tests (reflected-unescaped is a candidate,
+HTML-escaped is not, no-payload-in-request is not). Full suite: 1188 passed, 3 skipped (4
+pre-existing, environment-dependent flakes, confirmed unrelated — documented in
+`../implementation/reports/JuiceShop-VAPT-Testing-Guide-2026-09-19.md` §3.5). **Not yet
+confirmed against a real live engagement actually producing a CONFIRMED finding through this
+path** — same caveat item #65 already carried, now one layer deeper: engagement 28 (paused,
+per explicit operator instruction not to resume it this session) has never run with any of
+items #60/#61-65/#66's fixes all simultaneously live.
+
+**What changes if disapproved:** the marker string is one module-level constant
+(`CURL_STATUS_MARKER_PREFIX`), trivially changed without touching call sites on either side
+(injection in `tier2.py`, matching in `candidate_detection.py` both import it, so they can
+never drift independently); the XSS payload-pattern list is one compiled regex, extendable or
+narrowable without touching the matching logic around it; the post-Gate-2 injection point can
+move to pre-Gate-2 by relocating one function call in `tier2.py` if the operator would rather
+the denylist see the final, marker-appended argv (it currently doesn't need to, since `-w`'s
+own file-destination miscategorization was independently fixed).

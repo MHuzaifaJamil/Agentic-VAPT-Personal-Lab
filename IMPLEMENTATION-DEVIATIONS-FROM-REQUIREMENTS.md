@@ -50,6 +50,154 @@
 
 ---
 
+## 2026-09-22 — Gate 2 denylist rule (c) false-positived on `/dev/null` and curl's `-w`, silently blocking the one probe shape needed for real access-control-class detection
+
+**Status: ✅ IMPLEMENTED, ✅ unconditional correctness fix (no operator decision needed — no
+real alternative reading exists: `/dev/null` cannot exfiltrate data by construction, and
+curl's `-w`/`--write-out` is never a file destination for any tool in this project's
+arsenal). Full write-up, including the two other bugs found in the same investigative pass,
+in `Assumptions-Not-Approved.md` item #66 and `../implementation/reports/
+JuiceShop-VAPT-Testing-Guide-2026-09-19.md` §3.5.
+
+### What the requirement says
+
+`01:FR-TOOL-06`(c)/`bridge/denylist.py`'s own docstring: "file write/delete/rename whose
+target resolves outside the artifact path" is rejected — the requirement's intent is
+preventing a tool from persisting data somewhere it could leak or survive engagement
+teardown, never named `/dev/null` or curl's `-w` specifically.
+
+### What real code did before this fix, and the real incident that exposed it
+
+`check_behavioral_denylist`'s `output_flags` set bundled curl's `-w` alongside genuine
+file-destination flags (`-o`/`-O`/nmap's `-oA`/`-oN`/`-oX`/`-oG`), and resolved EVERY such
+flag's value as a candidate filesystem path via `Path(target).resolve()` with no exemption
+for `/dev/null`. Confirmed on a real DB row (engagement 27, task 575):
+`curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/api/coupon/apply?code=TESTCOUPON`
+— a well-formed, low-noise status-code-only probe, exactly the idiom
+`council/candidate_detection.py`'s access-control-class rule needs to have any chance of
+firing — was rejected `[c]: output flag '-o' points outside the artifact store: /dev/null`.
+
+### What real code now does
+
+`bridge/denylist.py`: `-w`/`--write-out` removed from `output_flags` entirely (curl's `-w`
+is a stdout format string, never a file write, and no other tool in the arsenal uses a bare
+`-w` for real file output — nmap's own file-output flags are the already-listed
+`-oA`/`-oN`/`-oX`/`-oG`); `/dev/null` explicitly exempted from rule (c)'s resolution check
+(it discards its input — the one destination that structurally cannot persist or exfiltrate
+anything, making "outside the artifact store" the wrong framing entirely).
+
+**Verification:** 2 new regression tests (`tests/test_bridge_denylist.py`) covering both
+exemptions directly, plus the existing rule (c) tests re-verified still correctly block a
+real outside-artifact-store write. Full suite clean (1188 passed, 3 skipped).
+
+### Why this deviates / where it should land in the corpus
+
+`01:FR-TOOL-06`(c)'s text (and `bridge/denylist.py`'s own docstring) could note both
+exemptions explicitly — `/dev/null` as a standing safe destination, and that `-w` is
+excluded from the output-flag set because its value is never a file path for any currently-
+registered tool. Flagged for the next reconciliation pass.
+
+---
+
+## 2026-09-22 — `vaptctl start --targets host:port` silently broke Gate 1 scope matching for every real attack command
+
+**Status: ✅ IMPLEMENTED, ✅ unconditional correctness fix (no operator decision needed — the
+scope pattern must match what the real-destination check actually extracts; there is no
+alternative reading where a port-carrying pattern is correct). Full write-up in
+`../implementation/reports/JuiceShop-VAPT-Testing-Guide-2026-09-19.md` §3.4.
+
+### What the requirement says
+
+`01:FR-COUNCIL-03a` (as reconciled 2026-09-22, folding in the 2026-09-14 destination-check
+fix below) requires Gate 1 Tier 0's scope check to validate a command's real network
+destination, deterministically. It doesn't specify how `vaptctl start`'s own
+`--scope-rules`-omitted auto-derived scope should handle a `--targets` value that itself
+carries a port.
+
+### What real code did before this fix, and the real incident that exposed it
+
+`cli/start.py`'s auto-derived scope stored the raw `--targets` string verbatim as the
+scope-rules `pattern` — `--targets 127.0.0.1:3000` produced pattern `"127.0.0.1:3000"`, port
+included. But `check_tier0`'s real-destination check (`extract_destination_candidates`,
+`urlparse(...).hostname`) always extracts a bare, port-stripped host from a proposed
+command's argv. `_pattern_matches` then compared `"127.0.0.1"` against `"127.0.0.1:3000"`:
+the target is a valid IP, the pattern (with the port attached) is not, so the IP-vs-domain
+branch rejected the match outright. Confirmed live on engagement 28: 5 of its first 6 real
+attack tasks (XSS/IDOR/SSRF/BROKEN_AUTH/nmap) were Gate-1-rejected by this, not by any real
+safety concern. Engagements 26/27 never hit this — they used a bare `127.0.0.1` (no port)
+throughout, which matches fine; this is the first engagement to use explicit `host:port`
+targeting (needed to avoid the port-confusion problems `httpx_args`'s own 2026-09-11 finding,
+and this session's katana/nuclei/gospider entry below, both document).
+
+### What real code now does
+
+New `_scope_pattern_for_network_target()` helper in `cli/start.py` strips a trailing
+`:port` before it becomes a scope pattern — handles bare `host:port`, IPv4, and bracketed
+`[ipv6]:port`; leaves anything else (a bare domain/IP, or an ambiguous multi-colon string
+with no port) untouched. `targets.host_or_domain` itself, and the `targets` list passed to
+everything else, keep the port — only the scope-rules pattern changes.
+
+**Verification:** 3 new regression tests (`tests/test_engagement_lock.py`). Full suite clean
+(1188 passed, 3 skipped).
+
+### Why this deviates / where it should land in the corpus
+
+`01:FR-COUNCIL-03a`'s text could note explicitly that an auto-derived scope pattern is
+always the bare host/domain identity, never carrying a port, regardless of what shape
+`--targets` was given in. Flagged for the next reconciliation pass.
+
+---
+
+## 2026-09-18 (fix landed 2026-09-22 session, backdated to match the incident) — `katana`/`nuclei`/`gospider` Wave 3 args used a non-existent flag and ignored the discovered live port
+
+**Status: ✅ IMPLEMENTED, ✅ unconditional correctness fix (no operator decision needed — a
+non-existent CLI flag and a missing-port bug both have exactly one correct fix). Root-caused
+from engagement 27's real DB rows per the operator's own post-mortem request. Full write-up
+in `../implementation/reports/JuiceShop-VAPT-Testing-Guide-2026-09-19.md` §3.1.
+
+### What the requirement says
+
+`01:FR-BASELINE-06`'s Wave 3 crawling group names `katana`/`gau`/`waybackurls`/`gospider`
+as a set, without specifying exact CLI flags — those are an implementation detail, but the
+existing `httpx_args` (2026-09-11 finding, already in this file) establishes the binding
+precedent that a Wave 3/4 tool needing a concrete scheme+host+port MUST get it from Wave 2's
+live-URL discovery, never a bare target string.
+
+### What real code did before this fix, and the real incident that exposed it
+
+`baseline_recon.py::katana_args` passed `-json`, which does not exist in real katana (only
+`-j`/`-jsonl` do, confirmed against `katana -h`) — every real invocation exited immediately
+with `flag provided but not defined: -json` and produced zero output, every round.
+Separately, `katana_args`/`nuclei_args`/`gospider_args` all crawled the bare `target_value`
+instead of Wave 2's live scheme+port URL — the same missing-port bug `httpx_args` was
+already fixed for. Confirmed live on engagement 27's real `tool_execution_logs`/
+`artifacts_index` rows: katana's raw artifact was the literal 38-byte error string above,
+for every round of the engagement. This left the Strategist with no real crawl to work from
+— it hallucinated generic REST-shaped endpoint guesses (`/blog`, `/api/webhook`,
+`/api/users/1`) that don't exist on the real target instead of real, discovered ones.
+
+### What real code now does
+
+`katana_args`/`nuclei_args`/`gospider_args` (`orchestrator/baseline_recon.py`) all gated on
+`_first_live_url_from_wave2`, matching the existing `ffuf`/`feroxbuster`/`gobuster`
+convention exactly (skip cleanly if no live URL, never guess); `katana_args`'s flag
+corrected to `-jsonl`.
+
+**Verification:** 6 updated tests in `test_orchestrator_baseline_recon.py` (assertions that
+previously expected these three to always dispatch now correctly expect them gated, matching
+ffuf/feroxbuster/gobuster's existing pattern) and 1 in
+`test_orchestrator_baseline_recon_real_execution.py`. Full suite clean (1188 passed, 3
+skipped).
+
+### Why this deviates / where it should land in the corpus
+
+Not a text conflict — `01:FR-BASELINE-06` never specified the exact flags or the live-URL
+gating requirement for these three tools specifically; the existing `httpx_args` precedent
+already establishes the pattern these three should have followed from the start. No spec
+change needed; flagged only so a future audit doesn't re-derive this from scratch.
+
+---
+
 ## 2026-09-16 — Engagement lifecycle now loops council rounds until real coverage exists; Auditor loses all scope authority; Scripters get verified ports
 
 **Status: ✅ IMPLEMENTED, ✅ APPROVED (explicit operator directives, same day, following
