@@ -40,6 +40,14 @@ implemented and verified.)*
 
 ## Archive — Resolved / Merged Items (newest first)
 
+> ✅ **2026-09-22 requirements-sync note (decision #78):** Rounds 9 through 22 below were all
+> already approved/implemented on the Implementing PC; this note records that the binding
+> requirement docs (`01`-`06`) have now also been reconciled to match them — see decision #78
+> in `10-Decision-Log-and-Open-Questions.md` and the reconciliation banner at the top of
+> `IMPLEMENTATION-DEVIATIONS-FROM-REQUIREMENTS.md` for the full ID-by-ID mapping. Nothing in
+> this file's own status lines below needed to change — they already correctly said
+> "APPROVED... AND IMPLEMENTED"; this was purely the spec catching up.
+
 ### Round 22 — Three separate operator-directed tasks: candidate-detection ingestion gap, Scripter JSON-schema grammar, dashboard/console readability bugs
 
 **Status: ✅ APPROVED (2026-09-18, three explicit operator directives, each treated as its

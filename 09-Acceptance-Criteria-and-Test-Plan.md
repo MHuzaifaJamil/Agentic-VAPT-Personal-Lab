@@ -32,7 +32,9 @@ derive authoritatively from the Security Specification (`05`).
 |---|---|---|
 | No interactive prompt | Test | Zero prompts through Phase 1 including first `SIGSTOP`. |
 | No `/tmp` writes | Test | All artifacts/logs/temp files resolve to NVMe. |
-| Denylist classification | Test | `dbus`/compositor classified "protected" before any signal. |
+| Allowlist classification | Test | An unlisted app process (not a browser, Thunar, or Mousepad by `comm`) survives by default; only an explicit `HIBERNATION_ELIGIBLE_APP_NAMES` match is `SIGSTOP`'d. |
+| Secondary denylist still excludes | Test | `dbus`/compositor/kernel-thread names are excluded even if they were hypothetically allowlist-matched — defense in depth, not removed. |
+| In-flight tool subprocess protected despite name match | Test | A browser-automation-spawned `chrome`/`chromium` subprocess with an open `tool_execution_logs` row (`end_ts IS NULL`) for the current engagement is excluded from hibernation eligibility, plus its full descendant closure, despite matching the allowlist by name. |
 | Suspended-tree record | Inspection | PID list sufficient to reverse without re-discovery. |
 | OOM deprioritization | Inspection | `oom_score_adj` set before the pressure step. |
 | OOM casualty detection | Test (fault injection) | Missing PID logged as partial success, not full. |
@@ -73,8 +75,10 @@ derive authoritatively from the Security Specification (`05`).
 | Single residency | Test | Second load fully unloads first, OS-level verified. |
 | Model-swap budget | Test | >60s flagged degraded, not failed. |
 | Engine crash recovery | Test (fault injection) | One restart, then `PAUSED` on repeat failure. |
+| CLI self-resume after `PAUSED` escalation | Test (fault injection) | A simulated `EngineUnresponsiveError` past FR-GATE-08's own restart is caught by `vaptctl run`, backs off, and re-invokes the same engagement up to the configured ceiling before surfacing `PAUSED`; a `0` ceiling restores immediate-exit behavior. |
+| Self-resume is a genuine no-op resume, not a redo | Test | Re-invocation after a caught unresponsive-engine error resumes from last-committed state — nothing already generated is regenerated or lost. |
 | Backend swap feasibility | Analysis | No engine-specific assumption in orchestration code. |
-| Memory-settle gate | Test | Next model load blocks until available memory clears; 5s bound raises degraded alert. |
+| Memory-settle gate | Test | Next model load blocks until available memory clears; 20s bound raises degraded alert (widened from an original 5s). |
 | Loopback-only binding | Test | Endpoint listens only on `127.0.0.1:11434`. |
 | P-core pinning | Inspection | `Cpus_allowed` shows only the 4 P-Cores. |
 | GPU fallback at startup | Test (fault injection) | Backend unavailable → CPU-only, logged degraded. |
@@ -106,6 +110,10 @@ derive authoritatively from the Security Specification (`05`).
 | Session credentials injected automatically | Test | A Tier 1/Tier 2 call scoped to an established `auth_sessions` row receives its auth material without re-authenticating. |
 | Invalidated session surfaced, not silent | Test | A session marked `valid = 0` mid-engagement triggers an `OPS-NOTIFY` event; no auto-retry login occurs. |
 | Session credential never raw in logs | Inspection | `auth_sessions.credential_ref` is a `sha256(...)[:12]` hash in every row, matching `FR-TOOL-15`'s pattern. |
+| Credential encrypted at rest | Inspection | `target_credentials.encrypted_secret` is AES-256-GCM ciphertext; no plaintext credential appears anywhere in `state.db`. |
+| Engagement key never persisted to disk-backed storage | Inspection | The per-engagement AES key exists only under a `tmpfs`-backed path; grep of `state.db` and every NVMe-backed artifact path for the raw key value finds nothing. |
+| Key discarded on abort | Test | `vaptctl abort` removes the engagement's key file; the encrypted row remains but is no longer decryptable. |
+| Credential never appears in argv | Test | `/proc/<pid>/cmdline` of a subprocess receiving an injected credential never contains it; `/proc/<pid>/environ` does. |
 | New tech fingerprint triggers EOL/CVE lookup | Test | A new `tech_fingerprint` `discovered_entities` row automatically queues a follow-on Tier 2 task; a repeat sighting does not. |
 | EOL/CVE feed unreachable degrades, doesn't block | Test (fault injection) | Feed unreachable → logged degraded, pipeline continues uninterrupted. |
 | Multipart tool schema-validated | Inspection | The multipart parser-confusion tool exposes `{target_upload_endpoint, file_path, variant_name}` declaratively — no interactive prompts. |
@@ -132,6 +140,10 @@ derive authoritatively from the Security Specification (`05`).
 | Human Operator directive bypasses Gate 1 | Test | Human-Operator-directed task (`HUMAN_OPERATOR`) bypasses Tier 0 and Tier 1 checks completely, dispatching directly to execution. |
 | Tier 1 reasoning persisted | Test | Autonomous contextually-excessive-but-in-scope task rejected with rationale. |
 | Prompt-injection resistance | Test | Injection string in target response doesn't alter gate decisions. |
+| Tier 0 checks the command's actual destination, not just the task's registered target | Test | A Scripter-proposed command whose `argv` targets a placeholder/documentation-example host (e.g. `example.com`) is rejected at Tier 0, even though the originating task's registered target is genuinely in scope. |
+| Schema-driven positional-argument host extraction | Test | A Tier 1 tool whose required positional is a full URL has its host correctly extracted and scope-checked, not the raw URL string matched verbatim against scope. |
+| `host:port` hypothesis resolves against the bare registered host | Test | A Strategist hypothesis naming `<host>:<port>` resolves to the registered bare-host target instead of being silently dropped as unregistered. |
+| Auditor has zero scope/reachability authority | Test | An explicitly-in-scope loopback/private-address task is never rejected or revised by the Strategy Auditor on reachability/scope grounds; only the four criteria (destructive risk, reasoning sanity, proportionality, redundancy) may drive a `revise`/`reject` verdict. |
 
 ## TP-COUNCIL2 — Resident Scripters + Deterministic Three-Tier Gate 2
 
@@ -149,6 +161,11 @@ derive authoritatively from the Security Specification (`05`).
 | Secondary Scripter unload timing | Test | Secondary Scripter stays resident until every target reaches terminal/cap for its 4.2B pass, or the shared session budget hits — not per-task/per-target. |
 | Session budget shared, not doubled | Test | Session budget exhausted during 4.2A → 4.2B is skipped entirely (logged, not a failure), pipeline proceeds to Phase 4.3. |
 | UNREACHABLE carries from 4.2A to 4.2B | Test | A target marked `UNREACHABLE` during 4.2A is not retried by the Secondary Scripter in 4.2B absent an explicit Human Operator re-target. |
+| `TARGET` field always present | Test | Every Scripter call (Primary and Secondary) includes an explicit resolved-host `TARGET` field; a command whose `argv` doesn't resolve to it is rejected by Tier 0 regardless of which sub-phase generated it. |
+| Verified open ports threaded, with negative constraint | Test | A target with `verified_open_ports` populated (e.g. 631, 3000) yields a Scripter prompt containing those ports and an explicit instruction against scanning unconfirmed default ports; a target with no baseline findings omits the block entirely. |
+| Skill-corpus reference injected above threshold, silent below | Test (fault injection) | A task whose hypothesis/technique scores above the configured similarity threshold against the local skill corpus receives a `<task_reference>` block; a below-threshold task receives none — never a forced or fabricated match. |
+| Structured-output failure is its own status, not conflated with `GATE2_BLOCKED` | Test (fault injection) | A scripter's structured-output retry budget genuinely exhausting (3 real schema-invalid responses) marks the task `MODEL_STRUCTURED_OUTPUT_FAILURE`, distinct from a Gate-2 policy rejection, and the engagement continues to the next task rather than crashing. |
+| Candidate detection inspects Tier 2 raw output regardless of exit code | Test | A Tier 2 `curl`/Python HTTP-probe execution with a real content-based disclosure in its output is flagged as a candidate finding even with `exit_code != 0`; a bare successful status on an access-control-class hypothesis is flagged as a candidate on its own. |
 
 ## TP-SCRIPT-ORTHOGONAL — Secondary Scripter Orthogonality
 
@@ -168,12 +185,26 @@ derive authoritatively from the Security Specification (`05`).
 | IDOR needs cross-identity proof | Test | Same data with zero auth → not IDOR, flagged as missing-auth instead; real cross-identity evidence → confirmed. |
 | Baseline/attack/diff enforced | Test | Attack-only evidence (no baseline) blocks confirmation regardless of how convincing. |
 
+## TP-ROUNDLOOP — Engagement-Level Council Round Loop
+
+| Test | Method | Pass Criteria |
+|---|---|---|
+| Rounds repeat until a stop condition | Test | Phase 4.1→4.2A→4.2B→4.3 repeats across multiple rounds within one engagement, stopping only at `min_confirmed_reports`, the round-level zero-yield breaker, `max_council_rounds`, or session-budget exhaustion — not after a single pass. |
+| `COMPLETE` target reopened when fresh work exists | Test | A target that reached `COMPLETE` in round N is reopened to `ACTIVE` in round N+1 once the Lead Strategist approves new work against it. |
+| `CAPPED`/`CIRCUIT_BROKEN`/`UNREACHABLE` never reopened | Test | Targets in those states stay untouched by the reopen check even when the Lead Strategist proposes further work against them. |
+| Round loop stops once no target has work left | Test | Every target reaching a terminal state (including a `COMPLETE` target the Strategist declines to reopen) ends the round loop immediately, without another full Strategist+Auditor round. |
+| `INFO_REGISTER` query is idempotent across rounds | Test | A finding already carrying a `VAPT_FINDING` report from an earlier round is not re-reported when a later round's Phase 4.3 runs. |
+| Round/goal status surfaced in plain language | Demo | Both `vaptctl dashboard` and `vaptctl console` show "Council round: N of M max \| Confirmed findings: K of G goal" and an approved-awaiting-execution count, without needing a direct database query. |
+| Stale non-finalized invocation rows excluded from live-status | Test (fault injection) | A `model_invocation_logs` row left without `ended_at` by a killed/restarted process, older than the engagement's own `orchestrator_pid_started_at`, is excluded from any "currently running" status computation. |
+
 ## TP-LOOP — Diminishing-Returns Thresholds
 
 | Test | Method | Pass Criteria |
 |---|---|---|
 | Per-target task cap | Test | 31st task → `CAPPED`, auto-pivot. |
 | Zero-yield breaker (state-delta) | Test | 3 non-empty-but-zero-novel runs → `CIRCUIT_BROKEN`. |
+| Zero-yield breaker scoped per (target, vulnerability_class) | Test | 3 zero-yield attempts against one vulnerability class (e.g. SSRF) retires only that class for that target, rejected deterministically at Gate 1 Tier 0 — the Auditor is never invoked for it; a different class against the same target still proceeds normally. |
+| Whole-target ceiling raised to 12, reserved for genuine broad exhaustion | Test | A target is only marked whole-target `CIRCUIT_BROKEN` after 12 total diverse attempts, not after exhausting a single vulnerability class. |
 | Noisy-tool false-reset prevented | Test | A run against an already-discovered entity does not reset the counter. |
 | Global session budget | Test (accelerated clock) | All targets auto-terminate, evidence-adjudication phase begins. |
 | Manual pause independent | Test | `pause` works mid-loop regardless of automatic thresholds. |
@@ -237,6 +268,7 @@ derive authoritatively from the Security Specification (`05`).
 | Draft redaction | Test | Secret shows as a placeholder in `pending-approval/`. |
 | Redaction pre-Reporter | Inspection | Redaction runs on evidence before the Reporter call, never post-hoc. |
 | Approval triggers unredaction + render | Test | `approve-report` restores the exact value, renders HTML/PDF, only then. |
+| `INFO_REGISTER` always written, even with zero candidates | Test | An engagement/round with zero approved hypotheses and zero confirmed findings still produces a coverage-summary `INFO_REGISTER` entry; the engagement never reaches `COMPLETE` with zero report artifacts of any kind. |
 | No other trigger renders | Test | Neither completion nor budget expiry renders anything. |
 | Formatting-standard compliance | Inspection | The formatting standard's automated grep checks all return no output. |
 | Per-finding vs. register split | Test | 2 confirmed + 3 dismissed → 2 individual finding-report rows + 1 consolidated register row. |
@@ -260,6 +292,11 @@ derive authoritatively from the Security Specification (`05`).
 | Test | Method | Pass Criteria |
 |---|---|---|
 | RAM margin abort | Test | Load aborts, engagement pauses, doesn't crash. |
+| Inference-engine concurrency pinned to 1 slot | Inspection | `llama-server`'s launch command includes `-np 1` explicitly; the running server reports `n_slots = 1`, not the binary's own multi-slot default. |
+| Strategist dedicated timeout is separate from tool timeouts | Inspection | `STRATEGIST_TIMEOUT_S` (9000s) is a distinct constant from `FR-TOOL-05`'s tiered subprocess timeouts; changing one does not change the other. |
+| System suspend inhibited during active orchestration | Test | A real `systemd-inhibit --what=sleep:idle` lock is held (verified via `systemd-inhibit --list`) for the duration of `run_full_engagement`, across both the tmux-relaunched and direct-invocation paths. |
+| Suspend inhibition releases on every exit path | Test (fault injection) | Normal completion, a `PAUSED` escalation, and an injected unhandled exception each release the held inhibition lock. |
+| Suspend inhibition degrades cleanly off systemd | Test (fault injection) | On a host lacking the inhibition primitive, the engagement proceeds uninhibited, logged, never failed. |
 | Disk thresholds | Test | Warning at 85%, hard block at 95%. |
 | E-core thread cap | Inspection | Tool subprocess scheduling capped at 4 threads. |
 | WAL mode | Inspection | Concurrent `status` read succeeds mid-write. |

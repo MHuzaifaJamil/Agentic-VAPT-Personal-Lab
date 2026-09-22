@@ -25,18 +25,18 @@ Every testable requirement identifier across the specification corpus is tracked
 
 | Domain Area & Specification | Total Reqs | Covered | N/A | NOT COVERED | Primary Test Suite Reference (`09`) |
 | --- | --- | --- | --- | --- | --- |
-| Functional Behavior (`01`) | 124 | 83 | 1 | 40 | `TP-PHASE-01` through `TP-PHASE-05` |
-| Non-Functional Targets (`02`) | 23 | 8 | 1 | 14 | `TP-PERF-01`, `TP-HEADROOM-01` |
-| Data & Storage Schema (`03`) | 36 | 24 | 0 | 12 | `TP-DATA-01`, `TP-ARTIFACT-01` |
+| Functional Behavior (`01`) | 136 | 95 | 1 | 40 | `TP-PHASE-01` through `TP-PHASE-05` |
+| Non-Functional Targets (`02`) | 25 | 10 | 1 | 14 | `TP-PERF-01`, `TP-HEADROOM-01` |
+| Data & Storage Schema (`03`) | 37 | 25 | 0 | 12 | `TP-DATA-01`, `TP-ARTIFACT-01` |
 | Interface & Wire Formats (`04`) | 30 | 17 | 0 | 13 | `TP-IFACE-01`, `TP-TOOLSCHEMA-01` |
-| Security, Safety & Compliance (`05`) | 29 | 19 | 0 | 10 | `TP-SEC-01` through `TP-SEC-05` |
-| Operational Lifecycle (`06`) | 20 | 8 | 2 | 10 | `TP-OPS-01`, `TP-DEGRADE-01`, `TP-NOTIFY-01` |
+| Security, Safety & Compliance (`05`) | 30 | 20 | 0 | 10 | `TP-SEC-01` through `TP-SEC-05` |
+| Operational Lifecycle (`06`) | 21 | 9 | 2 | 10 | `TP-OPS-01`, `TP-DEGRADE-01`, `TP-NOTIFY-01` |
 | Risk Register & Mitigations (`07`) | 33 | 0 | 33 | 0 | Verified via mitigating `SEC-*`/`FR-*` tests |
 | Environmental Constraints (`08`) | 28 | 0 | 28 | 0 | Verified via environmental pre-flight checks |
 | Architecture Bridge & Contracts (`13`) | 8 | 4 | 2 | 2 | `TP-PROC-01`, `TP-HELPER-01` |
 | Tool Reuse & Bridge Integration (`16`) | 20 | 16 | 0 | 4 | `TP-TOOL-REUSE-01` |
 | Resilience & Evidence Grounding (`17`) | 15 | 11 | 0 | 4 | `TP-RESIL-01`, `TP-GROUND-01` |
-| **Total Corpus Baseline** | **366** | **190** | **67** | **109** | **Acceptance Verification Baseline** |
+| **Total Corpus Baseline** | **383** | **207** | **67** | **109** | **Acceptance Verification Baseline** |
 
 ---
 

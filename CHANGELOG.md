@@ -65,7 +65,49 @@ Development Agent picking up this repo mid-session sees new/updated requirements
 immediately rather than only after the next push. Folds into "Push history" above
 (with a real commit hash) once actually committed, and is cleared at that point.
 
-*(nothing uncommitted right now — clean working tree as of `ff5ed14`.)*
+**Requirements-sync reconciliation pass (decision #78)**, following a `git pull` of 33 real
+implementation-side commits (Rounds 9-22) from the Implementing PC that this repo hadn't yet
+seen. Reconciles every item `IMPLEMENTATION-DEVIATIONS-FROM-REQUIREMENTS.md` had flagged, plus
+further real fixes recorded only in `STAGING-Pending-Discussions-and-Fixes.md`'s Rounds
+15/16/18/19/20/22 archive:
+
+- `01-Functional-Requirements.md`: `FR-ENV-03` rewritten denylist→allowlist (+ new `FR-ENV-03b`,
+  in-flight tool protection); new `FR-GATE-08a` (CLI self-resume on engine-unresponsive);
+  `FR-GATE-10` widened 5s→20s; new `FR-TOOL-15a` (credential storage architecture); `FR-COUNCIL-03a`
+  extended (destination-based Tier 0 scope check, `host:port` fallback); `FR-COUNCIL-04` rewritten
+  (Auditor's 4-criteria role boundary, zero scope authority); new `FR-COUNCIL-07a`/`07b` (TARGET/
+  verified-ports fields, skill-corpus injection); new `FR-COUNCIL-09a` (structured-output-failure
+  status); `FR-COUNCIL-11` ceiling 3→12 + new `FR-COUNCIL-11e` (per-vector zero-yield rescoping);
+  new `FR-COUNCIL-12a` (candidate-detection widening); `FR-COUNCIL-17` extended (unconditional
+  `INFO_REGISTER`); new §4.4 `FR-COUNCIL-19`/`19a`/`19b`/`19c` (engagement-level round loop). Doc
+  `01` 124→136 (95 covered).
+- `02-NonFunctional-Requirements.md`: new `NFR-RES-07` (`llama-server -np 1`), `NFR-PERF-06`
+  (Strategist's 9000s dedicated timeout). Doc `02` 23→25 (10 covered).
+- `03-Data-and-Storage-Requirements.md`: new `DR-SCHEMA-24` (`target_credentials`);
+  `suspended_processes.start_time_ticks` and `targets.verified_open_ports` columns added
+  (additive); `task_queue.status` enum gains `MODEL_STRUCTURED_OUTPUT_FAILURE`. Doc `03` 36→37
+  (25 covered).
+- `05-Security-Safety-and-Compliance-Requirements.md`: new `SEC-DATA-05` (credential
+  encryption-at-rest). Doc `05` 29→30 (20 covered).
+- `06-Operational-Requirements.md`: new `OPS-LIFECYCLE-05` (system-suspend inhibition). Doc `06`
+  20→21 (9 covered).
+- `14-System-Prompt-Templates.md`: Strategy Auditor role block fully rewritten (4 criteria, zero
+  scope authority, `ROLE_BLOCK_AUDITOR` rename); Primary/Secondary Scripter blocks gain `TARGET`/
+  `VERIFIED OPEN PORTS`/`<task_reference>`/candidate-tools-discovery fields.
+- `09-Acceptance-Criteria-and-Test-Plan.md`: new/updated rows across `TP-ENV`, `TP-GATE`,
+  `TP-TOOLEXT`, `TP-COUNCIL1`, `TP-COUNCIL2`, `TP-LOOP`, `TP-REPORT`, `TP-RESOURCE`, plus a new
+  `TP-ROUNDLOOP` cluster.
+- `18-Requirement-to-Test-Traceability-Matrix.md`: counts updated for docs `01`/`02`/`03`/`05`/`06`;
+  corpus baseline 366→383 (207 covered).
+- `10-Decision-Log-and-Open-Questions.md`: decision #78.
+- `IMPLEMENTATION-DEVIATIONS-FROM-REQUIREMENTS.md`: reconciliation banner added, entries kept
+  (narrative value), marked reconciled rather than deleted.
+- `STAGING-Pending-Discussions-and-Fixes.md`: reconciliation note added above the Archive.
+
+Deliberately left unreconciled (judged cosmetic/edge-case, not worth their own requirement):
+Round 21's `host:port` fallback (folded as one sentence into `FR-COUNCIL-03a` instead of its own
+ID) and Round 19/22's dashboard/console-only readability fixes (ETA-overrun display, unclipped
+journal text).
 
 ## Earlier decisions not yet mapped to a specific commit
 

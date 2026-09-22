@@ -23,6 +23,7 @@ are owned exclusively by the Security Specification (`05`) and govern all downst
 | NFR-RES-04 | Monitor NVMe root usage; warn at **85%**, hard-block new artifact writes at **95%** (of 185 GB). **[CONFIRMED]** |
 | NFR-RES-05 | Pin inference threads to the 4 P-Cores (8 threads); MUST NOT consume more than **4** of 8 E-core-scheduled threads for tool subprocesses. **[CONFIRMED]** |
 | NFR-RES-06 | Track cumulative swap-paged bytes per session; flag abnormal growth at **>2 GiB** within a session. **[CONFIRMED]** |
+| NFR-RES-07 | The local inference engine (`llama.cpp --server`) MUST be launched with its request-concurrency flag explicitly bounded to what this system's own architecture actually uses — 1 request slot (`-np 1`) — never left to the binary's own default. *(Field-observed defect: the binary's own "auto" default resolved to 4 slots on the reference host, each with its own full KV cache, a real ~4x RAM overallocation on top of `FR-GATE-02`'s single-model-residency guarantee — that guarantee describes which *model* is loaded, not how many concurrent request slots the running server process itself reserves memory for.)* | M |
 
 ## NFR-PERF — Performance & Latency
 
@@ -31,6 +32,7 @@ are owned exclusively by the Security Specification (`05`) and govern all downst
 | NFR-PERF-02 | Model swap (unload N → load N+1) completes within **60 seconds**; else log the phase transition as degraded. **[CONFIRMED]** |
 | NFR-PERF-03 | Tool subprocess execution respects documented tiered timeouts as operational baselines; the autonomous orchestration loop MUST NOT block on a hung subprocess beyond that window. Timeouts for active operator-directed fuzzing, brute-force, or exploitation tasks are configurable and extendable on demand. |
 | NFR-PERF-05 | Global **12-hour** wall-clock session budget acts as an autonomous unattended ceiling; auto-transitions to reporting when reached during autonomous runs. When operating under direct operator control, the session budget is extendable or deferrable via CLI configuration. **[CONFIRMED]**|
+| NFR-PERF-06 | The Lead Strategist's own dedicated inference-call timeout is a separate mechanism from `FR-TOOL-05`'s tool-subprocess timeout tiers, documented at **9000s** (150 min) on the reference CPU-only host — a real, uncapped measurement of a genuine Phase 4.1 turn against real baseline-recon context recorded **7043.4s** (~1h57m) for a 12,449-prompt/5,207-completion-token exchange; the configured ceiling carries roughly 28% headroom over that measured value so `FR-GATE-08`'s one-shot restart+retry should not ordinarily be needed. Hardware-profile-relative, not a fixed cross-platform constant — subject to `NFR-PORT-02`'s hardware-tuning-as-configuration treatment. |
 
 ## NFR-REL — Reliability, Availability & Recoverability
 

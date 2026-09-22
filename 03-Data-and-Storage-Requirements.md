@@ -95,7 +95,7 @@ Technical in/out-of-scope pattern data only — **not an authorization/RoE recor
 | `tool_name` | TEXT, nullable | Tier 1 name, or null for Tier 2 |
 | `proposed_command` | TEXT | full argv as generated |
 | `gate2_corrected_command` | TEXT, nullable | | 
-| `status` | TEXT | `PENDING` / `GATE1_APPROVED` / `GATE1_REJECTED` / `GATE2_BLOCKED` / `EXECUTING` / `EXECUTED` / `FOLLOWUP_GENERATED` |
+| `status` | TEXT | `PENDING` / `GATE1_APPROVED` / `GATE1_REJECTED` / `GATE2_BLOCKED` / `MODEL_STRUCTURED_OUTPUT_FAILURE` (`01:FR-COUNCIL-09a` — the model's own structured-output retry budget exhausted, distinct from a `GATE2_BLOCKED` policy rejection) / `EXECUTING` / `EXECUTED` / `FOLLOWUP_GENERATED` |
 | `gate1_rationale` | TEXT | Reason from whichever tier acted; for HUMAN_OPERATOR records direct Human Operator dispatch with automated scope gates bypassed. |
 | `gate2_rationale` | TEXT | Gate 2's stated reason (deterministic, not an LLM) |
 | `origin` | TEXT NOT NULL DEFAULT `'AUTONOMOUS_COUNCIL'`, CHECK (`IN ('AUTONOMOUS_COUNCIL','HUMAN_OPERATOR','HISTORICAL_REGRESSION')`) | HUMAN_OPERATOR dispatches directly to Phase 4.2, bypassing Gate 1 Tier 0 and Tier 1 automated scope checks. HISTORICAL_REGRESSION follows standard non-destructive autonomous rules unless re-dispatched directly by the Human Operator. |
@@ -224,6 +224,7 @@ The state-delta ledger that makes "yield" precise instead of "non-empty output."
 | `pid` / `process_name` | INTEGER / TEXT | |
 | `suspended_at` / `resumed_at` | TEXT (ISO8601), latter nullable | |
 | `resume_verified` | INTEGER (bool) DEFAULT 0 | set once liveness is confirmed post-`SIGCONT` |
+| `start_time_ticks` | INTEGER, nullable | `/proc/<pid>/stat` field 22 (`starttime`) recorded at suspend time, compared against the live process's own starttime at thaw/verify time — a mismatch means the kernel recycled this pid for an unrelated process, treated identically to "pid is gone" (`FR-ENV-12`'s degraded-outcome path), not a false successful resume. Additive/nullable: `NULL` for rows written before this column existed falls back to the pre-existing liveness-only check. |
 
 ### DR-SCHEMA-14: `redaction_map`
 
@@ -251,6 +252,7 @@ Raw captured credentials remain securely stored in the local evidence store unde
 | `platform` / `package_name` / `binary_path` / `binary_hash` | TEXT, nullable | `MOBILE_BINARY` only |
 | `backend_target_id` | INTEGER FK → `targets(target_id)`, nullable | `MOBILE_BINARY` only — the app's discovered backend API, registered as its own `NETWORK` row |
 | `repo_url_or_path` / `repo_ref` / `repo_diff_scope` | TEXT, nullable | `CODE_REPO` only |
+| `verified_open_ports` | TEXT (JSON array), nullable | `NETWORK` only — populated from `FR-BASELINE`'s naabu sweep once baseline recon completes; threaded into every Scripter prompt (`01:FR-COUNCIL-07a`) alongside a negative constraint against scanning unconfirmed default ports. `NULL` when baseline recon found nothing open. |
 
 All per-target diminishing-returns and failure counters apply identically regardless of `target_type`.
 
@@ -393,6 +395,32 @@ CREATE TABLE IF NOT EXISTS tech_fingerprint_intel (
 
 Enrichment only — an EOL/CVE hit here is corroborating evidence for the
 Reporter/Adjudicator, never a finding by itself.
+
+### DR-SCHEMA-24: `target_credentials`
+
+Backs `01:FR-TOOL-15a` (credential storage/decrypt mechanism) — where a registered
+target credential's encrypted secret actually lives, distinct from `auth_sessions`
+(`DR-SCHEMA-22`), which only ever holds a one-way correlation hash and links back to
+a row here via a nullable `credential_id` FK.
+
+```sql
+CREATE TABLE IF NOT EXISTS target_credentials (
+    credential_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    target_id INTEGER NOT NULL REFERENCES targets(target_id),
+    identity_label TEXT NOT NULL, -- FR-TOOL-15's "separate named sets" (e.g. low/high-privilege)
+    credential_type TEXT NOT NULL, -- maps to an env var name at propagation time (FR-TOOL-15a)
+    encrypted_secret TEXT NOT NULL, -- AES-256-GCM ciphertext, base64
+    nonce TEXT NOT NULL, -- base64
+    secret_sha256 TEXT NOT NULL, -- sha256(...)[:12], same correlation-hash pattern as FR-TOOL-15/SEC-DATA-04 — never reversible, logging only
+    scope_domain_regex TEXT NOT NULL, -- defaults to the target's own identifier
+    registered_at TEXT NOT NULL,
+    UNIQUE(target_id, identity_label)
+);
+```
+
+The engagement-scoped AES key that decrypts `encrypted_secret` is never itself stored
+in this table or anywhere in `state.db` — `01:FR-TOOL-15a`/`05:SEC-DATA-05` govern its
+own separate, ephemeral, `tmpfs`-only lifecycle.
 
 ---
 

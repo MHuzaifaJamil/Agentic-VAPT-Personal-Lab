@@ -21,6 +21,35 @@
 
 ---
 
+> ✅ **2026-09-22 RECONCILIATION PASS (decision #78).** Every entry below dated 2026-09-08
+> through 2026-09-16 has now been reconciled into the binding corpus — the narratives below
+> are kept verbatim (incident detail has real value the reconciled requirement text doesn't
+> restate), but the spec has caught up to them. Mapping: 2026-09-16 (round loop) →
+> `01:FR-COUNCIL-19`/`19a`/`19b`/`19c`; 2026-09-14 (Gate 1 destination check) →
+> `01:FR-COUNCIL-03a`, `14` §2/3/6 `TARGET` fields; 2026-09-13 `StructuredOutputError` →
+> `01:FR-COUNCIL-09a`, `03`'s `task_queue.status`; 2026-09-13 knowledge ingestion →
+> `01:FR-COUNCIL-07b`; 2026-09-13 `llama-server -np 1` → `02:NFR-RES-07`; 2026-09-12 suspend
+> inhibition → `06:OPS-LIFECYCLE-05`; 2026-09-12 Strategist timeout → `02:NFR-PERF-06`;
+> 2026-09-10 credential storage architecture → `01:FR-TOOL-15a`, `03:DR-SCHEMA-24`,
+> `05:SEC-DATA-05`; 2026-09-09 `FR-GATE-10` widening → reflected directly in `01:FR-GATE-10`'s
+> own text; 2026-09-08 hibernation allowlist → `01:FR-ENV-03`/`03b`; 2026-09-08
+> `start_time_ticks` → `03:DR-SCHEMA-13`. Also reconciled from real fixes recorded only in
+> `STAGING-Pending-Discussions-and-Fixes.md`'s Rounds 15/16/18/19/20/22 archive (never
+> entered here as their own dated deviation entries): the Auditor's role-boundary rewrite
+> (Round 15) → `01:FR-COUNCIL-04`, `14` §2; verified-open-ports threading (Round 16) →
+> `01:FR-COUNCIL-07a`, `03`'s `targets.verified_open_ports`; unconditional `INFO_REGISTER`
+> (Round 16) → `01:FR-COUNCIL-17`; CLI self-resume on engine-unresponsive (Round 18) →
+> `01:FR-GATE-08a`; per-vector zero-yield breaker rescoping + ceiling raise (Round 20) →
+> `01:FR-COUNCIL-11e`; candidate-detection widening (Round 22) → `01:FR-COUNCIL-12a`.
+> Deliberately NOT reconciled into requirement text — judged cosmetic/edge-case, not worth
+> their own requirement: Round 21's `host:port` target-resolution fallback (folded as one
+> sentence into `01:FR-COUNCIL-03a` instead of its own ID) and Round 19/22's dashboard/
+> console-only readability fixes (ETA-overrun display, unclipped journal text, stale-row
+> exclusion — the last of these DID get `01:FR-COUNCIL-19c`/a `TP-ROUNDLOOP` row since it's a
+> correctness fix, not cosmetic).
+
+---
+
 ## 2026-09-16 — Engagement lifecycle now loops council rounds until real coverage exists; Auditor loses all scope authority; Scripters get verified ports
 
 **Status: ✅ IMPLEMENTED, ✅ APPROVED (explicit operator directives, same day, following
