@@ -88,31 +88,6 @@ implemented and verified.)*
 
 ---
 
-### Round 23 — 3 failed VirtualBox systemd units on the Implementing PC (unrelated to this project, needs operator's own `sudo`)
-
-**Status: ⬜ BLOCKED — needs the operator's own `sudo` password (this assistant has no
-passwordless access). Not a code/requirements item; recorded here per the operator's own
-"always stage anything that needs my input" instruction (2026-09-23), not because it belongs
-in the numbered requirement corpus.**
-
-Found during a general system-health sweep of the Implementing PC (2026-09-22/23), unrelated
-to any VAPT code: `vboxdrv.service`, `vboxautostart-service.service`,
-`vboxballoonctrl-service.service` all `failed` (`systemctl --failed`). Root cause (confirmed,
-not guessed): `/usr/lib/virtualbox/vboxdrv.sh` does not exist anywhere on disk and isn't
-owned by any installed package (`dpkg -L virtualbox`/`virtualbox-dkms` both come back empty
-for it) — a stale systemd unit left over from an old VirtualBox version, surfaced by the
-`apt upgrade` that ran during an earlier shutdown attempt this same session. This project
-only ever uses Docker (Juice Shop/MediaCMS), never VirtualBox, so this has zero bearing on
-any engagement — flagged purely as a real, found system issue.
-
-**Fix, when the operator has a moment to run it themselves:**
-```bash
-sudo systemctl disable --now vboxdrv vboxautostart-service vboxballoonctrl-service
-sudo apt install --reinstall virtualbox-dkms
-```
-
----
-
 ## Archive — Resolved / Merged Items (newest first)
 
 > ✅ **2026-09-22 requirements-sync note (decision #78):** Rounds 9 through 22 below were all
@@ -122,6 +97,26 @@ sudo apt install --reinstall virtualbox-dkms
 > `IMPLEMENTATION-DEVIATIONS-FROM-REQUIREMENTS.md` for the full ID-by-ID mapping. Nothing in
 > this file's own status lines below needed to change — they already correctly said
 > "APPROVED... AND IMPLEMENTED"; this was purely the spec catching up.
+
+---
+
+### Round 23 — 3 failed VirtualBox systemd units on the Implementing PC (unrelated to this project)
+
+**Status: ✅ RESOLVED (2026-09-23) — operator ran the fix themselves.** Not a code/
+requirements item; staged and archived purely per the operator's own "always stage anything
+that needs my input" instruction.
+
+`vboxdrv.service`/`vboxautostart-service.service`/`vboxballoonctrl-service.service` were
+`failed` (root cause: `/usr/lib/virtualbox/vboxdrv.sh` missing on disk, unowned by any
+package — a stale unit from an old VirtualBox version). Operator ran
+`sudo systemctl disable --now vboxdrv vboxautostart-service vboxballoonctrl-service` +
+`sudo apt install --reinstall virtualbox-dkms` directly — all three units confirmed
+`disabled`, `virtualbox-dkms` rebuilt and signed its kernel modules cleanly for all 3
+installed kernels (`6.19.11`/`7.0.12`/`7.1.5+kali-amd64`), no further errors. One cosmetic
+remainder: `systemctl --failed` still lists the 3 units (systemd doesn't clear the `failed`
+activation-state badge retroactively on disable) — harmless (they're disabled, won't run
+again) and clears on next reboot, or immediately via `sudo systemctl reset-failed`; not
+worth a second sudo round-trip for a purely cosmetic status line.
 
 ### Round 22 — Three separate operator-directed tasks: candidate-detection ingestion gap, Scripter JSON-schema grammar, dashboard/console readability bugs
 
