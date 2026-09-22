@@ -50,6 +50,61 @@
 
 ---
 
+## 2026-09-23 — `FR-BASELINE-06`'s Wave 1 domain/DNS-enumeration group now skips IP-only targets
+
+**Status: ✅ IMPLEMENTED, ✅ APPROVED (operator decision, Staging Round 25, 2026-09-23:
+"Approved — Skip Wave 1 domain/DNS tools when the target host is an IPv4/IPv6 address.
+Record this optimization in IMPLEMENTATION-DEVIATIONS-FROM-REQUIREMENTS.md against
+FR-BASELINE-06."). Full write-up in `STAGING-Pending-Discussions-and-Fixes.md`'s Archive,
+Round 25.
+
+### What the requirement says
+
+`FR-BASELINE-06`'s Wave 1 table lists `subfinder`/`assetfinder`/`knockpy`/`sublert`/
+`puredns`/`shuffledns`/`theHarvester`/`dnsrecon` (alongside `naabu`) as an "Always" group —
+dispatched unconditionally, with no target-shape condition in the literal text.
+
+### What real code did before this fix, and the real incident that exposed it
+
+All nine Wave 1 tools dispatched regardless of whether `targets.host_or_domain` was a domain
+or a bare IP. Checked directly against real engagement 26/27 DB rows (tasks 596-605): 8 of
+10 exited `0` (not errors) but every one of the eight domain/DNS-enumeration tools returned
+empty, no-op output against `127.0.0.1` — subdomain/DNS enumeration has nothing to enumerate
+against a bare IP by construction. This project's own real test targets (Juice Shop,
+MediaCMS) are both IP-only, so this was wasted real tool-timeout-tier wall-clock on every
+single engagement run to date, not a hypothetical.
+
+### What real code now does
+
+New `_is_ip_or_loopback_target()` helper (`orchestrator/baseline_recon.py`) strips a
+trailing `:port` (or `[ipv6]:port`) the same way `cli/start.py`'s scope-pattern helper
+already does, then checks via `ipaddress`. All eight domain/DNS args-builders
+(`subfinder_args`/`assetfinder_args`/`knockpy_args`/`sublert_args`/`puredns_args`/
+`shuffledns_args`/`theharvester_args`/`dnsrecon_args`) now return `None` (skip cleanly,
+matching this file's own established gating convention — e.g. `httpx_args`, `ffuf_args`)
+when the target is an IP/loopback address. `naabu_args` is untouched — port scanning is
+exactly what an IP target needs, and stays in Wave 1 unconditionally.
+
+**Verification:** 3 new tests (`test_orchestrator_baseline_recon.py`) covering an IP
+target, an IP:port target, and the mirror-image domain-target-unaffected case; 1 updated
+real-subprocess test (`test_orchestrator_baseline_recon_real_execution.py`) confirming only
+`naabu` dispatches in Wave 1 against `127.0.0.1` end to end — that same update also fixed an
+unrelated, pre-existing test-assertion gap found while touching this file (the Wave 3
+katana/nuclei/gospider gating check only looked at `outcomes`, not `not_completed`, so a
+real subprocess landing in `not_completed` under this test's tight 10s `wave_ceiling_s` read
+as a gating inconsistency rather than the wave-ceiling mechanism working as designed — now
+checks both, matching Wave 1's own already-correct convention). Full suite clean: 1192
+passed, 3 skipped (3 pre-existing, confirmed-unrelated environmental flakes — HIBP/swap-
+growth/gqlmap-install-drift, none touched by this change).
+
+### Why this deviates / where it should land in the corpus
+
+`FR-BASELINE-06`'s Wave 1 table could gain a target-shape condition column, or a footnote,
+noting the domain/DNS-enumeration subset is IP-conditional while `naabu` remains
+unconditional. Flagged for the next reconciliation pass.
+
+---
+
 ## 2026-09-22 — Gate 2 denylist rule (c) false-positived on `/dev/null` and curl's `-w`, silently blocking the one probe shape needed for real access-control-class detection
 
 **Status: ✅ IMPLEMENTED, ✅ unconditional correctness fix (no operator decision needed — no
