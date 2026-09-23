@@ -50,6 +50,62 @@
 
 ---
 
+## 2026-09-23 — `vaptctl run`'s fatal exit paths left an orphaned `llama-server` process and a stale `IN_PROGRESS` status
+
+**Status: ✅ IMPLEMENTED, ✅ unconditional correctness fix (no operator decision needed — a
+resource leak and a state-inconsistency bug, not a design choice with a real counter-option).
+Found live during engagement 28's resumed run.
+
+### What the requirement says
+
+`01:FR-GATE-08`/`FR-GATE-08a` cover `EngineUnresponsiveError`'s self-recovery path
+specifically; nothing in the numbered corpus addresses `DegradedSwapAlert`
+(`FR-GATE-10`'s own memory gate refusing a role's model load) or `ModelFileMissingError`
+reaching `cli/run.py::run()`'s top level.
+
+### What real code did before this fix, and the real incident that exposed it
+
+Both `DegradedSwapAlert` and `ModelFileMissingError` called `sys.exit(1)` immediately, with
+no cleanup and no DB update — unlike `EngineUnresponsiveError`, which
+`orchestrator/driver.py` already marks the engagement `PAUSED` for before re-raising, these
+two fire from OUTSIDE `run_full_engagement`'s own error handling entirely. Confirmed live,
+twice in the same session, resuming engagement 28: a `MemAvailableGate` refusal loading the
+next role's model left the PREVIOUSLY loaded role's `llama-server` (spawned with
+`start_new_session=True`, so it survives its parent's exit as a genuine orphan — reparented
+to init) running unsupervised for hours, consuming ~11-13GB RAM with nothing left to ever
+unload it. Because each fresh `vaptctl run` invocation creates a brand-new
+`LlamaCppEngineClient()` with no memory of any prior orphan, the SAME refusal (now with even
+less headroom) recurred on the very next attempt — a self-reinforcing failure loop. Separately,
+`engagements.status` stayed `IN_PROGRESS` indefinitely after either crash, indistinguishable
+from "still actually running" via `vaptctl status`/`state.db` alone, even with the process
+long dead.
+
+### What real code now does
+
+New `LlamaCppEngineClient.unload_current_if_any()` (`engine/client.py`) — a public,
+safe-to-call-unconditionally wrapper around the existing `unload()`. `cli/run.py::run()`
+gained an outer `try`/`finally` around its whole model-loading/engagement-loop region,
+calling this on every exit path (a clean `break`, any of the three `sys.exit(1)` branches, or
+a genuinely unexpected exception — `finally` runs on `SystemExit` too). `DegradedSwapAlert`
+and `ModelFileMissingError` now also mark the engagement `PAUSED` (clearing
+`orchestrator_pid`), mirroring `driver.py`'s own convention exactly.
+
+**Verification:** 2 new `engine/client.py` tests (real fake-server subprocess, confirms
+`unload_current_if_any` actually reaps the process — not just signals it — and is a clean
+no-op when nothing is resident) and 3 new `cli/run.py` tests (both new `PAUSED` paths, plus
+confirming the cleanup call fires on the success path too). Full suite clean: 1198 passed, 3
+skipped (2 pre-existing, unrelated `gqlmap`-install-drift flakes).
+
+### Why this deviates / where it should land in the corpus
+
+Not a text conflict — a gap the spec never closed. `01:FR-GATE-08` (or a new adjacent ID)
+could extend its self-recovery framing to name `DegradedSwapAlert`/`ModelFileMissingError`
+explicitly as fatal-but-must-still-clean-up-and-record paths, matching
+`EngineUnresponsiveError`'s already-specified treatment. Flagged for the next reconciliation
+pass.
+
+---
+
 ## 2026-09-23 — `FR-BASELINE-06`'s Wave 1 domain/DNS-enumeration group now skips IP-only targets
 
 **Status: ✅ IMPLEMENTED, ✅ APPROVED (operator decision, Staging Round 25, 2026-09-23:
