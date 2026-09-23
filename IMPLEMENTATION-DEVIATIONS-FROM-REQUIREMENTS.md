@@ -50,6 +50,68 @@
 
 ---
 
+## 2026-09-24 — katana's default output crashed Engagement 30's first Strategist call (context overflow)
+
+**Status: ✅ IMPLEMENTED, ✅ unconditional correctness fix (no operator decision needed — a
+real, verified-live bug with a purpose-built upstream flag as the fix, not a design choice
+with a real counter-option). Found live, first real engagement to run a genuinely fresh
+baseline recon pass since the FR-BASELINE-06 tool arsenal grew to its current size — every
+prior engagement tonight reused an already-completed `baseline_recon_runs` row (Round 26),
+which is why this never surfaced before.
+
+### What the requirement says
+
+`01:FR-BASELINE-06` covers the Wave 3 crawling tool set (katana among them); nothing in the
+numbered corpus addresses response-body volume from any Wave 3 tool, or a size/token cap on
+`baseline_recon_findings`.
+
+### What real code did before this fix, and the real incident that exposed it
+
+Engagement 30 (target `127.0.0.1:3000`, a brand-new target row with no prior recon) ran a
+full, genuinely fresh baseline recon pass — first time in a long while, since every other
+recent engagement's target already had a completed row and skipped straight past it. katana's
+default `-jsonl` output embeds the FULL response body (and a raw request/response dump) for
+every crawled URL, not something `orchestrator/baseline_recon.py::katana_args` opted into —
+katana just does this unless told not to. Against Juice Shop's real, large, minified Angular
+bundle (`main.js`), this put its entire 2.5MB content into ONE JSONL record; katana's total
+raw stdout for this single target came to 3,471,775 characters (~868,000 tokens). `to_context_
+block()` feeds every Wave's raw tool stdout to the Strategist verbatim, by explicit design
+("MUST NOT be re-summarized by a model first") — against this host's ~15,360-token context
+window, the resulting prompt was ~56x over budget. `llama-server` rejected the Strategist's
+very first request outright with HTTP 400; `engine_client.chat_completion`'s
+`urllib.request.urlopen` call raised `urllib.error.HTTPError`, a type none of `cli/run.py`'s
+existing except blocks (`ModelFileMissingError`/`DegradedSwapAlert`/`EngineUnresponsiveError`)
+catch — it propagated uncaught, crashing the whole `vaptctl run` process before a single
+hypothesis was ever proposed, and (the same class of gap as the already-fixed 2026-09-23
+entry below, just a different exception type) left `engagements.status` stuck `IN_PROGRESS`
+with a dead `orchestrator_pid` until manually cleaned up.
+
+### What real code now does
+
+`katana_args` (`orchestrator/baseline_recon.py`) now passes `-ob`/`-omit-body` and
+`-or`/`-omit-raw` — katana's own purpose-built flags for exactly this; the Strategist only
+ever needed the discovered URL (`request.endpoint`), never each page's full body. Verified
+against the real live target, not just a mocked unit test: 2,973,806 bytes → 3,529 bytes, a
+~842x reduction. New regression test `test_katana_omits_response_body_and_raw_dump`
+(`tests/test_orchestrator_baseline_recon.py`).
+
+**Not fixed here, deliberately left for a separate decision:** the generic-architecture
+question this incident also exposes — `to_context_block()` has no size/token cap of any kind,
+for katana or any other Wave tool, so a future tool or a future katana behavior change could
+reintroduce the same failure mode from a different angle. The one concrete instance
+(katana) is fixed at its root; a general defensive cap is a real design question (per-tool
+truncation? total budget? which takes priority when multiple tools are large?) better suited
+for the operator's own review than a same-night patch — not staged as its own STAGING round
+yet, noted here for visibility until it is.
+
+Also observed, unrelated to this codebase: the `vapt-test-lab` Juice Shop Docker container
+OOM-crashed twice tonight (`FATAL ERROR: ... JavaScript heap out of memory`, exit 139) under
+the load of a full baseline recon pass (ffuf wordlist fuzzing + katana crawling + trufflehog
+git-history scan running across the same single Node.js process) — restarted both times, no
+code change made; a target-environment fragility, not a Mugheeraat defect.
+
+---
+
 ## 2026-09-24 — Round 27 pipeline-flow audit: 4 correctness/robustness fixes
 
 **Status: ✅ IMPLEMENTED, ✅ APPROVED (2026-09-24, operator directive: "Implement all staged
