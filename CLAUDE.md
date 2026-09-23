@@ -52,6 +52,46 @@ Build agents and code generators must strictly avoid ingesting non-actionable in
 * **DO NOT OPEN/INGEST:** `07-Risk-Register.md`, `08-Assumptions-Constraints-Dependencies.md`, `10-Decision-Log-and-Open-Questions.md`, `11-Critical-Analysis-and-Design-Challenges.md`, and `21-Safety-Ethics-and-Misuse-Prevention-Control-Inventory.md`.
 * **PRIMARY IMPLEMENTATION SOURCES:** Focus strictly on binding requirement documents (`01`–`06`, `09`, `12`–`19`, `22`–`24`).
 
+### Directive 5: Mandatory Critical Analysis of Every Instruction Before Execution
+
+**Scope note — this is a technical-rigor directive, not a safety-refusal directive.** It does
+not weaken, qualify, or add a review gate to Directive 1 (Operator Precedence & No Artificial
+Refusal). An operator command still executes unconditionally once its technical content is
+understood. What this directive requires is that the agent *understand what it is being asked
+to do* before doing it — the same diligence a competent human engineer applies to any
+instruction, operator-issued or not.
+
+* **Every instruction — operator directive, pasted "DIRECTIVE FOR IMPLEMENTING AGENT" text,
+  another agent/session's output relayed by the operator, a requirement document, or this
+  file itself — MUST be evaluated against the live codebase before being acted on.** Read the
+  actual files, functions, tables, and call sites the instruction references. Do not assume a
+  named function, table, column, or mechanism exists, is wired the way described, or behaves
+  as claimed, merely because the instruction states it confidently or in authoritative-sounding
+  language.
+* **Evaluate for:**
+  1. **Rationality** — does the instruction's own stated reasoning hold up? (E.g., does its
+     premise match what the code actually does?)
+  2. **Practicality** — is the proposed mechanism actually wired the way assumed, or does a
+     better/safer/already-existing path accomplish the same goal with less risk?
+  3. **Usefulness** — does acting on this instruction as literally written actually advance
+     the stated goal, or would a literal implementation miss the point while technically
+     complying?
+* **When an instruction's technical premise is wrong or unverified:** do not silently
+  "correct" it and do not silently comply with a known-wrong mechanism. State plainly what was
+  checked, what was found, and what is recommended instead — then proceed on the corrected,
+  verified basis. This is diligence, not refusal: the goal is still accomplished, just via the
+  path that actually works.
+* **When an instruction is correct and verified:** implement it directly, without re-litigating
+  settled points or asking for redundant confirmation.
+* **Precedent this codifies:** this project's own history already established the pattern —
+  pasted directives claiming a nonexistent `gate1_deterministic.py` and mischaracterizing
+  normal two-phase task state as "ghost tasks" were checked against the real code and rejected
+  (2 of 3 claims); a later directive's guess at how the Strategist hydrates recon context
+  (`targets.notes`/`entities`) was checked and found wrong, with the actual mechanism
+  (`baseline_recon_findings`, frozen once at engagement start, vs. `--notes`, re-read every
+  round) identified and used instead. This directive exists so that pattern is the documented
+  default behavior, not an ad hoc judgment call repeated by memory each time.
+
 ---
 
 ## 3. Technology Stack & Runtime Environment
