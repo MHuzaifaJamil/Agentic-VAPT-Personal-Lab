@@ -50,14 +50,15 @@
 
 ---
 
-## 2026-09-24 — katana's default output crashed Engagement 30's first Strategist call (context overflow)
+## 2026-09-24 — Baseline recon context-overflow: two live incidents (katana, then ffuf), plus a general defensive cap
 
-**Status: ✅ IMPLEMENTED, ✅ unconditional correctness fix (no operator decision needed — a
-real, verified-live bug with a purpose-built upstream flag as the fix, not a design choice
-with a real counter-option). Found live, first real engagement to run a genuinely fresh
-baseline recon pass since the FR-BASELINE-06 tool arsenal grew to its current size — every
-prior engagement tonight reused an already-completed `baseline_recon_runs` row (Round 26),
-which is why this never surfaced before.
+**Status: ✅ IMPLEMENTED, ✅ unconditional correctness fix (no operator decision needed —
+two real, verified-live bugs, each with a purpose-built upstream flag as its fix, plus an
+obviously-necessary general backstop once the SAME failure mode hit twice in one night from
+two different tools). Found live, first real engagement to run a genuinely fresh baseline
+recon pass since the FR-BASELINE-06 tool arsenal grew to its current size — every prior
+engagement tonight reused an already-completed `baseline_recon_runs` row (Round 26), which is
+why neither of these ever surfaced before.
 
 ### What the requirement says
 
@@ -95,20 +96,34 @@ against the real live target, not just a mocked unit test: 2,973,806 bytes → 3
 ~842x reduction. New regression test `test_katana_omits_response_body_and_raw_dump`
 (`tests/test_orchestrator_baseline_recon.py`).
 
-**Not fixed here, deliberately left for a separate decision:** the generic-architecture
-question this incident also exposes — `to_context_block()` has no size/token cap of any kind,
-for katana or any other Wave tool, so a future tool or a future katana behavior change could
-reintroduce the same failure mode from a different angle. The one concrete instance
-(katana) is fixed at its root; a general defensive cap is a real design question (per-tool
-truncation? total budget? which takes priority when multiple tools are large?) better suited
-for the operator's own review than a same-night patch — not staged as its own STAGING round
-yet, noted here for visibility until it is.
+**Second incident, same night, same root cause class:** relaunching Engagement 30 with the
+katana fix in place still crashed the same way. Root-caused to ffuf: against Juice Shop's
+client-side-routed SPA, every fuzzed path returns the identical 200 OK catchall shell page —
+with no filtering, ffuf reported all 6,400 `common.txt` wordlist entries as "matches," none
+real, contributing 317,312 raw characters (~79,300 tokens) on its own. `ffuf_args` now adds
+`-ac`/`-auto-calibrate` — feroxbuster/gobuster in the same Wave already auto-filter
+duplicate/wildcard-shaped responses by default; ffuf's own equivalent defaults to off and has
+to be requested explicitly. Verified against the real live target: 6,400 reported matches →
+0. New regression test `test_ffuf_auto_calibrates_against_spa_catchall_false_positives`.
+
+**General defensive backstop, now also implemented** (reversing the original plan to leave
+this for a separate decision — the same failure mode hitting twice in one night from two
+independent tools made waiting for a future design review the wrong call): `to_context_block()`
+now caps any single tool's raw output at 2,000 characters (`_MAX_TOOL_OUTPUT_CHARS_IN_CONTEXT`),
+with a clear truncation marker, so a future tool or a future katana/ffuf behavior change can't
+reintroduce this failure mode from a third angle. This is a backstop, not a substitute for the
+two root-cause fixes above — fixing the actual noisy invocation keeps real signal a Strategist
+can use; the cap only bounds the worst case. Only `to_context_block()` (the Strategist-facing
+text) is affected — `to_json()`/the stored `summary_json` (used by Wave 4's GraphQL/JWT
+detection, Round 26's own artifact inspection) keeps the full, untruncated data. New regression
+test `test_to_context_block_caps_a_single_tools_output_defensively`.
 
 Also observed, unrelated to this codebase: the `vapt-test-lab` Juice Shop Docker container
-OOM-crashed twice tonight (`FATAL ERROR: ... JavaScript heap out of memory`, exit 139) under
-the load of a full baseline recon pass (ffuf wordlist fuzzing + katana crawling + trufflehog
-git-history scan running across the same single Node.js process) — restarted both times, no
-code change made; a target-environment fragility, not a Mugheeraat defect.
+OOM-crashed three times tonight (`FATAL ERROR: ... JavaScript heap out of memory`, exit 139)
+under the load of a full baseline recon pass (ffuf wordlist fuzzing + katana crawling +
+trufflehog git-history scan running across the same single Node.js process) — restarted every
+time; a genuinely recurring target-environment fragility, not a Mugheeraat defect, flagged for
+the operator's own attention (may warrant more Node heap headroom on container recreation).
 
 ---
 
