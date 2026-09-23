@@ -74,23 +74,24 @@ implemented and verified.)*
 
 ---
 
-### Round 24 — Engagement 28 resumed blind (operator-approved 2026-09-23)
+## Archive — Resolved / Merged Items (newest first)
 
-**Status: ✅ APPROVED (2026-09-23: "Approved — Resume Engagement 28 blind (Option 1). Now
-that the scope-rules port bug and candidate-detection gaps are resolved, allow the Council
-to run its natural discovery loop against JuiceShop.") — resume actioned same session. Stays
-in Still Open, not Archive, until the engagement itself reaches a real conclusion (goal met,
-zero-yield exhausted, round cap, or session budget) and the result is compared against
-`implementation/reports/JuiceShop-VAPT-Testing-Guide-2026-09-19.md` §4's 11-item ground
-truth.**
-
-Every fix from this investigation (scope-matching, katana/nuclei/gospider, the three
-candidate-detection gaps, and Round 25's Wave 1 IP-skip) is now live simultaneously for the
-first time. This is the first genuinely fair blind run.
+> ✅ **Round 24 — Engagement 28 resumed blind (operator-approved 2026-09-23) — CONCLUDED
+> 2026-09-23.** Reached a natural `COMPLETE` status via the zero-yield circuit breaker
+> (target `CIRCUIT_BROKEN`, `consecutive_zero_yield_count=12`) after 7 council rounds: 39
+> hypotheses generated, 15 tasks executed end-to-end through every gate, 4 candidates
+> reached the Adjudicator (tasks 663/678/689/693), all 4 `DISMISSED`, 0 confirmed. Compared
+> against `implementation/reports/JuiceShop-VAPT-Testing-Guide-2026-09-19.md` §4's 11-item
+> ground truth: 0/11 reproduced. Root cause is **not** a residual bug — the target's own
+> baseline-recon katana crawl found only 5 static URLs (root page + 4 asset files), zero
+> real API endpoints, because Juice Shop's Angular SPA only exposes its REST API behind
+> dynamic JS `fetch` calls that static crawling cannot see. The Council's reasoning was
+> sound at every gate (correct approvals/rejections, a real MASS_ASSIGNMENT risk correctly
+> blocked at Gate 2, correct Adjudicator dismissals of evidence built on fabricated
+> endpoints) — this is a recon-input gap, tracked as the still-open **Round 26**, not a
+> council-reasoning gap. Full detail in the Testing Guide §5–§6.
 
 ---
-
-## Archive — Resolved / Merged Items (newest first)
 
 > ✅ **2026-09-22 requirements-sync note (decision #78):** Rounds 9 through 22 below were all
 > already approved/implemented on the Implementing PC; this note records that the binding
