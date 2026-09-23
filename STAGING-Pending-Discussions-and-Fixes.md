@@ -29,6 +29,42 @@ purpose is to show how a fix evolved, not just its final state.
 
 ---
 
+### Round 26 — Static crawling structurally cannot discover a modern SPA's real API surface — engagement 28's candidates keep dismissing for exactly this reason
+
+**Status: ⬜ AWAITING OPERATOR DECISION.** Found live, monitoring engagement 28 (round 7,
+2026-09-23): every one of its 4 candidates so far (tasks 663, 678, 689, 693 — IDOR/CSRF
+probes against `/upload?id=1`, `/change-password`) was correctly `DISMISSED` by the
+Adjudicator, every time for the same reason: "no baseline request... no signs of a
+vulnerability." Traced why: `/upload` and `/change-password` are **not real Juice Shop
+endpoints** — confirmed by reading target 25's actual baseline-recon katana artifact
+directly (`artifact_id=446`, the same recon this exact engagement already ran, complete
+before any of tonight's other fixes and never re-run since — `baseline_recon_runs` never
+re-executes for a target that already has a completed row): katana found exactly **5 URLs
+total** — the root page and 4 static asset files (`scripts.js`, `polyfills.js`, `styles.css`,
+`main.js`). Zero real API endpoints. Juice Shop's actual REST API (`/rest/...`, `/api/...`,
+confirmed for real by hand earlier tonight — see `implementation/reports/
+JuiceShop-VAPT-Testing-Guide-2026-09-19.md` §4) only exists behind dynamic JavaScript
+`fetch`/`HttpClient` calls with no static `<a href>`/link presence anywhere in the HTML or
+JS source katana can regex-parse (`-jc`) — this is a structural limitation of static
+crawling against a modern Angular SPA, not a bug in tonight's katana/nuclei/gospider fix
+(§3.1) or the Wave-1 IP-skip fix (Round 25) — both are working correctly, they just have
+nothing better to find. With no real endpoint data, the Strategist falls back to
+plausible-sounding but fictional guesses, which correctly produce catchall-page responses
+that the Adjudicator correctly recognizes as non-evidence.
+
+| Option | Effect |
+|---|---|
+| **Leave as-is** | No further engineering; the Council keeps demonstrating sound Gate-1/Gate-2/Gate-3 reasoning against fabricated data, but is very unlikely to ever confirm a real finding against this specific target without better recon input. |
+| **Add a headless-browser crawl stage** (Playwright/Puppeteer — actually executes the SPA's JS, captures real XHR/fetch calls via network interception) to Wave 3, gated the same way `ffuf`/`katana` already are on a live URL | Would give the Strategist real endpoints to work with; a genuinely new capability, not a bug fix — real engineering effort (new dependency, a new Tier 1/2 tool wrapper, browser-automation sandboxing considerations). |
+| **Manually seed known-good endpoints** for this specific benchmark target (the same workaround already proven for Agentic-Bug-Hunter in `implementation/reports/JuiceShop-VAPT-Testing-Guide-2026-09-19.md` §7) — e.g. inject the 11 already-confirmed real endpoints as baseline-recon findings text | Fast, unblocks this specific engagement immediately; not a general-purpose fix — only helps this one target, doesn't close the underlying gap for any other real-world SPA. |
+| **Re-run baseline recon for target 25 specifically** even though it already has a completed row (a one-off manual override, not a code change) — won't help on its own since the crawler is still static-only, but worth doing if combined with either option above | Isolated, low-risk; doesn't by itself change the outcome. |
+
+**Not a recommendation either way yet** — a real architecture question (new capability vs.
+accepting the limitation vs. a one-off workaround for this benchmark specifically), not a
+correctness bug like tonight's other fixes.
+
+---
+
 ## Still Open — Approved, Action Items Remain
 
 *(Decided by the operator, but not fully finished — usually because a step needs the
