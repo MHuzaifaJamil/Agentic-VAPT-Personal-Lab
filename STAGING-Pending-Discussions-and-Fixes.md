@@ -29,6 +29,189 @@ purpose is to show how a fix evolved, not just its final state.
 
 ---
 
+### Round 28 — Operator directive: seed Engagement 29 with known-real endpoints, stage a lightweight SPA/API recon architecture (Round 27's items) — critically reviewed, NOT actioned
+
+**Status: ⬜ AWAITING OPERATOR DECISION — Engagement 29 explicitly NOT started per operator
+instruction ("Remember the Instructions but Do NOT start the Engagement 29 until I explicitly
+ask you to do it").** Operator pasted a directive proposing (2) seed Engagement 29 with the
+5 known-real Juice Shop endpoints from the Testing Guide §4 to validate the full pipeline
+reaches its first `CONFIRMED` finding, and (3) stage a permanent lightweight, non-headless
+Phase 2 recon architecture (swagger probing, static-JS regex route extraction, focused API
+wordlist fuzzing) as a future Round 27-style item — and explicitly asked for a critical
+sanity check against the live codebase before anything is built. That check was run
+read-only against real code (no files modified); results below.
+
+**On §2 (seeding mechanism) — the directive's own guess about how the Strategist gets recon
+context was wrong; the actual mechanism is better than what it proposed:**
+- The Strategist does **not** read `targets.notes`, an `entities` table, or `artifacts_index`
+  per round. `orchestrator/driver.py:220-229` runs baseline recon **once**, and
+  `baseline_recon.py:231-246`'s `to_context_block()` output (raw, verbatim tool stdout —
+  its own docstring says it "MUST NOT be re-summarized by a model first") is appended into a
+  single `baseline_recon_findings` string built **before the round loop starts** and reused
+  unchanged every round (`driver.py:259-264`).
+- Faking a `baseline_recon_runs` row for the existing 127.0.0.1:3000 target (target_id 25)
+  to inject the 5 known endpoints is fragile: `run_baseline_recon()` (`baseline_recon.py:1182-1186`)
+  is a no-op if that target already has a `completed_at` row, and `driver.py:227` only
+  appends the block `if baseline_summary is not None` — an incorrectly-shaped fake row could
+  silently produce an *empty* context block instead of the intended seed data.
+- **The already-supported, correct channel is `vaptctl start --notes` (`human_operator_notes`).**
+  `council/strategist.py:71-92` surfaces it as its own clearly-labeled section on every
+  Strategist call, and `orchestrator/phase_lifecycle.py:380-382` re-reads it fresh from the
+  `engagements` row **every council round** (unlike `baseline_recon_findings`, which is frozen
+  once at engagement start) — bounded by `MAX_INTERVENTION_LENGTH` (`cli/start.py:327-330`).
+  Recommendation: if Engagement 29 is approved, seed via `--notes` listing the 5 endpoints
+  from Testing Guide §4, not via DB-row fabrication.
+
+**On §3 (permanent lightweight Phase 2 architecture) — mixed, one premise overstated:**
+- (a) OpenAPI/swagger.json probing: confirmed **does not exist anywhere** in `vapt_agent/`.
+  Genuinely new, small, deterministic addition.
+- (b) Static JS bundle regex route extraction: confirmed **does not exist**. katana/gospider
+  (`baseline_recon.py:724-762`) already download the JS assets that would feed this; nothing
+  currently parses their content for embedded route strings. Also genuinely new but builds on
+  data already being collected.
+- (c) API-prefix-conditioned ffuf fuzzing: **partially exists already** — `ffuf`/`feroxbuster`/
+  `gobuster` are wired in Wave 3 (`baseline_recon.py:774-793`) but all use one generic
+  wordlist (`DEFAULT_BASELINE_WORDLIST`, line 344), not conditioned on any discovered
+  `/api`/`/rest` prefix. This is a small extension of an existing pattern, not new
+  infrastructure.
+- **The directive's stated reason for avoiding headless browsers (RAM risk) is overstated as
+  a hard constraint** — a headless Chromium instance already runs today, in production, for
+  DOM XSS confirmation: `bridge/tier1/tools/dom_xss_harness.py:14,134,149`
+  (`pw.chromium.launch(headless=True)`), one short-lived launch per task, lazy-imported so the
+  core stays browser-free otherwise. No RAM-budget objection to Playwright exists anywhere in
+  `mem_gate.py` or elsewhere in the codebase — this project already accepted that tradeoff for
+  narrow, task-scoped use. Worth keeping in mind for Round 27-style design: a bounded,
+  single-shot headless crawl mirroring `dom_xss_harness`'s pattern may be more viable than a
+  strict pure-CLI/regex-only constraint, not a hard requirement. Items (a)–(c) can still be
+  built CLI-only as proposed; this is a note that the RAM objection alone shouldn't rule out
+  a headless option later if (a)-(c) prove insufficient.
+
+**Recommendation, pending operator decision:** Engagement 29 (§2) looks safe and cheap to run
+once approved — recommend seeding via `--notes`, not DB fabrication. §3's architecture is
+sound in direction; recommend deferring its own Round number until Engagement 29's result is
+in, since a real `CONFIRMED` finding would validate which of (a)/(b)/(c) actually matters most
+before building all three.
+
+---
+
+### Round 27 — Pipeline Flow & Silent-Drop Audit's 6-item remediation plan, staged for approval (audit completed 06:23 today, sat unstaged in the report file for ~18 hours)
+
+**Status: ⬜ AWAITING OPERATOR DECISION.** `implementation/reports/PIPELINE-FLOW-AUDIT-REPORT-2026-09-23.md`
+(a full six-module static, line-by-line audit, self-verified against real code — not
+another agent's untested hypothesis) found two HEADLINE latent defects and four secondary
+ones. None of its 6 remediation items had been staged here — a process gap against this
+file's own norm (a finding that needs operator input goes into Staging immediately, not
+left sitting inside a report artifact). **None of these 6 items were triggered by
+engagement 28's actual concluded run** (Round 24, archived below) — that run's 0/11 was a
+pure recon-input gap (Round 26, directly above/below this entry). These are separate,
+still-live risks for the *next* run, found by direct code reading, not by a live incident,
+and none of them have been implemented yet.
+
+1. **[HIGHEST PRIORITY] Adjudicator (Gate 3) `StructuredOutputError` uncaught — would crash
+   the entire engagement, not just one task.** `vapt_agent/orchestrator/phase_lifecycle.py:1138-1139`
+   (`run_phase_4_3`'s `run_adjudicator(...)` call site) has no `try/except`, unlike the
+   Scripter's identical failure mode, fixed 2026-09-13 (`463f4b0`) at `:649-654` — that
+   commit explicitly flagged the other four council roles (Strategist/Auditor/Adjudicator/
+   Reporter) as a follow-up gap, never closed for any of them since. If Mistral-7B's
+   structured JSON output fails schema validation on all 3 retries (the same failure mode
+   already proven live for the Strategist/Scripter roles in this exact codebase) the first
+   time a real `CANDIDATE` finally reaches Gate 3, it kills the whole `vaptctl run` process
+   with a raw traceback — not the plain-English dashboard/console banner the Setup
+   blueprint's own §6 promises for "every known problem." Fix is two-part, not code-only
+   (a naive one-line fix would trade one crash for a `sqlite3.IntegrityError`): (a) add a
+   new terminal `ADJUDICATION_FAILED` value to `verified_vulnerabilities.status`'s CHECK
+   constraint via `data/db.py`'s existing `_CHECK_CONSTRAINT_MIGRATIONS` list (precedent:
+   `REMEDIATED` was added the same way); (b) catch `StructuredOutputError` at the call site
+   and set that new status instead of leaving the row at `CANDIDATE` forever (needs a
+   retry-count column too, or it re-fails unbounded every subsequent round).
+   `tests/test_council_adjudicator.py` currently has zero coverage for retry-exhaustion
+   (only "invalid once, then corrected" is tested) — a new regression test mirroring
+   `test_orchestrator_phase_lifecycle.py`'s existing Scripter-side test
+   (`test_phase_4_2b_a_real_structured_output_failure_blocks_the_task_not_the_engagement`)
+   is part of this item, not a follow-up.
+
+2. **`candidate_detection.py` has no detection rule for most of the Strategist's
+   vocabulary** — 12 of 19 tokens (`prompts.py:241-243`), narrowing to 5 of the 11 real
+   Juice Shop ground-truth findings (2 of them more severe) once the Scripter's own
+   deliberate noise-filtering (`prompts.py:332-336`) is accounted for. No
+   vocabulary-to-rule mapping exists for `SECURITY_MISCONFIG`/disclosure-flavored classes,
+   and the Tier-1 filter (`candidate_detection.py:298`) excludes `nikto`/`testssl`/
+   `wafw00f`/`ffuf` output by name before any pattern-matching even runs. Recommended
+   minimum, in priority order (do NOT attempt full 19-class coverage in one pass):
+   (a) a NoSQL-error pattern list beside `_SQL_ERROR_PATTERNS` (covers `NOSQLI`); (b) a
+   generic PII/email pattern beside the existing password/token/admin patterns; (c) a new
+   header-presence rule *shape*, distinct from the current body-content rules, so
+   `SECURITY_MISCONFIG`/CORS-class findings have any path to `CANDIDATE` at all; (d) widen
+   the Tier-1 filter to include `nikto`/`testssl`/`wafw00f` once (c) exists to use it.
+
+3. **Round-progression breaker (`vapt_agent/orchestrator/driver.py:268-289`) counts
+   Phase-4.1 approval, not real Phase-4.2 execution/rejection** — structurally blind to a
+   rejection storm. This is exactly the gap that let engagement 28's *first* (buggy)
+   attempt run two full rounds unflagged on the since-fixed `host:port` scope bug; the
+   breaker itself is still unfixed today, so a future bug shaped the same way would again
+   show "progress" every round while zero commands actually run, with no live signal to the
+   operator — only a post-hoc report artifact nobody is forced to read mid-run. Minimal
+   fix: after each round's Phase-4.2 pass completes, check whether any `round_task_ids`
+   ended the round still `GATE1_APPROVED`-and-uncommanded or moved to
+   `GATE1_REJECTED`/`GATE2_BLOCKED` at the Tier0 re-check, and fold that into
+   `consecutive_zero_progress_rounds` (or a sibling counter with its own, tighter
+   threshold).
+
+4. **`DiskQuotaExceededError` (`vapt_agent/bridge/disk_quota.py:47`) is raised but caught
+   nowhere** — confirmed by `grep -rn "DiskQuotaExceededError" vapt_agent/` (only the two
+   lines that define/raise it exist in the whole codebase). At ≥95% root-volume
+   utilization this propagates uncaught through `execute_and_record` → `run_gated_task` →
+   the per-target loop → `run_full_engagement`, almost certainly crashing the whole
+   engagement instead of marking one task `DEFERRED`/`FAILED` and continuing with other
+   targets. Fix: catch at the `execute_and_record`/`run_gated_task` boundary, turn into a
+   per-task `DEFERRED`-or-equivalent outcome with a loud dashboard banner, per the Setup
+   blueprint's own §6 promise.
+
+5. **[NOT A CODE FIX — needs one live test, not another static pass]** The Adjudicator's
+   own "baseline / attack / diff" evidence requirement (`vapt_agent/council/prompts.py:442-445`,
+   Check 3) may be structurally unsatisfiable by anything this pipeline currently captures —
+   `_gather_raw_evidence` only ever fetches one `tool_execution_logs` row (the attack side);
+   there is no code path anywhere that captures a separate, unmodified baseline
+   request/response. Given the same prompt's "strict, not generous... anything requiring you
+   to fill in gaps with assumption should be dismissed" instruction, a literal reading could
+   ground the Adjudicator into dismissing every candidate this pipeline could ever generate,
+   independent of how real the underlying vulnerability is. Flagged plausible, not
+   confirmed — depends on how strictly the live Mistral-7B-Instruct-v0.3 instance interprets
+   "baseline" in practice. Recommended: once item 1 is fixed and a live engagement reaches
+   Gate 3 with a real candidate, check this empirically (e.g. replay finding #1's real SQLi/
+   JWT evidence from `JuiceShop-VAPT-Testing-Guide-2026-09-19.md` §4 through a live
+   Adjudicator call) before deciding whether the prompt needs a "single-request evidence is
+   acceptable when self-evident" carve-out, or the pipeline needs a real baseline-capture
+   step added to the Scripter/execution contract.
+
+6. **Lower-priority hygiene batch** (real, low-severity/low-probability — safe to fold into
+   other work rather than treat as urgent on their own): `_read_raw_artifact_text`
+   (`candidate_detection.py:176-180`) silently swallows `OSError`, returning `""` with no
+   log line distinguishing "no signal" from "couldn't read evidence"; `detect_candidates`
+   (`:319-325`) silently `continue`s on any Tier-1 tool or Tier-2 command shape it doesn't
+   recognize (e.g. a Scripter-generated `wget`/`httpie`/`bash -c "..."` one-liner), with
+   zero telemetry that output existed and nothing looked at it; `executor.py`'s
+   stdout/stderr buffer has no size cap (unbounded memory growth risk on a single runaway
+   tool call, e.g. `nmap -p-` or a large `ffuf` wordlist run).
+
+| Item | Effect if left unfixed |
+|---|---|
+| 1 — Adjudicator crash guard | The very next real candidate to reach Gate 3 has a live, non-theoretical chance of killing the whole engagement before confirming anything — silently relocating "zero findings" to the last pipeline stage instead of resolving it |
+| 2 — candidate-detection coverage | Council can keep reasoning correctly and executing real attacks and still structurally never produce a `CANDIDATE` row for ~5 of 11 real Juice Shop finding types, independent of target/recon quality |
+| 3 — breaker visibility | A future systematic Gate 1/2 rejection bug (same shape as the one already found twice) could again run silently for rounds before anyone notices |
+| 4 — disk quota catch | A long unattended overnight run crashes hard on disk pressure instead of degrading gracefully, contradicting the blueprint's own §6 promise |
+| 5 — baseline/diff empirical check | Unknown until tested — could mean every future candidate gets reflexively dismissed regardless of fixes 1/2, or could be a non-issue |
+| 6 — hygiene batch | Low current risk; mainly an observability gap that would make the *next* silent-drop investigation slower to run |
+
+Items 1-4 are ready to implement directly (per the audit's own assessment — no fixes have
+actually been applied yet, this entry only stages the plan); item 5 needs one live
+engagement run to resolve empirically rather than another static-analysis pass; item 6 is
+opportunistic, safe to batch with other work whenever it's convenient. Full detail,
+line-by-line evidence, and the six-module trace behind these six items:
+`implementation/reports/PIPELINE-FLOW-AUDIT-REPORT-2026-09-23.md`.
+
+---
+
 ### Round 26 — Static crawling structurally cannot discover a modern SPA's real API surface — engagement 28's candidates keep dismissing for exactly this reason
 
 **Status: ⬜ AWAITING OPERATOR DECISION.** Found live, monitoring engagement 28 (round 7,
