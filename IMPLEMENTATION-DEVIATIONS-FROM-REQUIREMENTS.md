@@ -50,6 +50,79 @@
 
 ---
 
+## 2026-09-24 — Round 27 pipeline-flow audit: 4 correctness/robustness fixes
+
+**Status: ✅ IMPLEMENTED, ✅ APPROVED (2026-09-24, operator directive: "Implement all staged
+code remediations, verify them via the unit test suite, and halt.") — full suite: 1225
+passed, 2 pre-existing unrelated gqlmap-install-drift flakes, 3 skipped. Full context and
+per-item fix detail: `STAGING-Pending-Discussions-and-Fixes.md`'s Round 27 entry (Still Open
+— items 5/6 of the original 6-item audit remain, one needs a live engagement to check
+empirically, the other is low-priority hygiene).
+
+### What the requirement says
+
+`01:FR-COUNCIL-09a`/`03`'s `task_queue.status` cover the Scripter's own
+`StructuredOutputError` crash guard (fixed 2026-09-13); nothing in the numbered corpus
+extends that same guard to the Adjudicator role, addresses the round-progression breaker's
+blind spot for a post-Phase-4.1 rejection, or addresses `DiskQuotaExceededError` propagation.
+`01:FR-COUNCIL-12a` covers the 2026-09-18 candidate-detection widening; nothing in the
+numbered corpus adds NoSQL/PII/directory-listing/CORS detection classes.
+
+### What real code did before this fix, and the real gaps a direct code audit found
+
+Four independent, previously-undiscovered gaps, all found by a full six-module line-by-line
+static audit (`implementation/reports/PIPELINE-FLOW-AUDIT-REPORT-2026-09-23.md`), none
+triggered by a live incident: (1) `phase_lifecycle.py::run_phase_4_3`'s `run_adjudicator(...)`
+call site had no `try/except StructuredOutputError`, unlike the Scripter's identical,
+already-fixed failure mode — the first real candidate to reach Gate 3 with an exhausted
+structured-output retry budget would have crashed the entire engagement. (2)
+`candidate_detection.py` had no detection path for `NOSQLI`, and no vocabulary-to-rule
+mapping for `SECURITY_MISCONFIG`/PII-disclosure-flavored findings — 5 of this session's own
+11 ground-truth Juice Shop findings (2 of them more severe) had no structural path to
+`CANDIDATE` regardless of pipeline health. (3) `orchestrator/driver.py`'s round-progression
+breaker (`consecutive_zero_progress_rounds`) reset to 0 the moment Phase 4.1's own
+Strategy-Auditor check approved anything, blind to Phase 4.2's separate, non-bypassable
+Tier0 re-check rejecting those same tasks moments later — exactly the shape of the
+since-fixed `host:port` scope bug, which is what let engagement 28's first attempt run two
+full rounds unflagged. (4) `DiskQuotaExceededError` (`bridge/disk_quota.py`) was raised but
+caught nowhere in the codebase — would have crashed the whole engagement at ≥95% root-volume
+utilization over one task's evidence write.
+
+### What real code now does
+
+1. `verified_vulnerabilities.status` gained a new terminal `ADJUDICATION_FAILED` value
+   (`data/db.py`'s `_CHECK_CONSTRAINT_MIGRATIONS`, mirroring `MODEL_STRUCTURED_OUTPUT_FAILURE`'s
+   precedent). `run_phase_4_3` now catches `StructuredOutputError` around the Adjudicator
+   call and marks the finding `ADJUDICATION_FAILED` instead of letting the exception
+   propagate — terminal, never re-queried back to `CANDIDATE`, no retry-count column needed.
+
+2. `candidate_detection.py` gained NoSQL error patterns, a bulk-PII/sensitive-field rule
+   (2+ emails or a genuinely sensitive field — not a bare single-email match), a
+   directory-listing (autoindex) rule, and a CORS-misconfiguration rule deliberately scoped
+   to the actual dangerous shape only (non-wildcard origin + `Allow-Credentials: true`) —
+   **not** the generic "missing header"/"wildcard alone" shape the operator directive's
+   literal wording suggested, since that would have reintroduced exactly the noise class the
+   Primary Scripter's own system prompt (`prompts.py:332-336`) explicitly tells it to ignore.
+   `nikto`/`testssl`/`wafw00f` are now admitted into the Tier 1 filter, routed through the
+   same generic content rules. Judgment call recorded per CLAUDE.md's new Directive 5
+   (mandatory critical analysis of every instruction) — see the STAGING entry for the full
+   reasoning.
+
+3. `driver.py`'s zero-progress-round reset is now deferred until after Phase 4.2 actually
+   runs each round, gated on whether anything from that round survived Phase 4.2's own Tier0
+   re-check.
+
+4. `council/task_runner.py::run_gated_task` now catches `DiskQuotaExceededError` around
+   tier1/tier2 execution and marks the task `DEFERRED` (mirroring the existing
+   `policy_refused` precedent), with the reason recorded in `gate2_rationale` — the same
+   column every comparable terminal status already uses for dashboard/console visibility.
+
+All four fixes came with a regression test verified to fail against the pre-fix code and
+pass against the fix (not just "added a test that happens to pass") — see the STAGING entry
+for each test's name and file.
+
+---
+
 ## 2026-09-23 — `vaptctl run`'s fatal exit paths left an orphaned `llama-server` process and a stale `IN_PROGRESS` status
 
 **Status: ✅ IMPLEMENTED, ✅ unconditional correctness fix (no operator decision needed — a

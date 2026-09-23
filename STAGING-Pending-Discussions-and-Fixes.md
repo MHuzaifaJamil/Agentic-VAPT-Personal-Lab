@@ -94,124 +94,6 @@ before building all three.
 
 ---
 
-### Round 27 — Pipeline Flow & Silent-Drop Audit's 6-item remediation plan, staged for approval (audit completed 06:23 today, sat unstaged in the report file for ~18 hours)
-
-**Status: ⬜ AWAITING OPERATOR DECISION.** `implementation/reports/PIPELINE-FLOW-AUDIT-REPORT-2026-09-23.md`
-(a full six-module static, line-by-line audit, self-verified against real code — not
-another agent's untested hypothesis) found two HEADLINE latent defects and four secondary
-ones. None of its 6 remediation items had been staged here — a process gap against this
-file's own norm (a finding that needs operator input goes into Staging immediately, not
-left sitting inside a report artifact). **None of these 6 items were triggered by
-engagement 28's actual concluded run** (Round 24, archived below) — that run's 0/11 was a
-pure recon-input gap (Round 26, directly above/below this entry). These are separate,
-still-live risks for the *next* run, found by direct code reading, not by a live incident,
-and none of them have been implemented yet.
-
-1. **[HIGHEST PRIORITY] Adjudicator (Gate 3) `StructuredOutputError` uncaught — would crash
-   the entire engagement, not just one task.** `vapt_agent/orchestrator/phase_lifecycle.py:1138-1139`
-   (`run_phase_4_3`'s `run_adjudicator(...)` call site) has no `try/except`, unlike the
-   Scripter's identical failure mode, fixed 2026-09-13 (`463f4b0`) at `:649-654` — that
-   commit explicitly flagged the other four council roles (Strategist/Auditor/Adjudicator/
-   Reporter) as a follow-up gap, never closed for any of them since. If Mistral-7B's
-   structured JSON output fails schema validation on all 3 retries (the same failure mode
-   already proven live for the Strategist/Scripter roles in this exact codebase) the first
-   time a real `CANDIDATE` finally reaches Gate 3, it kills the whole `vaptctl run` process
-   with a raw traceback — not the plain-English dashboard/console banner the Setup
-   blueprint's own §6 promises for "every known problem." Fix is two-part, not code-only
-   (a naive one-line fix would trade one crash for a `sqlite3.IntegrityError`): (a) add a
-   new terminal `ADJUDICATION_FAILED` value to `verified_vulnerabilities.status`'s CHECK
-   constraint via `data/db.py`'s existing `_CHECK_CONSTRAINT_MIGRATIONS` list (precedent:
-   `REMEDIATED` was added the same way); (b) catch `StructuredOutputError` at the call site
-   and set that new status instead of leaving the row at `CANDIDATE` forever (needs a
-   retry-count column too, or it re-fails unbounded every subsequent round).
-   `tests/test_council_adjudicator.py` currently has zero coverage for retry-exhaustion
-   (only "invalid once, then corrected" is tested) — a new regression test mirroring
-   `test_orchestrator_phase_lifecycle.py`'s existing Scripter-side test
-   (`test_phase_4_2b_a_real_structured_output_failure_blocks_the_task_not_the_engagement`)
-   is part of this item, not a follow-up.
-
-2. **`candidate_detection.py` has no detection rule for most of the Strategist's
-   vocabulary** — 12 of 19 tokens (`prompts.py:241-243`), narrowing to 5 of the 11 real
-   Juice Shop ground-truth findings (2 of them more severe) once the Scripter's own
-   deliberate noise-filtering (`prompts.py:332-336`) is accounted for. No
-   vocabulary-to-rule mapping exists for `SECURITY_MISCONFIG`/disclosure-flavored classes,
-   and the Tier-1 filter (`candidate_detection.py:298`) excludes `nikto`/`testssl`/
-   `wafw00f`/`ffuf` output by name before any pattern-matching even runs. Recommended
-   minimum, in priority order (do NOT attempt full 19-class coverage in one pass):
-   (a) a NoSQL-error pattern list beside `_SQL_ERROR_PATTERNS` (covers `NOSQLI`); (b) a
-   generic PII/email pattern beside the existing password/token/admin patterns; (c) a new
-   header-presence rule *shape*, distinct from the current body-content rules, so
-   `SECURITY_MISCONFIG`/CORS-class findings have any path to `CANDIDATE` at all; (d) widen
-   the Tier-1 filter to include `nikto`/`testssl`/`wafw00f` once (c) exists to use it.
-
-3. **Round-progression breaker (`vapt_agent/orchestrator/driver.py:268-289`) counts
-   Phase-4.1 approval, not real Phase-4.2 execution/rejection** — structurally blind to a
-   rejection storm. This is exactly the gap that let engagement 28's *first* (buggy)
-   attempt run two full rounds unflagged on the since-fixed `host:port` scope bug; the
-   breaker itself is still unfixed today, so a future bug shaped the same way would again
-   show "progress" every round while zero commands actually run, with no live signal to the
-   operator — only a post-hoc report artifact nobody is forced to read mid-run. Minimal
-   fix: after each round's Phase-4.2 pass completes, check whether any `round_task_ids`
-   ended the round still `GATE1_APPROVED`-and-uncommanded or moved to
-   `GATE1_REJECTED`/`GATE2_BLOCKED` at the Tier0 re-check, and fold that into
-   `consecutive_zero_progress_rounds` (or a sibling counter with its own, tighter
-   threshold).
-
-4. **`DiskQuotaExceededError` (`vapt_agent/bridge/disk_quota.py:47`) is raised but caught
-   nowhere** — confirmed by `grep -rn "DiskQuotaExceededError" vapt_agent/` (only the two
-   lines that define/raise it exist in the whole codebase). At ≥95% root-volume
-   utilization this propagates uncaught through `execute_and_record` → `run_gated_task` →
-   the per-target loop → `run_full_engagement`, almost certainly crashing the whole
-   engagement instead of marking one task `DEFERRED`/`FAILED` and continuing with other
-   targets. Fix: catch at the `execute_and_record`/`run_gated_task` boundary, turn into a
-   per-task `DEFERRED`-or-equivalent outcome with a loud dashboard banner, per the Setup
-   blueprint's own §6 promise.
-
-5. **[NOT A CODE FIX — needs one live test, not another static pass]** The Adjudicator's
-   own "baseline / attack / diff" evidence requirement (`vapt_agent/council/prompts.py:442-445`,
-   Check 3) may be structurally unsatisfiable by anything this pipeline currently captures —
-   `_gather_raw_evidence` only ever fetches one `tool_execution_logs` row (the attack side);
-   there is no code path anywhere that captures a separate, unmodified baseline
-   request/response. Given the same prompt's "strict, not generous... anything requiring you
-   to fill in gaps with assumption should be dismissed" instruction, a literal reading could
-   ground the Adjudicator into dismissing every candidate this pipeline could ever generate,
-   independent of how real the underlying vulnerability is. Flagged plausible, not
-   confirmed — depends on how strictly the live Mistral-7B-Instruct-v0.3 instance interprets
-   "baseline" in practice. Recommended: once item 1 is fixed and a live engagement reaches
-   Gate 3 with a real candidate, check this empirically (e.g. replay finding #1's real SQLi/
-   JWT evidence from `JuiceShop-VAPT-Testing-Guide-2026-09-19.md` §4 through a live
-   Adjudicator call) before deciding whether the prompt needs a "single-request evidence is
-   acceptable when self-evident" carve-out, or the pipeline needs a real baseline-capture
-   step added to the Scripter/execution contract.
-
-6. **Lower-priority hygiene batch** (real, low-severity/low-probability — safe to fold into
-   other work rather than treat as urgent on their own): `_read_raw_artifact_text`
-   (`candidate_detection.py:176-180`) silently swallows `OSError`, returning `""` with no
-   log line distinguishing "no signal" from "couldn't read evidence"; `detect_candidates`
-   (`:319-325`) silently `continue`s on any Tier-1 tool or Tier-2 command shape it doesn't
-   recognize (e.g. a Scripter-generated `wget`/`httpie`/`bash -c "..."` one-liner), with
-   zero telemetry that output existed and nothing looked at it; `executor.py`'s
-   stdout/stderr buffer has no size cap (unbounded memory growth risk on a single runaway
-   tool call, e.g. `nmap -p-` or a large `ffuf` wordlist run).
-
-| Item | Effect if left unfixed |
-|---|---|
-| 1 — Adjudicator crash guard | The very next real candidate to reach Gate 3 has a live, non-theoretical chance of killing the whole engagement before confirming anything — silently relocating "zero findings" to the last pipeline stage instead of resolving it |
-| 2 — candidate-detection coverage | Council can keep reasoning correctly and executing real attacks and still structurally never produce a `CANDIDATE` row for ~5 of 11 real Juice Shop finding types, independent of target/recon quality |
-| 3 — breaker visibility | A future systematic Gate 1/2 rejection bug (same shape as the one already found twice) could again run silently for rounds before anyone notices |
-| 4 — disk quota catch | A long unattended overnight run crashes hard on disk pressure instead of degrading gracefully, contradicting the blueprint's own §6 promise |
-| 5 — baseline/diff empirical check | Unknown until tested — could mean every future candidate gets reflexively dismissed regardless of fixes 1/2, or could be a non-issue |
-| 6 — hygiene batch | Low current risk; mainly an observability gap that would make the *next* silent-drop investigation slower to run |
-
-Items 1-4 are ready to implement directly (per the audit's own assessment — no fixes have
-actually been applied yet, this entry only stages the plan); item 5 needs one live
-engagement run to resolve empirically rather than another static-analysis pass; item 6 is
-opportunistic, safe to batch with other work whenever it's convenient. Full detail,
-line-by-line evidence, and the six-module trace behind these six items:
-`implementation/reports/PIPELINE-FLOW-AUDIT-REPORT-2026-09-23.md`.
-
----
-
 ### Round 26 — Static crawling structurally cannot discover a modern SPA's real API surface — engagement 28's candidates keep dismissing for exactly this reason
 
 **Status: ⬜ AWAITING OPERATOR DECISION.** Found live, monitoring engagement 28 (round 7,
@@ -257,7 +139,103 @@ implemented and verified.)*
 
 ---
 
+### Round 27 — Pipeline Flow & Silent-Drop Audit's 6-item remediation plan
+
+**Status: ✅ APPROVED (2026-09-24, operator directive: "Implement all staged code
+remediations, verify them via the unit test suite, and halt.") — Items 1-4 IMPLEMENTED AND
+TESTED same session (full suite: 1225 passed, 2 pre-existing unrelated gqlmap-install-drift
+flakes, 3 skipped). Stays in Still Open, not Archive, until items 5 (needs a live engagement
+with a real Gate 3 candidate — empirical, not a code fix) and 6 (low-priority hygiene batch)
+are also resolved.**
+
+1. **Adjudicator (Gate 3) `StructuredOutputError` uncaught — ✅ FIXED.**
+   `data/schema.sql`/`data/db.py` gained `ADJUDICATION_FAILED` (mirroring the existing
+   `MODEL_STRUCTURED_OUTPUT_FAILURE` precedent — terminal, never re-queued back to
+   `CANDIDATE`, no retry-count column needed since the original directive's own suggestion
+   of one turned out unnecessary once checked: `run_phase_4_3`'s own SELECT only ever reads
+   `status = 'CANDIDATE'`, so a finding marked `ADJUDICATION_FAILED` is simply never picked
+   up again). `phase_lifecycle.py::run_phase_4_3` now wraps `run_adjudicator(...)` in
+   `try/except StructuredOutputError`, mirroring the Scripter's own 2026-09-13 fix exactly.
+   New regression test `test_phase_4_3_a_real_structured_output_failure_blocks_the_finding_not_the_engagement`
+   (`tests/test_orchestrator_phase_lifecycle.py`) feeds 3 real schema-invalid responses
+   through the REAL retry loop (not a mocked exception) and confirms the engagement survives.
+
+2. **`candidate_detection.py` had no detection rule for most of the Strategist's
+   vocabulary — ✅ FIXED, narrower than the original directive's literal ask (see
+   Directive 5 pushback below).** Added: (a) NoSQL error patterns
+   (`_NOSQL_ERROR_PATTERNS`, covers `NOSQLI`); (b) bulk-PII/sensitive-field patterns
+   (`_bulk_pii_signal`) — deliberately requires 2+ distinct emails or a genuinely sensitive
+   field (SSN/credit-card/DOB), NOT a bare single-email match, which would have flooded
+   Gate 3 with noise from virtually every authenticated API response; (c) a directory-listing
+   (Apache/nginx autoindex) rule — this session's own ground-truth findings #3/#4 (KeePass
+   DB, private key) took exactly this HTML shape; (d) a CORS-misconfiguration rule, but
+   **deliberately scoped to the actual dangerous shape only** (non-wildcard
+   `Access-Control-Allow-Origin` + `Access-Control-Allow-Credentials: true` together) — a
+   bare wildcard alone does NOT fire, because the Primary Scripter's own system prompt
+   (`prompts.py:332-336`) explicitly lists "CORS wildcard without a credential-exfil angle"
+   and "missing security headers alone" as noise never worth pursuing; implementing the
+   original directive's literal "header-presence rule shape for SECURITY_MISCONFIG/CORS"
+   as a generic missing-header check would have reintroduced exactly the noise class the
+   system was already deliberately tuned to avoid — pushed back on per CLAUDE.md's new
+   Directive 5, implemented the narrower, prompt-consistent version instead. (e) `nikto`/
+   `testssl`/`wafw00f` admitted into the Tier-1 SQL filter, routed through the same generic
+   content rules (a)-(d) above (no separate per-tool rule needed — their raw output is
+   prose/report text, not a fixed confirmation phrase). 10 new tests in
+   `tests/test_candidate_detection.py`, including explicit negative tests proving the
+   noise-avoidance boundary holds (`test_cors_wildcard_alone_is_not_a_candidate`,
+   `test_a_single_email_in_an_ordinary_response_is_not_a_candidate`).
+
+3. **Round-progression breaker counted Phase-4.1 approval, not real Phase-4.2
+   execution/rejection — ✅ FIXED.** `orchestrator/driver.py`: the
+   `consecutive_zero_progress_rounds` reset is now deferred until after Phase 4.2 actually
+   runs, gated on whether anything from the round survived Phase 4.2's own Tier0 re-check
+   (i.e., did NOT end the round `GATE1_REJECTED`/`GATE2_BLOCKED`). New regression test
+   `test_run_full_engagement_round_progression_breaker_fires_when_gate1_approved_tasks_are_all_rejected_at_phase_4_2_tier0_recheck`
+   (`tests/test_orchestrator_driver.py`) — verified BOTH ways: fails against the pre-fix code
+   (loops the full `max_council_rounds` = 15 instead of stopping at
+   `zero_yield_circuit_breaker` = 3) and passes against the fix.
+
+4. **`DiskQuotaExceededError` raised but caught nowhere — ✅ FIXED.**
+   `council/task_runner.py::run_gated_task` now catches it around the tier1/tier2 execution
+   call, marks the task `DEFERRED` (mirroring the existing `policy_refused` precedent
+   exactly, not a new status) with the specific reason in `gate2_rationale` — the same
+   column every other DEFERRED/GATE2_BLOCKED/MODEL_STRUCTURED_OUTPUT_FAILURE status already
+   uses for dashboard/console visibility, deliberately not a new `logging`/`click`
+   dependency in a module that has never had one (task_runner.py sits below the CLI layer).
+   New regression test `test_disk_quota_exceeded_defers_the_task_instead_of_crashing_the_engagement`
+   (`tests/test_milestone2_end_to_end.py`) routes through the REAL execution call chain,
+   faking only the disk-usage check itself — verified it fails against the pre-fix code too.
+
+5. **[unchanged, still open]** The Adjudicator's own "baseline/attack/diff" evidence
+   requirement may be structurally unsatisfiable — needs a live engagement with a real Gate
+   3 candidate to check empirically, not another static pass. Now unblocked by item 1's fix
+   (a real candidate reaching Gate 3 will no longer risk crashing the run before this can be
+   observed).
+
+6. **[unchanged, still open]** Lower-priority hygiene batch (silent `OSError` swallowing,
+   silent `continue` on unrecognized tool/command shapes, unbounded executor buffer) — safe
+   to fold into other work whenever convenient, not urgent.
+
+---
+
 ## Archive — Resolved / Merged Items (newest first)
+
+> ✅ **Round 29 — Non-blocking "SLOW-MODE INFERENCE" preflight warning below a 5.0 tok/s
+> floor — APPROVED (2026-09-24, "simplest design: print the ... banner during Phase 0 in
+> `cli/start.py`. Do NOT add database columns or wire it into the live dashboard") AND
+> IMPLEMENTED.** `config/defaults.yaml` gained `inference.min_usable_tokens_per_sec: 5.0`.
+> `cli/start.py::_run_preflight_phase` prints the banner right after the existing "GPU
+> offload IS/is NOT beneficial" line, reusing `run_gpu_offload_benchmark`'s own
+> `cpu_tokens_per_sec` measurement — no second benchmark call, no schema migration, never
+> added to `run_preflight`'s `blocking_failures`. Only fires inside the branch that already
+> ran the benchmark (a driver-less host skips it entirely, matching the original proposal
+> exactly, not a gap introduced during implementation). 4 new tests
+> (`tests/test_cli_start_preflight_phase.py`, monkeypatching `run_preflight`/
+> `run_gpu_offload_benchmark` so no real GPU/model is needed) cover: fires below the floor,
+> silent above it, respects a config-overridden floor, and never flips Phase 0 from
+> passing to failing. `ruff`/`mypy` clean.
+
+---
 
 > ✅ **Round 24 — Engagement 28 resumed blind (operator-approved 2026-09-23) — CONCLUDED
 > 2026-09-23.** Reached a natural `COMPLETE` status via the zero-yield circuit breaker
