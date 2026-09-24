@@ -29,68 +29,30 @@ purpose is to show how a fix evolved, not just its final state.
 
 ---
 
-### Round 28 — Operator directive: seed Engagement 29 with known-real endpoints, stage a lightweight SPA/API recon architecture (Round 27's items) — critically reviewed, NOT actioned
+### Round 30 — `vapt-test-lab` (Juice Shop) Docker container OOM-crashed 4 times in one night under recon load
 
-**Status: ⬜ AWAITING OPERATOR DECISION — Engagement 29 explicitly NOT started per operator
-instruction ("Remember the Instructions but Do NOT start the Engagement 29 until I explicitly
-ask you to do it").** Operator pasted a directive proposing (2) seed Engagement 29 with the
-5 known-real Juice Shop endpoints from the Testing Guide §4 to validate the full pipeline
-reaches its first `CONFIRMED` finding, and (3) stage a permanent lightweight, non-headless
-Phase 2 recon architecture (swagger probing, static-JS regex route extraction, focused API
-wordlist fuzzing) as a future Round 27-style item — and explicitly asked for a critical
-sanity check against the live codebase before anything is built. That check was run
-read-only against real code (no files modified); results below.
+**Status: ⬜ AWAITING OPERATOR DECISION.** Not a Mugheeraat code defect — the target
+application's own Node.js process (`bkimminich/juice-shop:latest`) hit
+`FATAL ERROR: Ineffective mark-compacts near heap limit — JavaScript heap out of memory`
+(exit 139/SIGSEGV) four separate times during tonight's Engagement 30 benchmark, each
+restarted manually (`docker start vapt-test-lab`) to continue. `docker inspect`'s
+`HostConfig.Memory` is `0` (unlimited) — this is Node's own internal V8 heap limit being
+exhausted, not a container-level cap, under the combined load of ffuf wordlist fuzzing +
+katana crawling + trufflehog git-history scanning all hitting the same single Node process
+concurrently during baseline recon, compounded by a genuinely memory-constrained ~15GB host
+already running an 8B-parameter council model. The 4th occurrence directly ended Engagement
+30 itself — 3 consecutive real connection failures correctly tripped `FAILURE_BREAKER`,
+marking the target `UNREACHABLE` (see Round 28's update below for the full final outcome).
 
-**On §2 (seeding mechanism) — the directive's own guess about how the Strategist gets recon
-context was wrong; the actual mechanism is better than what it proposed:**
-- The Strategist does **not** read `targets.notes`, an `entities` table, or `artifacts_index`
-  per round. `orchestrator/driver.py:220-229` runs baseline recon **once**, and
-  `baseline_recon.py:231-246`'s `to_context_block()` output (raw, verbatim tool stdout —
-  its own docstring says it "MUST NOT be re-summarized by a model first") is appended into a
-  single `baseline_recon_findings` string built **before the round loop starts** and reused
-  unchanged every round (`driver.py:259-264`).
-- Faking a `baseline_recon_runs` row for the existing 127.0.0.1:3000 target (target_id 25)
-  to inject the 5 known endpoints is fragile: `run_baseline_recon()` (`baseline_recon.py:1182-1186`)
-  is a no-op if that target already has a `completed_at` row, and `driver.py:227` only
-  appends the block `if baseline_summary is not None` — an incorrectly-shaped fake row could
-  silently produce an *empty* context block instead of the intended seed data.
-- **The already-supported, correct channel is `vaptctl start --notes` (`human_operator_notes`).**
-  `council/strategist.py:71-92` surfaces it as its own clearly-labeled section on every
-  Strategist call, and `orchestrator/phase_lifecycle.py:380-382` re-reads it fresh from the
-  `engagements` row **every council round** (unlike `baseline_recon_findings`, which is frozen
-  once at engagement start) — bounded by `MAX_INTERVENTION_LENGTH` (`cli/start.py:327-330`).
-  Recommendation: if Engagement 29 is approved, seed via `--notes` listing the 5 endpoints
-  from Testing Guide §4, not via DB-row fabrication.
+| Option | Effect |
+|---|---|
+| **Leave as-is, keep restarting manually when it happens** | Zero engineering effort; will keep interrupting/prematurely ending future benchmark engagements against this same target whenever recon load coincides with host memory pressure. |
+| **Recreate the container with `NODE_OPTIONS=--max-old-space-size=<N>`, more headroom** | Directly addresses the root cause (V8's own heap ceiling); requires knowing/testing a safe value for this host's actual available RAM, and recreating (not just restarting) the container — a `docker run`-level change, not `docker start`. |
+| **Throttle baseline recon's own concurrency** (e.g. don't run ffuf/katana/trufflehog against the same live target simultaneously) | Addresses the actual triggering load pattern directly, but is a real Mugheeraat code change (Wave scheduling), not a one-line fix, and would slow down recon for every future engagement, not just this fragile target. |
 
-**On §3 (permanent lightweight Phase 2 architecture) — mixed, one premise overstated:**
-- (a) OpenAPI/swagger.json probing: confirmed **does not exist anywhere** in `vapt_agent/`.
-  Genuinely new, small, deterministic addition.
-- (b) Static JS bundle regex route extraction: confirmed **does not exist**. katana/gospider
-  (`baseline_recon.py:724-762`) already download the JS assets that would feed this; nothing
-  currently parses their content for embedded route strings. Also genuinely new but builds on
-  data already being collected.
-- (c) API-prefix-conditioned ffuf fuzzing: **partially exists already** — `ffuf`/`feroxbuster`/
-  `gobuster` are wired in Wave 3 (`baseline_recon.py:774-793`) but all use one generic
-  wordlist (`DEFAULT_BASELINE_WORDLIST`, line 344), not conditioned on any discovered
-  `/api`/`/rest` prefix. This is a small extension of an existing pattern, not new
-  infrastructure.
-- **The directive's stated reason for avoiding headless browsers (RAM risk) is overstated as
-  a hard constraint** — a headless Chromium instance already runs today, in production, for
-  DOM XSS confirmation: `bridge/tier1/tools/dom_xss_harness.py:14,134,149`
-  (`pw.chromium.launch(headless=True)`), one short-lived launch per task, lazy-imported so the
-  core stays browser-free otherwise. No RAM-budget objection to Playwright exists anywhere in
-  `mem_gate.py` or elsewhere in the codebase — this project already accepted that tradeoff for
-  narrow, task-scoped use. Worth keeping in mind for Round 27-style design: a bounded,
-  single-shot headless crawl mirroring `dom_xss_harness`'s pattern may be more viable than a
-  strict pure-CLI/regex-only constraint, not a hard requirement. Items (a)–(c) can still be
-  built CLI-only as proposed; this is a note that the RAM objection alone shouldn't rule out
-  a headless option later if (a)-(c) prove insufficient.
-
-**Recommendation, pending operator decision:** Engagement 29 (§2) looks safe and cheap to run
-once approved — recommend seeding via `--notes`, not DB fabrication. §3's architecture is
-sound in direction; recommend deferring its own Round number until Engagement 29's result is
-in, since a real `CONFIRMED` finding would validate which of (a)/(b)/(c) actually matters most
-before building all three.
+Not actioned — flagged for the operator's own decision on whether/how to harden the test-lab
+environment. Every occurrence tonight was restarted with a plain `docker start`, no data or
+container configuration changed.
 
 ---
 
@@ -219,6 +181,41 @@ are also resolved.**
 ---
 
 ## Archive — Resolved / Merged Items (newest first)
+
+> ✅ **Round 28 — Operator directive: seed Engagement 29/30 with known-real endpoints —
+> CONCLUDED 2026-09-24.** Approved and actioned after the GPU-offload research track cleared
+> (no blocker). Engagement 30 (engagement 29's own ID was skipped — an accidental
+> test-fixture row created against the real production DB by this assistant's own debugging
+> session was found and deleted first) was started with `vaptctl start --targets
+> 127.0.0.1:3000 --notes "..."` — seeded via `--notes`, the recommended channel, not DB
+> fabrication — then run to completion across three real launch attempts. **Attempt 1**
+> crashed on the Strategist's very first call: katana's default crawl output embedded Juice
+> Shop's full 2.5MB minified JS bundle verbatim, ~868k tokens against a ~15k-token context
+> window (56x over) — fixed live with katana's `-ob`/`-or` flags. **Attempt 2** crashed the
+> same way: ffuf reported all 6,400 wordlist paths as "matches" because the SPA returns an
+> identical 200 OK catchall for everything, ~80k tokens of pure noise — fixed live with
+> ffuf's `-ac` auto-calibration flag; a general defensive `to_context_block()` per-tool
+> truncation cap was also added once this exact failure mode recurred from a second,
+> independent tool in one night (full detail: `IMPLEMENTATION-DEVIATIONS-FROM-REQUIREMENTS.md`'s
+> 2026-09-24 entries). **Attempt 3** ran the full pipeline successfully end to end for the
+> first time against a genuinely fresh baseline recon pass: 5 council rounds, 25 hypotheses
+> proposed, 8 tasks actually executed against the live target, 1 correctly `DEFERRED` (a
+> brute-force attempt against the seeded `/rest/user/login` — proof the seeding worked —
+> blocked by policy since `allow_brute_force` wasn't opted in). **Zero candidates ever
+> reached Gate 3** — nothing matched any detection rule, including the newly-expanded Round
+> 27 rules. The engagement ended cleanly (`COMPLETE`, no orphaned processes, app teardown
+> restored correctly) when the target hit `UNREACHABLE`: Juice Shop's container OOM-crashed
+> a 4th time near the end of round 5, tripping the real `FAILURE_BREAKER` on 3 consecutive
+> connection failures — a genuine target-environment fragility (Round 30, Currently Pending
+> Approval), not a Mugheeraat bug. **Verdict:** the pipeline is now proven end-to-end,
+> correctly, for the first time — every gate reasoned soundly, the seeded real endpoints
+> were used, a policy violation was correctly deferred. But 0/11 ground-truth findings were
+> reproduced; this is one run cut short by test-lab infrastructure fragility before
+> exhausting its own hypothesis space (only 8 of 25 proposed tasks ever executed), not
+> evidence of a capability gap — worth a clean re-run once Round 30 is resolved before
+> drawing a real conclusion either way.
+
+---
 
 > ✅ **Round 29 — Non-blocking "SLOW-MODE INFERENCE" preflight warning below a 5.0 tok/s
 > floor — APPROVED (2026-09-24, "simplest design: print the ... banner during Phase 0 in
