@@ -56,11 +56,25 @@ engagement's full duration.
 
 **Action taken (unverified beyond another restart+bump, not yet proven under sustained
 load):** container recreated again with `NODE_OPTIONS=--max-old-space-size=3072` (was 2560),
-same `--memory=4g --memory-swap=4g` cap — ~1GB headroom for non-heap V8 overhead at the new
-ceiling, roughly matching or exceeding the peak heap size observed at the 2560MB crash.
-Engagement 31's own orchestrator process was unaffected by the target's crash (round 1's
-Strategist reasoning doesn't touch the target directly) and continued running through this;
-the container swap happened before Phase 4.2 needed the target for real task execution.
+same `--memory=4g --memory-swap=4g` cap. Corrected framing (peer review, `Mugheeraat 3.0`):
+the raw arithmetic (4096-3072=1024MB) overstates the real margin against a *cgroup*-kill
+specifically — the first failure already measured ~500MB of real non-heap V8 overhead
+(3066MB RSS against a 2560MB ceiling), which should be subtracted, leaving a realistic
+~500-550MB spare against that mechanism if it recurs. This 2nd (reopening) crash was the
+*other* mechanism entirely — V8's own graceful exit at ~2542MB against the old 2560MB
+ceiling, nowhere near the 4GB container cap — so the cgroup-kill margin wasn't actually
+tested by this change; noted so it isn't carried forward as if it were. Engagement 31's own
+orchestrator process was unaffected by the target's crash (round 1's Strategist reasoning
+doesn't touch the target directly) and continued running through this; the container swap
+happened before Phase 4.2 needed the target for real task execution.
+
+**Open question the peer raised, worth real data rather than another guess:** is old-space
+usage under sustained real traffic bounded (plateaus at some level under 3072MB) or
+open-ended (keeps climbing indefinitely)? Surviving 90s synthetic load but failing at ~15min
+real load doesn't distinguish these — 3072MB could genuinely be enough for the rest of a
+multi-round engagement, or could just push the same failure later. RSS sampled at intervals
+for the remainder of Engagement 31 (not just a final pass/fail) to actually answer this — see
+below once the engagement concludes or the container crashes again.
 
 **What would actually resolve this, not just another restart:** either (a) confirm 3072MB
 survives a full multi-round engagement's real duration (hours, not 90 seconds) before
