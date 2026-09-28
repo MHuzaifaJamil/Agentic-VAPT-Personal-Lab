@@ -132,6 +132,7 @@ instruction, operator-issued or not.
 ### 4. Testing & Benchmark Reporting
 
 * Governed by **`Testing-Rules.md`** (same directory as this file) — binding for every future engagement report, benchmark report, and probe writeup. In short: per-engagement narrative summaries are capped at 5 sentences / 50–80 words, and every real timing/outcome number belongs in `implementation/reports/LLM-Council-Benchmarks.md` as an appended table row, not only buried in prose. Read `Testing-Rules.md` directly before writing any such report.
+* **Run the suite via `python -m pytest`, not the `.venv/bin/pytest` binary directly.** Confirmed live (2026-09-28, cross-session review): a handful of Tier 1 tool tests that spawn a real subprocess needing to import `vapt_agent` inside that subprocess are sensitive to which invocation form is used — `.venv/bin/pytest` reproducibly produced `ModuleNotFoundError: No module named 'vapt_agent'` for those tests on one session's host, while `python -m pytest` (module invocation, which adds the working directory to `sys.path`) did not, on the identical venv/codebase. Not yet root-caused further than that; using `python -m pytest` avoids the false alarm entirely.
 
 ---
 
