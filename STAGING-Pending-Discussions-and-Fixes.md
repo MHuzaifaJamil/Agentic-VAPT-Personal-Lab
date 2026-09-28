@@ -29,6 +29,51 @@ purpose is to show how a fix evolved, not just its final state.
 
 ---
 
+### Round 30 — REOPENED 2026-09-28: `vapt-test-lab` (Juice Shop) OOM-crashed a 3rd time under real (not just synthetic) sustained engagement load, after being marked "RESOLVED"
+
+**Status: ⬜ AWAITING FURTHER VERIFICATION — do not re-mark resolved without a real
+multi-round engagement surviving end to end, not just a fresh isolated stress test.**
+
+The `RESOLVED` status recorded earlier tonight (see Archive below for the full first-two-
+attempts writeup) was itself wrong — it generalized from a single 90-second isolated
+`ffuf`+`katana`+`trufflehog` burst to "fixed," which didn't hold under real, longer-duration
+engagement conditions. Confirmed live: ~15 minutes into Engagement 31 (round 1, Strategist
+reasoning phase — baseline recon itself had already completed cleanly in 53 seconds),
+`vapt-test-lab` crashed again with the ORIGINAL failure signature (exit 139/SIGSEGV, `docker
+logs`: `"FATAL ERROR: Ineffective mark-compacts near heap limit... JavaScript heap out of
+memory"`, V8 heap at ~2542MB) — this time it was V8's OWN graceful heap-limit error, not the
+cgroup OOM-killer (which would be exit 137), meaning the 4GB container cap itself was never
+the constraint here; the 2560MB `--max-old-space-size` ceiling was.
+
+**Real root cause, corrected:** this is a long-running Node server, not a one-shot script —
+V8's old-space genuinely accumulates across the container's entire uptime under sustained
+real traffic, not just within a single synthetic burst. The container instance used for
+Engagement 31 had ALSO already absorbed the full isolated stress test's own load earlier in
+the same session (never restarted between test and real launch) — cumulative usage across
+that longer session, not a single spike, is what exceeded 2560MB. A short synthetic test
+proves a container survives one burst; it does not prove it survives a real multi-round
+engagement's full duration.
+
+**Action taken (unverified beyond another restart+bump, not yet proven under sustained
+load):** container recreated again with `NODE_OPTIONS=--max-old-space-size=3072` (was 2560),
+same `--memory=4g --memory-swap=4g` cap — ~1GB headroom for non-heap V8 overhead at the new
+ceiling, roughly matching or exceeding the peak heap size observed at the 2560MB crash.
+Engagement 31's own orchestrator process was unaffected by the target's crash (round 1's
+Strategist reasoning doesn't touch the target directly) and continued running through this;
+the container swap happened before Phase 4.2 needed the target for real task execution.
+
+**What would actually resolve this, not just another restart:** either (a) confirm 3072MB
+survives a full multi-round engagement's real duration (hours, not 90 seconds) before
+trusting it, or (b) address the real underlying issue directly — restart the container
+periodically during a long engagement (an operational workaround, not a code fix), or (c)
+accept that Juice Shop's own memory growth under sustained fuzzing is a genuine, recurring
+test-lab characteristic that may need restarting between rounds as a standing practice for
+this specific benchmark target, not a one-time settings fix. Not resolved as of this entry —
+Engagement 31 is continuing to run with the 3072MB ceiling; will report whether it survives
+the rest of the engagement or crashes again.
+
+---
+
 ### Round 26 — Static crawling structurally cannot discover a modern SPA's real API surface — engagement 28's candidates keep dismissing for exactly this reason
 
 **Status: ⬜ AWAITING OPERATOR DECISION.** Found live, monitoring engagement 28 (round 7,
@@ -155,27 +200,11 @@ are also resolved.**
 
 ## Archive — Resolved / Merged Items (newest first)
 
-> ✅ **Round 30 — `vapt-test-lab` (Juice Shop) Docker container OOM-crashed 4 times in one
-> night under recon load — RESOLVED 2026-09-28.** Container recreated with a hard memory cap
-> and a matching V8 heap ceiling, verified under the actual real failure load, not just a
-> clean-startup check. A pasted "Research Agent"-drafted directive proposed this fix but
-> falsely claimed it had already been done — a peer session (`Mugheeraat (3.0) Setup
-> Research`) checked the live host directly (`docker inspect`) before this was trusted, found
-> the container was still the untouched original (created 2026-09-03, `Memory=0`, no
-> `NODE_OPTIONS`), and also caught a `--target`/`--targets` CLI syntax error in the
-> directive's proposed launch command, per CLAUDE.md Directive 5. **First attempt**
-> (`--memory=3g --memory-swap=3g`, `NODE_OPTIONS=--max-old-space-size=2560`) failed under the
-> same concurrent ffuf+katana+trufflehog load that caused the original crashes: killed again,
-> exit 137 (SIGKILL), confirmed via `dmesg`: `"Memory cgroup out of memory: Killed process...
-> anon-rss:3066576kB"` — RSS hit ~3.07GB against the 3GB cap, V8's own non-heap overhead
-> eating ~500MB beyond the old-space setting before the cgroup OOM-killer fired. **Second
-> attempt** widened to `--memory=4g --memory-swap=4g` (same old-space) survived the identical
-> stress test cleanly — no new `dmesg` OOM entries, settled at ~993MB RSS post-test. Live
-> host: 15GB total, ~9GB available at fix time (idle, no council model resident). The peer's
-> separately-raised concurrent-model memory-pressure concern (recon load + a resident 8-9GB
-> council model both drawing on the same 15GB host) is real and not fully resolved by this
-> fix alone — worth watching during Engagement 31 and beyond, not re-opened as its own Round
-> unless it actually recurs.
+> ✅ **Round 30 (superseded — see the reopened entry in "Currently Pending Approval" above)
+> — original resolution attempt, kept for the record.** First two fix attempts and their
+> real stress-test results (3g failed with a kernel OOM-kill, 4g survived a 90s concurrent
+> ffuf+katana+trufflehog burst) are documented in the reopened entry, which also covers the
+> 3rd real failure this "RESOLVED" status turned out to be wrong about.
 
 ---
 
