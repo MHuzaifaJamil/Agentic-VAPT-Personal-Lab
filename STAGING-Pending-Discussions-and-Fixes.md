@@ -29,33 +29,6 @@ purpose is to show how a fix evolved, not just its final state.
 
 ---
 
-### Round 30 — `vapt-test-lab` (Juice Shop) Docker container OOM-crashed 4 times in one night under recon load
-
-**Status: ⬜ AWAITING OPERATOR DECISION.** Not a Mugheeraat code defect — the target
-application's own Node.js process (`bkimminich/juice-shop:latest`) hit
-`FATAL ERROR: Ineffective mark-compacts near heap limit — JavaScript heap out of memory`
-(exit 139/SIGSEGV) four separate times during tonight's Engagement 30 benchmark, each
-restarted manually (`docker start vapt-test-lab`) to continue. `docker inspect`'s
-`HostConfig.Memory` is `0` (unlimited) — this is Node's own internal V8 heap limit being
-exhausted, not a container-level cap, under the combined load of ffuf wordlist fuzzing +
-katana crawling + trufflehog git-history scanning all hitting the same single Node process
-concurrently during baseline recon, compounded by a genuinely memory-constrained ~15GB host
-already running an 8B-parameter council model. The 4th occurrence directly ended Engagement
-30 itself — 3 consecutive real connection failures correctly tripped `FAILURE_BREAKER`,
-marking the target `UNREACHABLE` (see Round 28's update below for the full final outcome).
-
-| Option | Effect |
-|---|---|
-| **Leave as-is, keep restarting manually when it happens** | Zero engineering effort; will keep interrupting/prematurely ending future benchmark engagements against this same target whenever recon load coincides with host memory pressure. |
-| **Recreate the container with `NODE_OPTIONS=--max-old-space-size=<N>`, more headroom** | Directly addresses the root cause (V8's own heap ceiling); requires knowing/testing a safe value for this host's actual available RAM, and recreating (not just restarting) the container — a `docker run`-level change, not `docker start`. |
-| **Throttle baseline recon's own concurrency** (e.g. don't run ffuf/katana/trufflehog against the same live target simultaneously) | Addresses the actual triggering load pattern directly, but is a real Mugheeraat code change (Wave scheduling), not a one-line fix, and would slow down recon for every future engagement, not just this fragile target. |
-
-Not actioned — flagged for the operator's own decision on whether/how to harden the test-lab
-environment. Every occurrence tonight was restarted with a plain `docker start`, no data or
-container configuration changed.
-
----
-
 ### Round 26 — Static crawling structurally cannot discover a modern SPA's real API surface — engagement 28's candidates keep dismissing for exactly this reason
 
 **Status: ⬜ AWAITING OPERATOR DECISION.** Found live, monitoring engagement 28 (round 7,
@@ -181,6 +154,30 @@ are also resolved.**
 ---
 
 ## Archive — Resolved / Merged Items (newest first)
+
+> ✅ **Round 30 — `vapt-test-lab` (Juice Shop) Docker container OOM-crashed 4 times in one
+> night under recon load — RESOLVED 2026-09-28.** Container recreated with a hard memory cap
+> and a matching V8 heap ceiling, verified under the actual real failure load, not just a
+> clean-startup check. A pasted "Research Agent"-drafted directive proposed this fix but
+> falsely claimed it had already been done — a peer session (`Mugheeraat (3.0) Setup
+> Research`) checked the live host directly (`docker inspect`) before this was trusted, found
+> the container was still the untouched original (created 2026-09-03, `Memory=0`, no
+> `NODE_OPTIONS`), and also caught a `--target`/`--targets` CLI syntax error in the
+> directive's proposed launch command, per CLAUDE.md Directive 5. **First attempt**
+> (`--memory=3g --memory-swap=3g`, `NODE_OPTIONS=--max-old-space-size=2560`) failed under the
+> same concurrent ffuf+katana+trufflehog load that caused the original crashes: killed again,
+> exit 137 (SIGKILL), confirmed via `dmesg`: `"Memory cgroup out of memory: Killed process...
+> anon-rss:3066576kB"` — RSS hit ~3.07GB against the 3GB cap, V8's own non-heap overhead
+> eating ~500MB beyond the old-space setting before the cgroup OOM-killer fired. **Second
+> attempt** widened to `--memory=4g --memory-swap=4g` (same old-space) survived the identical
+> stress test cleanly — no new `dmesg` OOM entries, settled at ~993MB RSS post-test. Live
+> host: 15GB total, ~9GB available at fix time (idle, no council model resident). The peer's
+> separately-raised concurrent-model memory-pressure concern (recon load + a resident 8-9GB
+> council model both drawing on the same 15GB host) is real and not fully resolved by this
+> fix alone — worth watching during Engagement 31 and beyond, not re-opened as its own Round
+> unless it actually recurs.
+
+---
 
 > ✅ **Round 28 — Operator directive: seed Engagement 29/30 with known-real endpoints —
 > CONCLUDED 2026-09-24.** Approved and actioned after the GPU-offload research track cleared
