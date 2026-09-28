@@ -50,6 +50,53 @@
 
 ---
 
+## 2026-09-28 — Strategist's own StructuredOutputError call site was the one remaining unguarded council role
+
+**Status: ✅ IMPLEMENTED, ✅ unconditional correctness fix (no operator decision needed — same
+bug class already fixed twice for other council roles, a real live crash, not a design
+choice). Found live during Engagement 31.
+
+### What the requirement says
+
+`01:FR-COUNCIL-09a` and `03`'s `task_queue.status` cover the Scripter's own
+`StructuredOutputError` crash guard (fixed 2026-09-13); Round 27 item 1 (2026-09-24) extended
+the identical fix to the Adjudicator. Nothing in the numbered corpus or the prior fixes
+addressed the Strategist's own call site — the third and last council role that calls
+`get_structured_completion`.
+
+### What real code did before this fix, and the real incident that exposed it
+
+Engagement 31's round 1 Strategist call ran for ~4h50m of real CPU inference (3 full
+multi-hour attempts, not a fast failure — each individual attempt genuinely took over an
+hour) before `get_structured_completion` exhausted its retry budget and raised
+`StructuredOutputError`. `orchestrator/phase_lifecycle.py::run_phase_4_1` had no `try`/`except`
+anywhere around its `run_strategist(...)` call site — the exception propagated uncaught all
+the way through `run_full_engagement` and out of `cli/run.py::run()`, crashing the entire
+`vaptctl run` process and losing the round's entire compute. Confirmed via the real
+orchestrator log traceback, terminating in
+`vapt_agent.engine.structured.StructuredOutputError: exhausted 2 retries (3 attempts total)`
+at `council/strategist.py:186`. `model_invocation_logs` correctly recorded the failure
+(`status='CRASHED'`, `latency_ms=17421087` — the whole ~4h50m), but nothing downstream of that
+logging call caught the exception before it reached the top of the process.
+
+### What real code now does
+
+`run_phase_4_1` now wraps the Strategist call in `try`/`except StructuredOutputError`. Unlike
+the Scripter/Adjudicator fixes (which mark a specific `task_queue`/`verified_vulnerabilities`
+row, since a row already exists by the time those calls happen), there is no task yet at this
+point — hypothesis creation itself is what failed. Logged instead as a `FAILED`
+`engagement_phase_log` row for phase `'4.1'` — a value already reserved in that table's own
+`CHECK` constraint but never actually written by any code path before this fix — and the
+function returns an empty task list. `orchestrator/driver.py`'s existing round-progression
+breaker already treats an empty return correctly as a zero-yield round (no code change needed
+there); the engagement now survives to try again next round instead of crashing outright.
+New regression test `test_phase_4_1_a_real_structured_output_failure_blocks_the_round_not_the_engagement`
+(`tests/test_orchestrator_phase_lifecycle.py`) feeds 3 real schema-invalid responses through
+the REAL `get_structured_completion` retry loop (not a mocked exception) and reproduces the
+exact traceback the live crash produced; verified to fail against the pre-fix code.
+
+---
+
 ## 2026-09-24 — Baseline recon context-overflow: two live incidents (katana, then ffuf), plus a general defensive cap
 
 **Status: ✅ IMPLEMENTED, ✅ unconditional correctness fix (no operator decision needed —
