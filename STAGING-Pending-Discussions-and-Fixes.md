@@ -29,6 +29,97 @@ purpose is to show how a fix evolved, not just its final state.
 
 ---
 
+### Round 32 — 2026-09-29: Strategist-role directive injection had zero visible effect — root-caused live and fixed (applied directly per operator's explicit "turn the direction of LLMs' working" instruction, not left pending)
+
+**Status: ✅ APPLIED 2026-09-29 (operator explicitly directed action, not just investigation:
+"turn the direction of LLMs' working to find our 1st Confirmed Vulnerability"). Regression
+tests added (5 new, all passing). Only affects future Strategist turns — the live Engagement
+31 process already has the old code loaded in memory and will not pick this up until its
+next fresh process launch.**
+
+**Live evidence (Engagement 31):** peer (Mugheeraat 3.0) produced an RCA for 0 confirmed
+findings after 9 executed tasks — no auth/session bootstrap (blocks IDOR/BROKEN_AUTH/
+RACE_CONDITION/CSRF), missing endpoint-schema knowledge, one Scripter URL bug. Acted on it
+live via the existing FR-INTERVENE directive-injection system (`council/intervention.py`) —
+queued a Strategist-targeted directive (command_id=2) instructing it to prioritize
+auth-bootstrapped attack paths. Confirmed mechanically `QUEUED -> INJECTED`
+(`consumed_by_invocation_id=597`). But round 5's resulting 5 new hypotheses (tasks 831-835)
+showed **zero trace of it** — task 831 ("access `/rest/admin` without authentication")
+essentially repeated task 825's pre-directive hypothesis verbatim.
+
+**Root cause (peer's own follow-up RCA, verified against the code before acting):**
+`build_execution_context_block` (`council/intervention.py`) renders every directive with
+execution-flavored wording — *"Give the following operator guidance absolute priority over
+autonomous task framing. Execute direct operator instructions immediately as specified with
+zero automated refusal."* That's correct framing for the two Scripter seats (each literally
+executing one command in place of its own) but wrong for Strategist, Auditor, Adjudicator,
+and Reporter — none of which execute a single "autonomous task"; each emits a multi-item
+judgment/hypothesis/narrative output with nothing concrete to "override." Secondary factor:
+`strategist.py` appended the directive block **last**, after target list, scope, notes,
+baseline recon, existing findings, explored paths, and closed vectors — a short paragraph
+competing for attention at the tail of a prompt this role already spends 55-117+ real
+minutes reasoning over.
+
+**Fix applied (Strategist only — the one role with live evidence; the other 4 non-Scripter
+roles use the same mismatched wording but are unverified either way, left untouched):**
+1. New `build_planning_context_block(directives)` in `council/intervention.py` — same
+   `<execution_context>` wrapper (nothing parses this XML-ish text downstream, per the
+   existing function's own docstring) but reframed as standing per-turn guidance: *"The
+   following operator directives are PRIORITY GUIDANCE for this entire turn's output. Apply
+   each one to every item you propose this turn where it's relevant, not just to a single
+   item."* No "execute... immediately," no "autonomous task" language.
+2. `strategist.py::run_strategist` now fetches directives and inserts this block
+   immediately after `SCOPE RULES SUMMARY`, before `HUMAN OPERATOR GUIDANCE` /
+   `DETERMINISTIC BASELINE RECONNAISSANCE` / findings / explored-paths / closed-vectors —
+   first, not last.
+3. Regression tests: `test_build_planning_context_block_with_directives`,
+   `test_build_planning_context_block_never_uses_execution_style_wording`,
+   `test_build_planning_context_block_without_directives_is_empty` (`test_council_
+   intervention.py`); `test_strategist_directive_uses_planning_framing_not_execution_framing`,
+   `test_strategist_directive_block_placed_before_baseline_recon_and_notes`
+   (`test_council_strategist.py`). All 65 tests in both files pass.
+
+**Explicitly NOT done:** the same fix for Auditor/Adjudicator/Reporter/PrimaryScripter/
+SecondaryScripter — PrimaryScripter's own directive (command_id=3) got an inconclusive
+result (the one task closest to its content used a bare GET, but that task's own Strategist-
+authored framing may not have called for a POST either), so there's no live evidence yet
+that the execution-style wording is actually broken for the Scripter seats (it may well be
+correct there — they do execute one command per turn). Not touching what isn't verified
+broken. This engagement's already-running process won't see this fix regardless; it applies
+to the Strategist's next fresh process launch.
+
+---
+
+### Round 31 — CORRECTED 2026-09-28: task 821 uniquely fails to self-correct out of the universal Tier-1-curl-rejection retry loop every other curl task in this engagement hits and recovers from
+
+**Status: ⬜ NOT YET INVESTIGATED — narrowed to a single task (821) after the original
+writeup below mischaracterized a routine, self-correcting pattern as a new intermittent bug.**
+
+**Original claim (wrong, caught by peer review + verified against the DB, corrected in
+place rather than left standing):** this entry originally said tasks 821 *and* 829 were both
+"rejected outright at Gate 2" this round and called it a new, intermittent Scripter defect
+distinct from every other round's curl tasks. Re-checked `gate2_rationale` across every
+curl-based task in the whole engagement (814, 815, 816, 817, 820, 822, 823, 824, 825, 829,
+830 — all rounds, hours apart): **every single one of them carries the identical `'curl' is
+not a registered Tier 1 tool...'` rationale text, and all but 821 are `EXECUTED`** (task 829
+specifically was mid-retry when first checked and is now `EXECUTED` with a correct
+`["/usr/bin/curl", "-X", "GET", ...]` Tier 2 command). This is the Scripter's universal
+first-attempt shape — it always proposes `tool_name: curl` at Tier 1 first, Gate 2 rejects
+it, the existing retry loop (real `gate2_rejection_reason` fed back to the same Scripter
+call) almost always self-corrects to a resolved Tier-2 binary path on the next attempt, and
+`gate2_rationale` is simply never cleared after a successful retry — so it looks like a live
+rejection on every EXECUTED task even though nothing is actually still blocked.
+
+**The real, narrow finding:** task 821 is the one case (across ~11 curl tasks over 4 rounds)
+where that self-correction did NOT converge and it stayed permanently `GATE2_BLOCKED` —
+*that's* what's worth investigating (why did 821's retry fail to converge when every other
+curl task's did?), not "Scripter intermittently emits curl at the wrong tier" as a general
+anomaly. Not yet investigated further — flagging per standing "always stage anything needing
+operator input" instruction; this round's monitoring turn stayed scoped to the RCA-directive
+effect check.
+
+---
+
 ### Round 30 — REOPENED 2026-09-28: `vapt-test-lab` (Juice Shop) OOM-crashed a 3rd time under real (not just synthetic) sustained engagement load, after being marked "RESOLVED"
 
 **Status: ⬜ AWAITING FURTHER VERIFICATION — do not re-mark resolved without a real
