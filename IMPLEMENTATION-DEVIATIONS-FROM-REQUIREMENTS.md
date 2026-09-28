@@ -50,19 +50,24 @@
 
 ---
 
-## 2026-09-28 — Strategist's own StructuredOutputError call site was the one remaining unguarded council role
+## 2026-09-28 — The 3 remaining unguarded council-role StructuredOutputError call sites (Strategist, Auditor, Reporter)
 
 **Status: ✅ IMPLEMENTED, ✅ unconditional correctness fix (no operator decision needed — same
-bug class already fixed twice for other council roles, a real live crash, not a design
-choice). Found live during Engagement 31.
+bug class already fixed twice for other council roles; one was a real live crash, the other
+two were found by a direct code audit of every remaining call site before they had a chance
+to cause one). Strategist found live during Engagement 31; Auditor and Reporter found by peer
+review (`Mugheeraat 3.0` session) auditing all 6 `get_structured_completion` call sites in
+`phase_lifecycle.py` after the Strategist incident — this entry originally claimed the
+Strategist was "the third and last" unguarded role; that claim was wrong, corrected here
+rather than left standing.
 
 ### What the requirement says
 
 `01:FR-COUNCIL-09a` and `03`'s `task_queue.status` cover the Scripter's own
 `StructuredOutputError` crash guard (fixed 2026-09-13); Round 27 item 1 (2026-09-24) extended
 the identical fix to the Adjudicator. Nothing in the numbered corpus or the prior fixes
-addressed the Strategist's own call site — the third and last council role that calls
-`get_structured_completion`.
+addressed the Strategist's, Strategy Auditor's, or Reporter's own call sites — the three
+remaining council roles that call `get_structured_completion`.
 
 ### What real code did before this fix, and the real incident that exposed it
 
@@ -81,19 +86,44 @@ logging call caught the exception before it reached the top of the process.
 
 ### What real code now does
 
-`run_phase_4_1` now wraps the Strategist call in `try`/`except StructuredOutputError`. Unlike
-the Scripter/Adjudicator fixes (which mark a specific `task_queue`/`verified_vulnerabilities`
-row, since a row already exists by the time those calls happen), there is no task yet at this
-point — hypothesis creation itself is what failed. Logged instead as a `FAILED`
-`engagement_phase_log` row for phase `'4.1'` — a value already reserved in that table's own
-`CHECK` constraint but never actually written by any code path before this fix — and the
-function returns an empty task list. `orchestrator/driver.py`'s existing round-progression
-breaker already treats an empty return correctly as a zero-yield round (no code change needed
-there); the engagement now survives to try again next round instead of crashing outright.
-New regression test `test_phase_4_1_a_real_structured_output_failure_blocks_the_round_not_the_engagement`
-(`tests/test_orchestrator_phase_lifecycle.py`) feeds 3 real schema-invalid responses through
-the REAL `get_structured_completion` retry loop (not a mocked exception) and reproduces the
-exact traceback the live crash produced; verified to fail against the pre-fix code.
+**Strategist:** `run_phase_4_1` now wraps the Strategist call in `try`/`except
+StructuredOutputError`. Unlike the Scripter/Adjudicator fixes (which mark a specific
+`task_queue`/`verified_vulnerabilities` row, since a row already exists by the time those
+calls happen), there is no task yet at this point — hypothesis creation itself is what
+failed. Logged instead as a `FAILED` `engagement_phase_log` row for phase `'4.1'` — a value
+already reserved in that table's own `CHECK` constraint but never actually written by any
+code path before this fix — and the function returns an empty task list.
+`orchestrator/driver.py`'s existing round-progression breaker already treats an empty return
+correctly as a zero-yield round (no code change needed there); the engagement now survives to
+try again next round instead of crashing outright.
+
+**Strategy Auditor (`run_gate1_semantic`):** unlike the Strategist, a `task_queue` row DOES
+already exist per hypothesis by the time this call runs (Tier 0 already created it) — reuses
+`task_queue`'s existing `MODEL_STRUCTURED_OUTPUT_FAILURE` status (the same underlying failure
+regardless of which council role hit it), written to `gate1_rationale` rather than
+`gate2_rationale` since this is a genuine Gate 1 outcome, not the Scripter's own helper's
+Gate 2 framing. `attack_paths` is deliberately left at its own default `'PROPOSED'` rather
+than also updated — `MODEL_STRUCTURED_OUTPUT_FAILURE` is not a valid value under that table's
+own, narrower `CHECK` constraint, and `'PROPOSED'` already accurately states "never reached a
+Gate 1 verdict."
+
+**Reporter (`run_reporter`, both the initial call and every grounding-retry attempt):** a
+`reports` row already exists (inserted before the Reporter is ever called) — marked with a
+new `GENERATION_FAILED` status (`CHECK` constraint migration, `schema.sql`/`db.py`), the
+Reporter's own mirror of `ADJUDICATION_FAILED`. Deliberately distinct from the existing
+`BLOCKED_UNGROUNDED` value: that means a real narrative WAS produced but failed the grounding
+check; `GENERATION_FAILED` means no narrative was ever produced at all.
+
+All three fixes verified against the real `get_structured_completion` retry loop (not a
+mocked exception) and confirmed to fail against the pre-fix code, matching the standard
+already set by the Scripter/Adjudicator fixes. New regression tests (all in
+`tests/test_orchestrator_phase_lifecycle.py`):
+`test_phase_4_1_a_real_structured_output_failure_blocks_the_round_not_the_engagement`
+(Strategist),
+`test_phase_4_1_a_real_structured_output_failure_at_the_auditor_blocks_the_task_not_the_engagement`
+(Auditor), and
+`test_phase_4_3_a_real_structured_output_failure_at_the_reporter_blocks_the_report_not_the_engagement`
+(Reporter).
 
 ---
 
