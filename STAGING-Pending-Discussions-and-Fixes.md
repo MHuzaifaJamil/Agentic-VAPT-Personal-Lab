@@ -92,8 +92,15 @@ to the Strategist's next fresh process launch.
 
 ### Round 31 — CORRECTED 2026-09-28: task 821 uniquely fails to self-correct out of the universal Tier-1-curl-rejection retry loop every other curl task in this engagement hits and recovers from
 
-**Status: ⬜ NOT YET INVESTIGATED — narrowed to a single task (821) after the original
-writeup below mischaracterized a routine, self-correcting pattern as a new intermittent bug.**
+**Status: ⬜ DOCUMENTED LIMITATION, DELIBERATELY NOT PURSUED (2026-09-29) — narrowed to a
+single task (821) after the original writeup below mischaracterized a routine, self-
+correcting pattern as a new intermittent bug. A peer investigation (2026-09-28) confirmed 3
+real, independent retry attempts with fresh context each time (ruling out a stale-context
+bug) but hit a genuine wall: `model_invocation_logs` has no prompt/output columns at all, so
+neither session could see what the model actually said on those 3 attempts. Deliberately not
+fixed blind — adding prompt/response logging to investigate further is a separate, distinct
+scope decision (a real observability feature, not a quick fix) left for whoever picks this
+up next, not folded into this round's "fix all issues" pass.**
 
 **Original claim (wrong, caught by peer review + verified against the DB, corrected in
 place rather than left standing):** this entry originally said tasks 821 *and* 829 were both
@@ -120,13 +127,24 @@ effect check.
 
 ---
 
-### Round 30 — REOPENED 2026-09-28, RE-SCOPED 2026-09-29: `vapt-test-lab` (Juice Shop) OOM-crashed 5 times total; root cause was never the heap ceiling, it was no restart policy
+### Round 30 — REOPENED 2026-09-28, RE-SCOPED 2026-09-29: `vapt-test-lab` (Juice Shop) OOM-crashed 8 times total; root cause was never the heap ceiling, it was no restart policy
 
-**Status: 🟡 MITIGATED, NOT PROVEN — Docker `on-failure` restart policy applied and verified
-configured (`docker inspect`), but not yet validated against a genuine internal crash (only
-a synthetic `docker kill` was tried, which Docker exempts from restart policies by design —
-see the 2026-09-29 update below for why that test doesn't count). Re-close only once an
-actual crash is observed to self-recover within seconds, not before.**
+**Status: ✅ RESOLVED 2026-09-29 (proven, not just configured) — the `on-failure` restart
+policy has now genuinely fired against real internal V8-heap crashes 3 separate times
+(15:48:54Z, 16:06:05Z, 16:53:33Z), each self-recovering within ~3 seconds — confirmed via
+`docker logs -t` timestamps (crash line immediately followed by a fresh "Server listening"
+line ~3s later each time), not inferred. Down from the pre-fix worst case of staying dead for
+~8 hours unnoticed. This is the real validation the earlier synthetic `docker kill` test
+couldn't provide — genuine internal failures, not an external kill Docker exempts.**
+
+Crash frequency (3 times in ~90 minutes) is notably higher than earlier in this engagement's
+own lifecycle — likely cumulative heap pressure from concurrent real traffic (this session's
+own repeated full-test-suite runs, each including real Playwright crawls against the live
+target for Round 26's `spa_crawler` tests; possibly also another peer session's live/manual
+probing). Not investigated further — the point of this fix was never to stop the container
+from crashing (a genuinely memory-hungry SPA under sustained real fuzzing may always
+eventually hit some ceiling), it was to stop a crash from silently costing hours of dead
+target time. That's now proven.
 
 The `RESOLVED` status recorded earlier tonight (see Archive below for the full first-two-
 attempts writeup) was itself wrong — it generalized from a single 90-second isolated
