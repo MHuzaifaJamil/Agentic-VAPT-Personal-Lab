@@ -120,10 +120,13 @@ effect check.
 
 ---
 
-### Round 30 — REOPENED 2026-09-28: `vapt-test-lab` (Juice Shop) OOM-crashed a 3rd time under real (not just synthetic) sustained engagement load, after being marked "RESOLVED"
+### Round 30 — REOPENED 2026-09-28, RE-SCOPED 2026-09-29: `vapt-test-lab` (Juice Shop) OOM-crashed 5 times total; root cause was never the heap ceiling, it was no restart policy
 
-**Status: ⬜ AWAITING FURTHER VERIFICATION — do not re-mark resolved without a real
-multi-round engagement surviving end to end, not just a fresh isolated stress test.**
+**Status: 🟡 MITIGATED, NOT PROVEN — Docker `on-failure` restart policy applied and verified
+configured (`docker inspect`), but not yet validated against a genuine internal crash (only
+a synthetic `docker kill` was tried, which Docker exempts from restart policies by design —
+see the 2026-09-29 update below for why that test doesn't count). Re-close only once an
+actual crash is observed to self-recover within seconds, not before.**
 
 The `RESOLVED` status recorded earlier tonight (see Archive below for the full first-two-
 attempts writeup) was itself wrong — it generalized from a single 90-second isolated
@@ -166,6 +169,60 @@ real load doesn't distinguish these — 3072MB could genuinely be enough for the
 multi-round engagement, or could just push the same failure later. RSS sampled at intervals
 for the remainder of Engagement 31 (not just a final pass/fail) to actually answer this — see
 below once the engagement concludes or the container crashes again.
+
+**2026-09-29 update — answered, and it's option (c), not (a):** Engagement 31 ran its full 8
+rounds / ~12h44m to a clean `COMPLETE` with zero new OOM/crash the entire time (dmesg and
+`docker logs` both checked across the whole window) — 3072MB genuinely was enough for a
+complete real engagement's own traffic. But the container was never restarted after
+Engagement 31 finished (01:37:21Z), and a **4th crash** — identical signature, exit 139,
+`FATAL ERROR: Ineffective mark-compacts near heap limit... JavaScript heap out of memory` —
+happened at **2026-09-29T07:19:08Z**, ~5h42m after our engagement ended, almost certainly
+driven by a separate peer session's own bug-hunt pipeline running concurrently against the
+same shared container (confirmed via cross-session message, unverified whether it's the
+same container instance from their side yet). Container currently `Status=exited`, not
+responding.
+
+So: 3072MB is sufficient headroom for one full engagement's own load, but V8's old-space
+accumulation is cross-session/cumulative and doesn't reset between uses of the same
+long-lived container — exactly the same root cause pattern as the original reopening
+(Engagement 31 inheriting the isolated stress test's leftover heap pressure), just recurring
+with a different second workload this time. This settles the open question above: it's not
+that 3072MB is insufficient for real traffic, it's that **nothing currently restarts the
+container between independent sessions/engagements**, so heap pressure compounds across
+uses until whichever one pushes it over the ceiling gets blamed for a problem that's really
+cumulative. Confirms option (c) from below is the real fix, not raising the ceiling further
+(which only delays the same failure).
+
+**2026-09-29, second update — the container crashed a 5th time within ~11 minutes of a
+manual restart, and had a real, simple root cause: no Docker restart policy at all.**
+Restarted the container after the 4th crash (07:29:08Z, confirmed HTTP 200 with the peer
+session that needed it). It crashed again at **07:39:57Z** — only 11 minutes later, far
+faster than any prior occurrence — and stayed down, unnoticed, for **~8 hours** until the
+next check found it. Root cause of the *staying-down-for-8-hours* part (distinct from the
+crash itself): `docker inspect` showed `RestartPolicy=no` — nothing was ever configured to
+bring the container back up after a crash; it had only ever been restarted manually, by
+whichever session happened to notice.
+
+**Fix applied:** `docker update --restart=on-failure:10 vapt-test-lab` (`RestartPolicy=
+on-failure MaxRetry=10`, confirmed via `docker inspect`) — the container now self-recovers
+within seconds of any real crash instead of staying down until a human or agent happens to
+check. `on-failure` (not `unless-stopped`) so a genuine crash-loop is still visible (Docker
+gives up after 10 attempts and leaves it `exited`) rather than masked forever.
+
+**Test result — honestly partial, not fully validated:** attempted to force a crash to
+verify the policy fires. `docker kill --signal=SEGV` didn't actually terminate the process
+(Node/V8 apparently doesn't die from an externally-delivered SIGSEGV the way it does from
+its own internal `OOMErrorHandler` abort — `ExitCode` stayed `0`). `docker kill` (SIGKILL,
+exit 137) DID terminate it, but `RestartCount` stayed `0` — confirmed this is expected Docker
+behavior, not a fix failure: restart policies are explicitly exempted for any daemon-command-
+initiated stop (`docker kill`/`docker stop`), regardless of exit code, since Docker treats
+that as deliberate user intent, not an in-container failure. So **the policy is configured
+and verified present, but not yet proven against the actual failure mode it's meant to
+catch** — a genuine internal V8 heap-limit abort, which is a different code path Docker
+cannot be synthetically tricked into from outside. Real validation will come passively, the
+next time the container legitimately crashes again under real load: it should now come back
+within ~seconds instead of staying down for hours. RSS sampler relaunched against the
+restarted container (had also stopped) to keep collecting that evidence going forward.
 
 **What would actually resolve this, not just another restart:** either (a) confirm 3072MB
 survives a full multi-round engagement's real duration (hours, not 90 seconds) before
