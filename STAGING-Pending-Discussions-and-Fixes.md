@@ -238,7 +238,34 @@ the rest of the engagement or crashes again.
 
 ### Round 26 — Static crawling structurally cannot discover a modern SPA's real API surface — engagement 28's candidates keep dismissing for exactly this reason
 
-**Status: ⬜ AWAITING OPERATOR DECISION.** Found live, monitoring engagement 28 (round 7,
+**Status: ✅ RESOLVED 2026-09-29 — operator explicitly directed "implement it now" (option 2
+below). Real live-browser crawl stage built, wired, and tested.** Added `spa_crawler.py`, a
+bundled Tier 1 tool (same lazy-Playwright-import/graceful-127-exit pattern as the existing
+`dom_xss_harness.py`): loads the target in real headless Chromium, records every request the
+app's own JS actually makes (network interception, not HTML/JS regex parsing), then follows
+same-origin in-app routes found in the rendered DOM to surface more. Wired into Wave 3 of
+baseline recon, gated on Wave 2's live URL exactly like `katana`/`gospider`/`ffuf`. Installed
+`playwright` + Chromium in the implementation venv (added as an optional `browser` extra in
+`pyproject.toml`, not a hard dependency — matches `dom_xss_harness`'s existing design).
+
+**Proven live, not just unit-tested:** ran the real tool against the actual running
+`vapt-test-lab` (Juice Shop) — found **10 real `/rest/`/`/api/` endpoints** (including
+`/rest/user/whoami`, `/rest/captcha/`, `/rest/memories/`, none previously known even from
+manual seeding) purely from live JS execution across 6 routes, where `katana`'s static crawl
+of the identical target found **zero**. 13 new tests (pure core, schema/Gate1/Gate2, a real
+live E2E crawl asserting real endpoints are found, and Wave-wiring consistency checks — no
+mocking of the browser or the target). Full suite: 1256 passed, same 2 pre-existing gqlmap
+failures, zero regressions. Committed to the implementation repo (`e45b622`, `de90fcf`).
+
+This closes the general architecture gap, not just the Engagement-31-specific workaround —
+`--notes`-based manual endpoint seeding remains useful for known/benchmark targets, but this
+tool now gives the Council real endpoint data on ANY real-world SPA target, with no operator
+foreknowledge required.
+
+<details>
+<summary>Original writeup (2026-09-23), kept for the historical trace</summary>
+
+Found live, monitoring engagement 28 (round 7,
 2026-09-23): every one of its 4 candidates so far (tasks 663, 678, 689, 693 — IDOR/CSRF
 probes against `/upload?id=1`, `/change-password`) was correctly `DISMISSED` by the
 Adjudicator, every time for the same reason: "no baseline request... no signs of a
@@ -269,6 +296,8 @@ that the Adjudicator correctly recognizes as non-evidence.
 **Not a recommendation either way yet** — a real architecture question (new capability vs.
 accepting the limitation vs. a one-off workaround for this benchmark specifically), not a
 correctness bug like tonight's other fixes.
+
+</details>
 
 ---
 
