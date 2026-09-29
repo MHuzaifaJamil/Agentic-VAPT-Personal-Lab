@@ -283,12 +283,11 @@ implemented and verified.)*
 
 ### Round 27 — Pipeline Flow & Silent-Drop Audit's 6-item remediation plan
 
-**Status: ✅ APPROVED (2026-09-24, operator directive: "Implement all staged code
-remediations, verify them via the unit test suite, and halt.") — Items 1-4 IMPLEMENTED AND
-TESTED same session (full suite: 1225 passed, 2 pre-existing unrelated gqlmap-install-drift
-flakes, 3 skipped). Stays in Still Open, not Archive, until items 5 (needs a live engagement
-with a real Gate 3 candidate — empirical, not a code fix) and 6 (low-priority hygiene batch)
-are also resolved.**
+**Status: ✅ FULLY RESOLVED 2026-09-29 — all 6 items implemented and tested.** Items 1-4
+implemented/tested 2026-09-24. Item 5 closed 2026-09-29 via a live Adjudicator replay with
+real strong evidence (verdict: CONFIRMED). Item 6 closed 2026-09-29 (output cap + silent-drop
+logging, 4 new tests). Full suite: 1243 passed, the same 2 pre-existing unrelated
+gqlmap-install-drift flakes, 3 skipped. Ready to move to Archive on the next cleanup pass.
 
 1. **Adjudicator (Gate 3) `StructuredOutputError` uncaught — ✅ FIXED.**
    `data/schema.sql`/`data/db.py` gained `ADJUDICATION_FAILED` (mirroring the existing
@@ -348,15 +347,45 @@ are also resolved.**
    (`tests/test_milestone2_end_to_end.py`) routes through the REAL execution call chain,
    faking only the disk-usage check itself — verified it fails against the pre-fix code too.
 
-5. **[unchanged, still open]** The Adjudicator's own "baseline/attack/diff" evidence
-   requirement may be structurally unsatisfiable — needs a live engagement with a real Gate
-   3 candidate to check empirically, not another static pass. Now unblocked by item 1's fix
-   (a real candidate reaching Gate 3 will no longer risk crashing the run before this can be
-   observed).
+5. **✅ RESOLVED 2026-09-29 — the evidence requirement is NOT structurally
+   unsatisfiable; the Adjudicator correctly confirms strong evidence, not just correctly
+   dismisses weak evidence.** Engagement 31 gave two real Gate 3 candidates (findings 5/6,
+   tasks 823/829) but both were genuinely weak (SPA-catchall responses, no real baseline/
+   attack diff) — their correct `DISMISSED` verdicts only proved the Adjudicator rejects
+   weak evidence, not that it *can* confirm strong evidence. Closed the gap directly: ran a
+   real, live exploit against the actual running target (`vapt-test-lab`, then healthy) —
+   the ground-truth finding #1 from `reports/JuiceShop-VAPT-Testing-Guide-2026-09-19.md` §4
+   (SQLi auth bypass on `POST /rest/user/login`, payload `{"email":"' OR 1=1--",
+   "password":"x"}`) — captured genuine baseline (401, "Invalid email or password") and
+   attack (200, valid signed admin JWT for `admin@juice-sh.op`) responses live, then fed
+   that real evidence through a standalone live `run_adjudicator()` call (Mistral-7B-
+   Instruct-v0.3, no mocking). **Verdict: `CONFIRMED`**, with a correct, well-reasoned
+   rationale citing the concrete state change (unauthenticated → authenticated admin) and
+   the satisfied baseline/attack/diff structure. Confirms the false Round-26-era worry that
+   the evidence bar might be unmeetable in practice — it isn't; the Adjudicator discriminates
+   correctly in both directions when given real evidence either way.
 
-6. **[unchanged, still open]** Lower-priority hygiene batch (silent `OSError` swallowing,
-   silent `continue` on unrecognized tool/command shapes, unbounded executor buffer) — safe
-   to fold into other work whenever convenient, not urgent.
+   **Secondary finding from the same test, not blocking closure but worth tracking:** the
+   response's `false_positive_checks` booleans (`waf_block_ruled_out`,
+   `rate_limit_ruled_out`, `generic_error_ruled_out`, `honeypot_ruled_out`) all came back
+   `false`, despite the verdict being `CONFIRMED` and the prompt's own instruction being
+   "before marking anything CONFIRMED, explicitly check for and rule out" those four
+   patterns — i.e. a `CONFIRMED` verdict should imply all four are `true` (successfully
+   ruled out), not `false`. This is an internal self-contradiction within one response
+   (free-text rationale is sound; the structured checklist fields disagree with it), not
+   caught by `validate_gate3_adjudication` (which only checks the fields are booleans, not
+   that they're logically consistent with the verdict). Single sample (n=1) — not yet known
+   whether this is systematic or a one-off. Not fixing blind off one data point; flagging for
+   whoever picks this up next to gather a few more real samples before deciding whether it's
+   a prompt-clarity issue or worth a schema-level cross-field validation.
+
+6. **✅ RESOLVED 2026-09-29.** `candidate_detection.py::_read_raw_artifact_text`'s silent
+   `OSError` swallow now logs a warning (distinguishes "couldn't read evidence" from "read
+   it, no signal"). `detect_candidates`' silent `continue` on an unrecognized Tier 2 tool
+   shape now logs an info line naming the task/tool. `bridge/executor.py`'s stdout/stderr
+   reader threads now cap each stream at 10MB with a documented truncation marker, still
+   draining the pipe past the cap so the subprocess never blocks. 4 new regression tests
+   (real subprocess/real file I/O), full suite 1243 passed / same 2 pre-existing failures.
 
 ---
 
