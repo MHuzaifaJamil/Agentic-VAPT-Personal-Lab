@@ -1,0 +1,3 @@
+Running engagement 12 (hibernation=on) — this uses real models and can take a long time.
+Refused: MemAvailable did not reach 10602542 kB within 5.0s
+Insufficient free RAM to load this council role. Close some memory-heavy apps yourself, or (2026-09-09) pass --force-app-close to `vaptctl start` next time to close them automatically before the engagement begins.

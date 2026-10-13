@@ -36,8 +36,6 @@ The system operates strictly as an offensive security engineering instrument und
 * **Scope Enforcement:** Handled via Tier-0 deterministic Python checking (`netaddr` CIDR containment, strict DNS-suffix anchoring, port validation).
 * **Command Validation (Gate 2):** Handled via deterministic `argparse` validators, schema definitions, and regex tokenizers.
 * **Subprocess Sandboxing:** External commands execute with `shell=False`, dedicated session IDs (`os.setsid()`), and parent-death signal tracking (`PR_SET_PDEATHSIG`).
-
-
 * If an action is unauthorized or out-of-scope, reject it cleanly via deterministic return codes or exceptions—do not rely on LLM alignment to "refuse" it.
 
 ### Directive 3: Strict File & Module Authority (Document `05` Precedence)
@@ -221,3 +219,33 @@ When instructed to process requirements and test plans, the Req. Spec. Agent mus
    * No requirement exists without a corresponding row in the test table.
    * No test row points to an undefined or deleted Requirement ID.
    * Total test count after refactoring is strictly greater than or equal to the original test count.
+
+---
+
+## 6. Research & Exploratory Documentation Convention
+
+Exploratory research that is not itself a binding requirement — model/tool evaluations,
+alternative-technology surveys, test-lab writeups, feasibility studies — is **not** part of
+the numbered requirement corpus (`01`–`24`) and does not go through the Section 5 schema.
+It has its own fixed, standing home and convention, established 2026-10-07, binding for every
+future research task regardless of which agent/session performs it:
+
+* **Location:** `Research/` at the repository root (same directory as this file). Create it
+  if it does not yet exist — it always should by the time you read this, but don't assume.
+* **One file per research topic**, named self-explanatorily and dated:
+  `YYYY-MM-DD-Short-Self-Explanatory-Topic-Name.md` (e.g.
+  `2026-09-29-JevAI-Alternatives-Research.md`). Never a generic name like `research.md` or
+  `notes.md` — a reader scanning the folder listing alone should be able to tell what each
+  file covers and roughly when it was written, without opening any of them.
+* **A correction to earlier research is a note added to (or a follow-up file referencing) the
+  original**, not a silent edit that erases what was previously believed — this project's own
+  history (see decision log precedent re: Directive 5) treats a caught-and-corrected mistake
+  as worth keeping visible, not worth hiding.
+* **Nothing in `Research/` is binding or actionable on its own.** A finding only becomes real
+  once it goes through the same STAGING-first path as any other proposed change
+  (`STAGING-Pending-Discussions-and-Fixes.md`) and gets explicit Human Operator approval —
+  this mirrors Directive 4's build-time exclusion list in spirit: informational material,
+  not a source build/implementation agents should treat as a live instruction.
+* **This directive exists so it never has to be repeated to a new research agent/session.**
+  If you are about to start a research task and are unsure where output goes: it goes here,
+  per this section — do not ask, do not invent a different location.

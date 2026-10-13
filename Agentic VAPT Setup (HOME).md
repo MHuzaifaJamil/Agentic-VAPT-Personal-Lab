@@ -30,14 +30,14 @@ Instead of one AI model trying to do everything (and fooling itself into believi
 
 Think of it like a small security consulting firm, except every "employee" is a small AI model running on the same laptop, and they never all work at once — they take turns, one at a time, to save memory.
 
-| Role                      | What They Actually Do                                                            | Plain-English Analogy                             |
-| ------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------- |
-| **Lead Strategist**       | Thinks up the attack plan and possible attack paths                              | The senior consultant sketching a game plan       |
-| **Strategy Auditor**      | Checks the plan addresses the scope and makes sense (never decides scope itself) | The compliance officer signing off                |
-| **Primary Scripter**      | Runs the standard, obvious tools first (`nmap`, `sqlmap`, etc.)                  | The hands-on tester at the keyboard               |
+| Role                      | What They Actually Do                                                                                                                           | Plain-English Analogy                                         |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| **Lead Strategist**       | Thinks up the attack plan and possible attack paths                                                                                             | The senior consultant sketching a game plan                   |
+| **Strategy Auditor**      | Checks the plan addresses the scope and makes sense (never decides scope itself)                                                                | The compliance officer signing off                            |
+| **Primary Scripter**      | Runs the standard, obvious tools first (`nmap`, `sqlmap`, etc.)                                                                                 | The hands-on tester at the keyboard                           |
 | **Secondary Scripter**    | Comes in *after* the Primary Scripter finishes, deliberately avoiding everything already tried, hunting for what a standard approach would miss | The specialist called in for the tricky, unconventional angle |
-| **Criterion Adjudicator** | Decides whether a "finding" is real or a false alarm                             | The skeptical reviewer who won't let junk through |
-| **Executive Reporter**    | Writes up the final report in client-ready language                              | The report writer who explains it clearly         |
+| **Criterion Adjudicator** | Decides whether a "finding" is real or a false alarm                                                                                            | The skeptical reviewer who won't let junk through             |
+| **Executive Reporter**    | Writes up the final report in client-ready language                                                                                             | The report writer who explains it clearly                     |
 
 *(Note: checking that a custom script isn't broken — missing a bracket, bad syntax —
 used to be a seventh AI model's whole job. It's now just plain, ordinary code doing
