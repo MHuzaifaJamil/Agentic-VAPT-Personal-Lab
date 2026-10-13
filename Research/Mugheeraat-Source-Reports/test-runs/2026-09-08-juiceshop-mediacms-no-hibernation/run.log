@@ -1,0 +1,43 @@
+Running engagement 7 (hibernation=off) — this uses real models and can take a long time.
+Traceback (most recent call last):
+  File "/home/mhj/Projects/local-llm-agentic-vapt/implementation/.venv/bin/vaptctl", line 6, in <module>
+    sys.exit(cli())
+             ~~~^^
+  File "/home/mhj/Projects/local-llm-agentic-vapt/implementation/.venv/lib/python3.13/site-packages/click/core.py", line 1631, in __call__
+    return self.main(*args, **kwargs)
+           ~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/home/mhj/Projects/local-llm-agentic-vapt/implementation/.venv/lib/python3.13/site-packages/click/core.py", line 1552, in main
+    rv = self.invoke(ctx)
+  File "/home/mhj/Projects/local-llm-agentic-vapt/implementation/.venv/lib/python3.13/site-packages/click/core.py", line 2032, in invoke
+    return _process_result(sub_ctx.command.invoke(sub_ctx))
+                           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "/home/mhj/Projects/local-llm-agentic-vapt/implementation/.venv/lib/python3.13/site-packages/click/core.py", line 1415, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mhj/Projects/local-llm-agentic-vapt/implementation/.venv/lib/python3.13/site-packages/click/core.py", line 910, in invoke
+    return callback(*args, **kwargs)
+  File "/home/mhj/Projects/local-llm-agentic-vapt/implementation/vapt_agent/cli/run.py", line 247, in run
+    summary = run_full_engagement(
+        conn, engine_client, engagement_id=engagement_id, config=config, with_hibernation=with_hibernation,
+    )
+  File "/home/mhj/Projects/local-llm-agentic-vapt/implementation/vapt_agent/orchestrator/driver.py", line 175, in run_full_engagement
+    summary["task_ids"] = run_phase_4_1(
+                          ~~~~~~~~~~~~~^
+        conn, engine_client, engagement_id=engagement_id,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        strategist_model_path=model_paths["strategist"],
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        strategy_auditor_model_path=model_paths["strategy_auditor"],
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/mhj/Projects/local-llm-agentic-vapt/implementation/vapt_agent/orchestrator/phase_lifecycle.py", line 240, in run_phase_4_1
+    strategist_handle = engine_client.load("strategist", model_path=strategist_model_path)
+  File "/home/mhj/Projects/local-llm-agentic-vapt/implementation/vapt_agent/engine/client.py", line 113, in load
+    self._mem_gate.wait_until_available(required_kb)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "/home/mhj/Projects/local-llm-agentic-vapt/implementation/vapt_agent/engine/mem_gate.py", line 41, in wait_until_available
+    raise DegradedSwapAlert(
+        f"MemAvailable did not reach {required_kb} kB within {self._timeout_s}s"
+    )
+vapt_agent.engine.mem_gate.DegradedSwapAlert: MemAvailable did not reach 10602542 kB within 5.0s

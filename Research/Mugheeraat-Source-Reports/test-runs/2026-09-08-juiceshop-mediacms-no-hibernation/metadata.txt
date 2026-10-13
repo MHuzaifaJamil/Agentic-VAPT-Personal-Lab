@@ -1,0 +1,16 @@
+=== Run metadata ===
+started_at: 2026-09-08T16:45:14+05:00
+engagement_id: 7
+hibernation: disabled (--no-hibernation, operator's explicit choice for this unattended run)
+targets: 127.0.0.1 (Juice Shop :3000, MediaCMS :8080)
+--- docker ps ---
+mediacms-stack-celery_worker-1: Up 7 hours
+mediacms-stack-web-1: Up 7 hours
+mediacms-stack-celery_beat-1: Up 7 hours
+mediacms-stack-db-1: Up 7 hours (healthy)
+mediacms-stack-redis-1: Up 7 hours (healthy)
+vapt-test-lab: Up 7 hours
+--- free -h (before) ---
+               total        used        free      shared  buff/cache   available
+Mem:            15Gi       7.6Gi       2.7Gi       482Mi       5.7Gi       7.6Gi
+Swap:           15Gi          0B        15Gi

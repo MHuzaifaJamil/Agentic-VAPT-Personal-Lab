@@ -66,7 +66,29 @@ Development Agent picking up this repo mid-session sees new/updated requirements
 immediately rather than only after the next push. Folds into "Push history" above
 (with a real commit hash) once actually committed, and is cleared at that point.
 
-*(nothing uncommitted right now — clean working tree as of `8ae0e0a`.)*
+Not a requirement-doc change — a new `CLAUDE.md` §6 ("Research & Exploratory
+Documentation Convention", no decision-log number) formalizing a standing-rule
+established mid-session on 2026-10-07: exploratory research (model/tool evaluations,
+alternative-model surveys, test-lab writeups, feasibility studies) is out-of-corpus,
+lives at `Research/` with one dated self-explanatory file per topic, corrections are
+appended rather than silently overwriting, and nothing there is binding until it goes
+through `STAGING-Pending-Discussions-and-Fixes.md` and explicit Human Operator approval
+— mirroring Directive 4's build-exclusion-list spirit. First real population of
+`Research/` now committed under that convention: `JevAI-Alternatives-Research.md` /
+`Abliteration-and-Security-FineTuning-Research.md` (pre-dated the convention, kept
+as-is) plus six 2026-10-07-dated files — Jev/CIPHER/xOffense alternative-model
+surveys, a model-test-lab-environment standing-procedure doc, a fine-tuning/GPU-access
+feasibility study, an embedding-based skill-retrieval (`all-MiniLM-L6-v2` +
+`sqlite-vec`) upgrade proposal, a full known-issues catalog built from Mugheeraat's
+real reports, and a realistic-mitigations pass over every catalogued issue (ranked:
+`katana -headless` for the SPA recon-input gap is the standout highest-leverage,
+lowest-effort find, needing zero new dependencies) — plus `Mugheeraat-Source-Reports/`,
+a mirrored, own-README'd copy of Mugheeraat's real `reports/`/`capstone-runs/`/
+`test-runs/` (pulled at commit `f93747c`) kept here so the issue synthesis is
+self-contained. None of this is binding or actioned yet — it is research output
+awaiting a Human Operator go/no-go, per the convention it was written under.
+Also: `HOME.md` — cosmetic-only Markdown table realignment (council-roster table),
+no content change.
 
 ## Earlier decisions not yet mapped to a specific commit
 

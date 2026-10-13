@@ -1,0 +1,22 @@
+Engagement 11 created (1 target(s), 1 scope rule(s)).
+
+App                  PID     RSS (MiB)
+brave             998742          1959
+chrome            998729          1052
+mousepad          998734            59
+thunar            998728            52
+
+Detected 4 targeted app instance(s) holding ~3.0 GiB RAM
+
+--force-app-close passed — skipping the wait, closing now.
+WARNING: mousepad, thunar have no crash-safe session restore — any UNSAVED content in them will be LOST, not just paused. (Accepted risk, per explicit operator instruction 2026-09-09.)
+  closed thunar (pid 998728)
+  closed chrome (pid 998729)
+  closed mousepad (pid 998734)
+  closed brave (pid 998742)
+App teardown complete: 4 closed and will be restored after the engagement, 0 left running (no relaunch path found).
+Launched tmux session 'vapt-11' — orchestrator, dashboard, and console windows.
+Dashboard and console windows should now be open on your desktop.
+  tmux attach -t vapt-11                  # orchestrator
+  tmux attach -t vapt-11-dashboard-view
+  tmux attach -t vapt-11-console-view
