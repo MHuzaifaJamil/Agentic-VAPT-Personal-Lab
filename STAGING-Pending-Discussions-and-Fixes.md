@@ -29,6 +29,105 @@ purpose is to show how a fix evolved, not just its final state.
 
 ---
 
+### Round 33 — 2026-10-14: Research-consultation pass against `Research/2026-10-07-Realistic-Mitigations-for-Every-Known-Issue.md` — 10 of its ~11 actionable items implemented and tested; 1 explicitly staged, not applied
+
+**Status: ✅ MOSTLY APPLIED, ⬜ one item (interactsh-client install) genuinely pending the
+operator.** The operator asked to pull the new `Research/` corpus (pushed from a different PC,
+authored by a third Claude session, git identity `vscysteam`), consult live with the
+research-authoring peer ("Mugheeraat 3.0 Setup Research"), and apply whatever both sides agreed
+was practical and fruitful — explicitly **no model loading** during this pass. Every load-
+bearing technical claim below was independently verified against the real host/code before
+acting on it (not taken on trust from the research doc or the peer), consistent with this
+project's own Directive 5.
+
+**Verified and applied (all committed to `implementation`, commits `480a952`..`38c97bd`, full
+suite 1280 passed / 2 known pre-existing gqlmap failures / zero regressions at every step):**
+
+1. **`katana -hl`/`-hybrid` headless-crawl investigation (issue 1).** The research's top claim
+   — that katana's own native headless flags could replace the Playwright-based `spa_crawler.py`
+   built for Round 26, zero new dependency — was tested live, not assumed. Real result: katana
+   `-hl` found 9 real `/rest/`/`/api/` endpoints from the landing page alone (confirms the
+   capability is real), but `spa_crawler.py` found 10 across 7 explicitly-navigated in-app
+   routes. Root cause confirmed directly (`grep useHash` on Juice Shop's real `main.js`):
+   Angular's `HashLocationStrategy` means there's no real server-side path tree for katana's
+   crawl-depth to follow deeper into — only in-browser navigation reaches the other hash-routed
+   views. **Decision: keep `spa_crawler.py` as the primary tool; katana `-hl` is a free,
+   optional Wave-3 supplementary signal, not a replacement — not added yet, low priority.**
+
+2. **`subjack` wired into `candidate_detection.py`** (subdomain takeover) — was already
+   Tier-1-registered and running in Wave 2, never connected to detection. Real output format
+   (`[Vulnerable]`/`[Not Vulnerable] %s`) confirmed via a live run against `example.com` plus
+   the compiled binary's own string table, not guessed.
+
+3. **`oob_listener.py`'s `--correlate` output wired for SSRF** (partial RCE/deserialization
+   coverage too) — confirmed real against its own source (`main()`'s `--correlate` branch):
+   `[CONFIRMED] blind {vuln_class} via {protocol} — marker {marker}`. The code-level gap is
+   closed and tested; the **operational** gap is not — `interactsh-client` (the binary
+   `--listen` needs to ever produce real input for `--correlate` to read) is confirmed still not
+   installed on this host. **Not installed unilaterally** — the research peer's own
+   recommendation, matching this project's established pattern (GPU driver installs, the Docker
+   restart-policy fix, etc.) of routing new system-software installs through explicit operator
+   sign-off even during an otherwise pre-approved "apply fixes" pass. **This is the one
+   genuinely open action item from this Round: install `interactsh-client`
+   (`GOBIN=$HOME/go/bin go install github.com/projectdiscovery/interactsh/cmd/interactsh-client@latest`,
+   same ProjectDiscovery vendor as katana/nuclei already in the arsenal) to make the SSRF/RCE/
+   deserialization OOB confirmation path actually live, not just wired.**
+
+4. **SSTI, LFI, JWT weak-signing, and insecure-deserialization detection rules** added to the
+   shared `_match_generic_content_signal`/`_match_http_probe_signal` functions both the Tier-1
+   and Tier-2 paths already use (not a separate path for either — the same shape of gap this
+   whole research pass exists to close, per the peer's own implementation guidance). SSTI uses
+   the same request-then-response-evidence shape as the existing XSS rule (sent expression vs.
+   evaluated result); JWT decodes the token's own header and checks `"alg":"none"`, verified to
+   never false-positive on a real algorithm (isolated from the pre-existing, separately-correct
+   token-disclosure rule that legitimately also fires on any token field).
+
+5. **RCE command-echo detection** (the research's "low effort" half of its RCE row) — the
+   standard `id` command output shape (`uid=N(...) gid=N(...)`), pure response content, no
+   request-correlation needed. The timing-based half stays deferred (needs a real baseline-vs-
+   attack latency-comparison capability this module doesn't have).
+
+6. **`masscan`/`ffuf`/`feroxbuster`/`gobuster` admitted into the Tier-1 SQL filter**, paired
+   with a new sensitive-path pattern set (`.env`, `.git/`, `.kdbx`, `id_rsa`, `.bak`, `backup`)
+   so their directory/file-enumeration output is actually read for something — several of these
+   literally match this project's own ground-truth findings #3/#4 (a KeePass DB, a private key).
+
+7. **`GATE1_REJECTED` dashboard visibility** — mirrors the existing `gate2_blocked` field/count/
+   amber-warning pattern exactly, trivial, same shape as an already-proven pattern.
+
+8. **Header-capture extension**: `bridge/tier2.py::_curl_argv_with_status_marker` now also
+   force-appends `-D -` (unless the command already requests headers via `-D`/`-i`) — the same
+   deterministic-injection pattern already proven for the HTTP-status-code marker. Live-verified
+   against the real running target: headers, body, and the status marker all interleave cleanly.
+
+9. **Shared `council/vulnerability_classes.py`** (issue 13) — the canonical 19-token Strategist
+   vocabulary plus which classes have a real rule vs. an explicit, documented exemption reason.
+   Two new tests make a third silent vocabulary/detection drift (this is the **third** time —
+   NOSQLI, then SSTI/LFI/JWT/deserialization/takeover/RCE, both previously found only by a full
+   manual audit) structurally impossible: one parses the real vocabulary line out of
+   `ROLE_BLOCK_STRATEGIST` and asserts it matches the canonical list; the other asserts every
+   token is covered or exempted. Deliberately did **not** turn the ~200-line verbatim doc-14
+   prompt literal into an f-string to interpolate the constant (real regression risk to a prompt
+   whose exact wording matters, for a cosmetic de-duplication) — the regex-parse-and-compare test
+   catches the same drift without touching that text.
+
+10. **Adjudicator carve-out for self-evident single-request disclosures** (issue 11, the cheap
+    option) — a single disclosure (e.g. a JWT with an admin role claim and no valid credentials)
+    no longer needs a paired baseline request to be conclusive; the baseline/attack/diff
+    requirement now explicitly applies only to comparison-dependent findings. **Prompt text only,
+    written but NOT live-verified against a real Adjudicator call — no model loading was
+    permitted during this pass.** Verify empirically (does this actually change confirm/dismiss
+    behavior, not just the instructions) before fully trusting it, same discipline as every other
+    model-facing change in this codebase.
+
+**Deliberately not pursued, each for a stated reason (not an oversight — see
+`vulnerability_classes.py::EXEMPTED_FROM_DETECTION`):** RACE_CONDITION (needs a real new
+concurrent-request-comparison capability, a separate feature, not a rule), PROMPT_INJECTION
+(narrow scope, cheap to add once actually needed, not worth building ahead of that). Items
+8/9/10 from the research doc's own numbering (the hygiene batch) were found to already be
+resolved by the existing Round 27 item 6 work — the research doc was audited against a stale
+pre-Round-27-item-6 commit; flagged to the peer, who independently confirmed and agreed.
+
 ### Round 32 — 2026-09-29: Strategist-role directive injection had zero visible effect — root-caused live and fixed (applied directly per operator's explicit "turn the direction of LLMs' working" instruction, not left pending)
 
 **Status: ✅ APPLIED 2026-09-29 (operator explicitly directed action, not just investigation:
