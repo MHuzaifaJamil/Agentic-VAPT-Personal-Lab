@@ -57,6 +57,7 @@ version of this file that had gone missing from the working tree.
 | `efecb3b` | — (implementation-side, Round 22) | Not a requirement-doc change — three separate operator-directed tasks, each treated as its own complete task per instruction, all found/specified watching engagement 27 live. (1) `candidate_detection.py` (`493d3eb`) was blind to Round 20's own diversification — real Scripter executions for the new vulnerability classes are almost all Tier 2 raw `curl` (no declared tool name), never inspected regardless of findings; separately `exit_code == 0` discarded real confirmations (`sqlmap` legitimately exits non-zero on success) before their raw text was ever read. Fixed: exit_code dropped from the filter; a new curl/Python HTTP-probe signal path fires on real content-based disclosure or (for access-control classes) a bare success status where "it simply worked" is the finding. (2) (`310a696`) The Primary Scripter lost 3 hypotheses to malformed JSON, folded into `GATE2_BLOCKED` since 2026-09-13 — now its own `MODEL_STRUCTURED_OUTPUT_FAILURE` status, and the Scripters' calls now pass a real JSON Schema via `response_format`, confirmed live against a disposable throwaway llama-server instance to be honored as a genuine grammar constraint. (3) (`026964e`) Dashboard `~` estimate glyphs were misread as negative values at terminal font sizes (dropped); a role running past its own per-turn estimate showed a stale "ETA: 0s" (now "OVERRUN (+Xm Ys)"); the console's live journal blocks hard-clipped to 400 chars — real, permanent data loss for roles with no other full-text record — now unbounded. Explicitly NOT done, disclosed rather than silently skipped: the same message's broader ask for a fully restructured 6-block console layout with true live per-token streaming (would require switching every role's call to SSE streaming — judged unsafe to make unreviewed against a live engagement). `Assumptions-Not-Approved.md` #65. `STAGING.md` Round 22: archived as approved and implemented. 18 new/updated tests. Full suite: 1176 passed, 3 skipped (1 pre-existing environment flake, confirmed not a regression); `ruff`/`mypy` clean. |
 | `ff5ed14` | — (follow-up) | Backfilled the `efecb3b` row itself into Push History — same chicken/egg housekeeping pattern as before it (a commit can't cite its own hash). |
 | `8ae0e0a` | 78 | Requirements-sync reconciliation pass against 33 real implementation-side commits (Rounds 9-22), pulled from the Implementing PC via `git fetch`/`ff-only merge`. `01`: `FR-ENV-03` denylist→allowlist (+`FR-ENV-03b`); new `FR-GATE-08a` (CLI self-resume); `FR-GATE-10` 5s→20s; new `FR-TOOL-15a` (credential storage); `FR-COUNCIL-03a` extended (destination-based Tier 0 check); `FR-COUNCIL-04` rewritten (Auditor's 4-criteria boundary); new `FR-COUNCIL-07a`/`07b` (TARGET/ports fields, skill-corpus injection); new `FR-COUNCIL-09a` (structured-output-failure status); `FR-COUNCIL-11` ceiling 3→12 + new `FR-COUNCIL-11e`; new `FR-COUNCIL-12a` (candidate-detection widening); `FR-COUNCIL-17` extended (unconditional `INFO_REGISTER`); new §4.4 `FR-COUNCIL-19`/`19a`/`19b`/`19c` (round loop). New `02:NFR-RES-07`/`NFR-PERF-06`, `03:DR-SCHEMA-24` (+ additive columns on `03`/`13`/`15`), `05:SEC-DATA-05`, `06:OPS-LIFECYCLE-05`. `14`: Auditor role block rewritten; Scripter blocks gain TARGET/ports/skill-reference fields. `09`: new `TP-ROUNDLOOP` cluster + rows across 8 other clusters. Doc `01` 124→136 (95 covered); corpus baseline 366→383 (207 covered). `IMPLEMENTATION-DEVIATIONS-FROM-REQUIREMENTS.md`/`STAGING.md`: reconciliation notes added, nothing deleted. |
+| `5fc6b21` | — (no decision-log number) | Not a requirement-doc change — new `CLAUDE.md` §6 ("Research & Exploratory Documentation Convention") formalizing a standing rule established mid-session on 2026-10-07: exploratory research (model/tool evaluations, alternative-model surveys, test-lab writeups, feasibility studies) is out-of-corpus, lives at `Research/` with one dated self-explanatory file per topic, corrections are appended rather than silently overwriting, and nothing there is binding until it clears `STAGING-Pending-Discussions-and-Fixes.md` and explicit Human Operator approval — mirroring Directive 4's build-exclusion-list spirit. First real population of `Research/` committed under that convention: `JevAI-Alternatives-Research.md`/`Abliteration-and-Security-FineTuning-Research.md` (pre-dated the convention, kept as-is) plus six 2026-10-07-dated files — Jev/CIPHER/xOffense alternative-model surveys, a model-test-lab-environment standing-procedure doc, a fine-tuning/GPU-access feasibility study, an embedding-based skill-retrieval (`all-MiniLM-L6-v2`+`sqlite-vec`) upgrade proposal, a full known-issues catalog built from Mugheeraat's real reports, and a realistic-mitigations pass over every catalogued issue (ranked: `katana -headless` for the SPA recon-input gap is the standout highest-leverage, lowest-effort find, needing zero new dependencies) — plus `Mugheeraat-Source-Reports/`, a mirrored, own-README'd copy of Mugheeraat's real `reports/`/`capstone-runs/`/`test-runs/` (pulled at commit `f93747c`) kept here so the issue synthesis is self-contained. None of this is binding or actioned yet — it is research output awaiting a Human Operator go/no-go. Also: `HOME.md` — cosmetic-only Markdown table realignment (council-roster table), no content change. |
 
 ## Working Tree — Uncommitted Changes (Development Agents: read this first)
 
@@ -66,29 +67,7 @@ Development Agent picking up this repo mid-session sees new/updated requirements
 immediately rather than only after the next push. Folds into "Push history" above
 (with a real commit hash) once actually committed, and is cleared at that point.
 
-Not a requirement-doc change — a new `CLAUDE.md` §6 ("Research & Exploratory
-Documentation Convention", no decision-log number) formalizing a standing-rule
-established mid-session on 2026-10-07: exploratory research (model/tool evaluations,
-alternative-model surveys, test-lab writeups, feasibility studies) is out-of-corpus,
-lives at `Research/` with one dated self-explanatory file per topic, corrections are
-appended rather than silently overwriting, and nothing there is binding until it goes
-through `STAGING-Pending-Discussions-and-Fixes.md` and explicit Human Operator approval
-— mirroring Directive 4's build-exclusion-list spirit. First real population of
-`Research/` now committed under that convention: `JevAI-Alternatives-Research.md` /
-`Abliteration-and-Security-FineTuning-Research.md` (pre-dated the convention, kept
-as-is) plus six 2026-10-07-dated files — Jev/CIPHER/xOffense alternative-model
-surveys, a model-test-lab-environment standing-procedure doc, a fine-tuning/GPU-access
-feasibility study, an embedding-based skill-retrieval (`all-MiniLM-L6-v2` +
-`sqlite-vec`) upgrade proposal, a full known-issues catalog built from Mugheeraat's
-real reports, and a realistic-mitigations pass over every catalogued issue (ranked:
-`katana -headless` for the SPA recon-input gap is the standout highest-leverage,
-lowest-effort find, needing zero new dependencies) — plus `Mugheeraat-Source-Reports/`,
-a mirrored, own-README'd copy of Mugheeraat's real `reports/`/`capstone-runs/`/
-`test-runs/` (pulled at commit `f93747c`) kept here so the issue synthesis is
-self-contained. None of this is binding or actioned yet — it is research output
-awaiting a Human Operator go/no-go, per the convention it was written under.
-Also: `HOME.md` — cosmetic-only Markdown table realignment (council-roster table),
-no content change.
+*(nothing uncommitted right now — clean working tree as of `5fc6b21`.)*
 
 ## Earlier decisions not yet mapped to a specific commit
 
