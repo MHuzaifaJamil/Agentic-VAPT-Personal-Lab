@@ -80,6 +80,28 @@ are fixed, tested, and pushed to `implementation` (`762deb6`, `6c4bb3c`, plus on
 commit for the elif-chain fix). This is a structural question for whenever the operator has
 bandwidth to consider it, not an open vulnerability.
 
+**Addendum, same night (Mugheeraat 1.0, independently confirmed live by Mugheeraat 3.0 each
+time):** two more rounds landed on this same mechanism after the above was written.
+
+4. `curl -sSo/etc/passwd` (short boolean flags bundled with a value-taking flag glued at the
+   end — `-s` + `-S` + `-o <value>`, one of the single most common real-world curl idioms,
+   not an adversarial construction) bypassed every prior fix tonight entirely — confirmed
+   live with a real file written outside the sandbox before the fix. Fixed (`7263122`).
+5. **A different failure direction on the same mechanism, not a security bypass this time:**
+   masscan's own output flags (`-oB`/`-oJ`/`-oL`/`--output-filename`) were never registered
+   in `output_flags` at all — only `-oA`/`-oN` (nmap) and the shared `-oX`/`-oG` were. Every
+   masscan invocation using its own JSON/binary/list output formats has been silently
+   rejected since masscan was added to the Tier-1 toolset in Round 33, specifically for that
+   output capability. Fail-safe (nothing escaped the sandbox), but a whole tool's core
+   capability was unusable this entire time, not merely theoretically riskier. Fixed.
+
+This widens the case for the proposed OS-level boundary beyond "closes a security bypass":
+the same hand-written per-token heuristic has now failed in **both directions** in one
+night — admitting writes it should have blocked (rounds 1–4) and blocking writes it should
+have admitted (round 5). That is a stronger argument for *not* continuing to special-case
+every tool's CLI dialect by hand than the security framing alone: it costs correctness in
+both directions, not just safety margin in one.
+
 ---
 
 ### Round 33 — 2026-10-14: Research-consultation pass against `Research/2026-10-07-Realistic-Mitigations-for-Every-Known-Issue.md` — 10 of its ~11 actionable items implemented and tested; 1 explicitly staged, not applied
