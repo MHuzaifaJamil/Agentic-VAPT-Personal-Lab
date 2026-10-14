@@ -109,3 +109,27 @@ cost/effectiveness:
 Not actioned by this research pass — per the standing Research/ convention, this is a
 finding and recommendation, not an implementation. Staged for Mugheeraat 1.0/2.0 and the
 operator's decision on whether/when to apply either mitigation.
+
+## Correction (2026-10-14, same day): `closed_vectors` risk is real but much smaller than stated above
+
+Mugheeraat 2.0 independently traced `closed_vectors` and argued it carries no risk at all —
+`build_closed_vectors_block` only ever emits `target_vector_loop_state.vulnerability_class`
+values, which they characterized as "fixed enum values... from the closed controlled
+vocabulary, never free text the model wrote." Checked this directly before accepting it (same
+discipline this doc itself was built on): **that characterization is not quite accurate.**
+`engine/schemas.py:52-60` (`validate_strategist_output`'s own docstring) states
+`vulnerability_class` is "deliberately checked here as 'any non-empty string,' not a strict
+enum" — there is no hard schema-level enum constraint, only the Strategist's own prompt
+vocabulary list as a soft convention. The value flows verbatim: Strategist's structured JSON
+→ `task_queue.vulnerability_class` (`orchestrator/phase_lifecycle.py:478`) →
+`target_vector_loop_state.vulnerability_class` (`council/loop_bounds.py:126`, plain
+`INSERT OR IGNORE`, no normalization) → `closed_vectors`. So the field *can*, in principle,
+carry arbitrary model-written text, including a fragment the Strategist echoed from untrusted
+evidence while misinterpreting the prompt's vocabulary instruction under injection pressure.
+
+In practice this is a much narrower, lower-probability surface than `explored_attack_paths`/
+`prior_dismissal_rationale` (a short, single conventionally-vocabulary-shaped token vs. full
+free-form prose), so Mugheeraat 2.0's recommendation to scope the actual fix to those two
+fields first is reasonable prioritization — but "NOT at risk" overstates it; "much lower risk,
+same underlying unenforced-assumption shape" is the accurate claim. Recorded here rather than
+silently revising the original recommendation, per this project's Research/ convention.
