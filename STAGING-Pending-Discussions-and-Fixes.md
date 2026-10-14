@@ -29,6 +29,59 @@ purpose is to show how a fix evolved, not just its final state.
 
 ---
 
+### Round 34 — 2026-10-14: Consider an OS-level write boundary for `artifacts_dir` instead of continuing to chase CLI-dialect bypasses in `denylist.py` rule (c)
+
+**Status: ⬜ PENDING — architectural proposal, not applied.** Raised by Mugheeraat 3.0
+during a live cross-session exchange, after three consecutive same-session bypass-and-fix
+rounds on `bridge/denylist.py`'s rule (c) (file-write confinement), all same night, all on
+the same underlying mechanism:
+
+1. Cookie-jar flags (`-c`/`-b`/`--cookie-jar`/`--cookie`) were entirely absent from
+   `output_flags` — fixed (`762deb6`).
+2. The exact-token-match check didn't recognize `--flag=value` or glued `-cvalue` argv
+   shapes — `curl --cookie-jar=/tmp/x` and `curl -c/tmp/x` both actually wrote outside the
+   sandbox, confirmed live — fixed (`6c4bb3c`).
+3. Two more real gaps in that same fix, each confirmed live before fixing: nmap strips a
+   literal `=` after its own multi-char flags (`-oN=/tmp/x` actually wrote there, a
+   dialect the first "=" fix only handled for `--long` flags) — and an `elif`-chain bug
+   meant a token containing `=` that failed to resolve as a real flag (e.g. `-o/etc/x=1`,
+   short flag glued to a value that itself contains `=`) was silently skipped instead of
+   falling through to the glued-short-flag fallback that would have caught it. Both fixed
+   same night.
+
+**Root cause (Mugheeraat 3.0's framing, independently agreed with):** rule (c) is a
+hand-written, per-token heuristic trying to approximate every tool's real argv-parsing
+dialect (GNU getopt long-opts, short-opt glued values, per-tool special cases like nmap's
+`=`-stripping). This is open-ended by construction — there is no principled reason the
+*next* tool's CLI quirk won't also slip through next time a new flag category is added.
+The file's own SEC-CONTAIN-02 banner already concedes this ("a residual-risk-accepted
+heuristic layer... not itself guarantee[d]"), which is honest framing but doesn't close
+the gap, only documents it.
+
+**Precedent:** this project already lived through the same shape of problem once —
+`vapt_hibernation_usb_hotplug_daemon_freeze_incident` — repeated denylist-approach gaps on
+the USB/hotplug freeze-protection list, eventually motivating consideration of an
+allowlist redesign instead of continuing to patch the denylist indefinitely.
+
+**Proposed fix (not drafted as a formal requirement yet, pending operator direction on
+feasibility first):** confine Tier 2 subprocess writes to `artifacts_dir` at the OS level —
+e.g. a bind-mount or mount-namespace jail scoped to the per-engagement/per-target artifact
+directory for the lifetime of the subprocess, so a write outside it fails regardless of how
+the argv was shaped, independent of this project's own ability to anticipate every tool's
+argv dialect. Rule (c) would then become defense-in-depth (cheap, fast, catches obvious
+cases pre-spawn) rather than the sole containment boundary. Needs feasibility assessment
+(kernel/container primitives available on the target Kali host, whether this adds
+meaningful subprocess-spawn latency/complexity, interaction with `cwd`-based relative-path
+resolution already documented in Round 34's own commits) before being drafted as a real
+`FR-TOOL-06`-adjacent requirement.
+
+Not blocking anything currently staged or in progress — all three confirmed bypasses above
+are fixed, tested, and pushed to `implementation` (`762deb6`, `6c4bb3c`, plus one more
+commit for the elif-chain fix). This is a structural question for whenever the operator has
+bandwidth to consider it, not an open vulnerability.
+
+---
+
 ### Round 33 — 2026-10-14: Research-consultation pass against `Research/2026-10-07-Realistic-Mitigations-for-Every-Known-Issue.md` — 10 of its ~11 actionable items implemented and tested; 1 explicitly staged, not applied
 
 **Status: ✅ MOSTLY APPLIED, ⬜ one item (interactsh-client install) genuinely pending the
