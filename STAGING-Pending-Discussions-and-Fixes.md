@@ -106,6 +106,14 @@ both directions, not just safety margin in one.
 
 ### Round 33 — 2026-10-14: Research-consultation pass against `Research/2026-10-07-Realistic-Mitigations-for-Every-Known-Issue.md` — 10 of its ~11 actionable items implemented and tested; 1 explicitly staged, not applied
 
+**Update 2026-11-04: ✅ interactsh-client item now resolved, operator-authorized.** Turned out
+the binary already existed (`~/go/bin/interactsh-client`, built 2026-09-19 by an
+untracked prior `go install`) — the real gap was `~/go/bin` never being on `PATH` for the
+box's actual login shell (`zsh`; only `.bashrc` had the export, not `.zshrc`), which is why
+`oob_listener.py`'s `shutil.which()`-based check kept reporting it absent. Fixed via a
+`.zshrc` PATH export; verified `oob_listener._have_interactsh()` now returns `True`. Full
+detail in `implementation/AGENT-COORDINATION-LOG.md`'s 2026-11-04 entry.
+
 **Status: ✅ MOSTLY APPLIED, ⬜ one item (interactsh-client install) genuinely pending the
 operator.** The operator asked to pull the new `Research/` corpus (pushed from a different PC,
 authored by a third Claude session, git identity `vscysteam`), consult live with the
