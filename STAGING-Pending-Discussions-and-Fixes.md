@@ -29,9 +29,91 @@ purpose is to show how a fix evolved, not just its final state.
 
 ---
 
+### Round 36 — 2026-11-04: Prioritize the embedding-based skill-retrieval upgrade (independent literature support found)
+
+**Status: ✅ APPROVED by the operator 2026-11-04** (grouped under the "session-bootstrap
+feature" go-ahead's broader context — see Round 35 below), but genuinely unimplemented —
+flagged here so it isn't lost among dated `Research/` files, per the same reasoning Round 35
+exists for.
+
+**What:** replace `vapt_agent/knowledge/skills_index.py`'s current lexical
+Szymkiewicz-Simpson overlap-coefficient matcher with real embedding-based retrieval
+(`all-MiniLM-L6-v2` + `sqlite-vec`), per this project's own prior proposal
+(`Research/2026-10-07-Embedding-Based-Skill-Retrieval-Upgrade.md`). Verified directly
+(2026-11-04, Mugheeraat 3.0) that this is still genuinely unbuilt:
+`grep -rn "embedding\|sqlite-vec" vapt_agent/ --include="*.py"` returns only two unrelated
+incidental hits (`oob_listener.py`'s "embedding a unique OOB hostname",
+`dom_xss_harness.py`'s "embedding \`marker\`") — the real matcher is still pure lexical
+overlap (`skills_index.py:11,16,142`, confirmed).
+
+**Why now:** `Research/2026-10-28-Comparable-Small-Scale-AI-Pentest-Projects-Landscape-
+Survey.md` and its companion gap-connection file (pulled from GitHub, authored by a
+different Claude session, independently spot-verified by Mugheeraat 3.0 — the internal
+code/doc claims checked out exactly; two load-bearing external citations were independently
+web-searched and substantively corroborated, with one minor nuance: arXiv:2602.17622's own
+Type B failure rate is reduced from 58%→27% by better difficulty-estimation, i.e. partially
+addressable by scaffolding too, not literally invariant — doesn't change the paper's core
+Type A/Type B framing or this recommendation) found real, numbers-backed motivation this
+project didn't have before: arXiv:2604.27143's ablation showed RAG as one of five
+scaffolding techniques that together took 7-8B local models from 8% to 67% success on
+privilege-escalation tasks, matching *guided* GPT-4o — independent field evidence for
+exactly the technique this project's own Oct-7 research already proposed on separate
+reasoning.
+
+**Scope:** real implementation work (new dependency, matcher rewrite, re-indexing existing
+skill content) — Mugheeraat 1.0's territory, not drafted or touched by this entry.
+
+---
+
+### Round 35 — 2026-10-14 (formalized 2026-11-04): Session/identity-state gap — formalizing an already-written, already-operator-approved research finding as its own Round
+
+**Status: ✅ APPROVED by the operator 2026-11-04**, implementation not yet started —
+Mugheeraat 1.0 is correctly holding this for its own operator's direct confirmation in its
+own session before writing any code (same standing discipline as every model-loading/
+architecture/tool-install decision all project history). This entry exists so the finding
+has a Round number and isn't lost among dated `Research/` files, per
+`Research/2026-10-28-How-Todays-Landscape-Survey-Connects-to-Mugheeraats-Current-Open-
+Gaps.md`'s own explicit flag that it "currently has no Round number and risks being lost."
+
+**The finding (full detail, not restated here):**
+`Research/2026-10-14-Root-Cause-Zero-Confirmed-Findings-Missing-Session-Identity-State.md`
+— all 6 historical Adjudicator calls (100% of them, ever) correctly `DISMISSED`, because
+every underlying command was a single, anonymous, stateless probe; zero of 92 historical
+`curl` tasks ever used a cookie jar; no cross-task session/identity-state mechanism exists
+anywhere in the codebase. IDOR/CSRF/BFLA (an entire, common, real-world vulnerability-class
+family) can never clear Gate 3 regardless of detection quality until this is fixed.
+
+**Independent, field-wide corroboration found 2026-11-04:** XBOW — this survey's own
+strongest verified real-world AI-pentest success story — has an independently-documented
+weakness ("no evidence of authentication-bypass or business-logic findings" per a 2026
+third-party review; Mugheeraat 3.0's own follow-up web search could not pin down the exact
+named critique source cited in the research file, but did independently find a different,
+substantively consistent 2026 third-party critique citing XBOW's ~37.5% overall accuracy and
+inability to handle complex business-logic flaws) — the same IDOR/CSRF/BFLA-shaped gap this
+project just diagnosed in itself, in the single best-performing comparable system found
+anywhere in the survey. This is read as confirmation the gap is real and general, not a
+Juice-Shop-specific quirk — not as new technical content beyond what the original research
+file already proposed.
+
+**The 3-step fix** (unchanged from the original file, not re-litigated here): (1) a
+deterministic, non-LLM session-bootstrap step registering ≥2 test accounts per engagement
+and persisting their session cookies under `artifacts_dir`; (2) teach the Scripter via
+`council/prompts.py` to use `-c {path}`/`-b {path}` with those fixed paths; (3) add
+`-c`/`-b`/`--cookie-jar`/`--cookie` to `denylist.py`'s `output_flags` confinement check
+first — **this sub-item is already done**, closed same night as a separable bug fix
+(`implementation` commit `762deb6`, 2026-10-14), independent of the larger feature decision.
+
+---
+
 ### Round 34 — 2026-10-14: Consider an OS-level write boundary for `artifacts_dir` instead of continuing to chase CLI-dialect bypasses in `denylist.py` rule (c)
 
-**Status: ⬜ PENDING — architectural proposal, not applied.** Raised by Mugheeraat 3.0
+**Status: ✅ APPROVED by the operator 2026-11-04** (feasibility question answered yes —
+proceed), implementation not yet started. Per the same standing discipline as every other
+architecture-affecting change, Mugheeraat 1.0 is holding this for its own operator's direct
+confirmation in its own session before implementing, not treating a different session's
+relayed authorization as sufficient on its own.
+
+Raised by Mugheeraat 3.0
 during a live cross-session exchange, after three consecutive same-session bypass-and-fix
 rounds on `bridge/denylist.py`'s rule (c) (file-write confinement), all same night, all on
 the same underlying mechanism:
