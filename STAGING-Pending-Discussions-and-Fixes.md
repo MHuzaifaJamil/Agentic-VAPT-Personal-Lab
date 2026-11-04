@@ -107,11 +107,12 @@ first — **this sub-item is already done**, closed same night as a separable bu
 
 ### Round 34 — 2026-10-14: Consider an OS-level write boundary for `artifacts_dir` instead of continuing to chase CLI-dialect bypasses in `denylist.py` rule (c)
 
-**Status: ✅ APPROVED by the operator 2026-11-04** (feasibility question answered yes —
-proceed), implementation not yet started. Per the same standing discipline as every other
-architecture-affecting change, Mugheeraat 1.0 is holding this for its own operator's direct
-confirmation in its own session before implementing, not treating a different session's
-relayed authorization as sufficient on its own.
+**Status: ✅ IMPLEMENTED 2026-11-04** (operator-directed: "Go ahead and implement Round 34",
+`implementation` commit `80f4901` — full detail in this entry's "Implementation" addendum
+below). Feasibility was approved earlier the same day; per the same standing discipline as
+every other architecture-affecting change, Mugheeraat 1.0 held this for its own operator's
+direct confirmation in its own session before implementing, not treating a different
+session's relayed authorization as sufficient on its own.
 
 Raised by Mugheeraat 3.0
 during a live cross-session exchange, after three consecutive same-session bypass-and-fix
@@ -219,6 +220,59 @@ Net: the proposal is confirmed technically feasible on the real target host with
 already present, not merely plausible in the abstract. Still implementation work gated on
 this session's own operator, per the discipline stated at the top of this entry — this
 addendum only narrows what that implementation would need to do, it doesn't start it.
+
+**Implementation, 2026-11-04 (Mugheeraat 1.0, operator-directed: "Go ahead and implement
+Round 34"):** `implementation` commit `80f4901`. `bridge/sandbox.py` wraps a subprocess's
+argv with `bwrap --die-with-parent --ro-bind / / --dev-bind /dev /dev --proc /proc --bind
+<writable_dir> <writable_dir> -- <argv>` — the `/dev`+`/proc` re-binds are an addition beyond
+the literal feasibility-test invocation (bwrap's own documented minimal-sandbox idiom, costs
+nothing security-wise since device-node/proc permissions are unaffected by the outer
+read-only bind) added to avoid a real regression: tools that write to `/dev/null` internally
+would otherwise fail under a strict read-only `/dev`. Wired into `executor.py::run_subprocess`
+as the lowest shared choke point (`cwd` doubles as the writable boundary — the same
+per-engagement/per-target `artifacts_dir` subtree both tiers already `cwd` into), default on,
+fails closed (`SandboxUnavailableError`) if `bwrap` is missing rather than silently running
+unconfined, with a new `config.security.os_write_sandbox_enabled` opt-out for an operator on a
+host without `bwrap`.
+
+**Scope correction caught by live full-suite testing before push (Directive 5 in action, not
+just a feasibility-stage nicety):** the sandbox is Tier-2-only, not applied to
+`bridge/tier1/wrapper.py` despite an initial assumption that uniform defense-in-depth there
+would be "free" (Tier 1 writes only ever target `cwd` by construction, so confining it changes
+nothing — or so the reasoning went). Running the real test suite caught this wrong: 9 real
+Tier 1 tests broke (`naabu`/`dnsx`/`httpx-toolkit`/`jadx`/Playwright's `spa_crawler` all need
+their own `/tmp` scratch space for internal operation; `dnsrecon` and `hashcat` write real
+persistent state under `$HOME` — `~/.config/dnsrecon/dnsrecon.log`,
+`~/.local/share/hashcat/sessions/*` — that a sandbox would silently break or, if tmpfs'd,
+wipe between runs, defeating hashcat's own potfile purpose). Reverted the Tier 1 wiring after
+catching this, live, before committing — consistent with `denylist.py` rule (c) itself, which
+was always Tier-2-only (`check_behavioral_denylist` is never called from `tier1/wrapper.py`):
+Tier 1 argv is deterministically code-constructed per `schema.py`, never Scripter-controlled,
+so it was never the attack surface this Round exists to close. Sandboxing it bought no real
+security margin, only breakage.
+
+The sandbox also inherits rule (c)'s own FR-TOOL-06 dual-mode carve-out — stands down
+entirely for `is_human_operator=True` commands, matching CLAUDE.md Directive 1 ("zero...
+technical boundary interception" for operator-issued commands); confirmed via dedicated
+wiring tests (`test_bridge_tier2_sandbox_wiring.py`), not just inferred from the config
+plumbing.
+
+**Verification, all live, none mocked:** `test_bridge_sandbox.py` (8 tests) confirms, against
+a real spawned `bwrap`: a write inside the writable dir succeeds, a write outside it fails
+with a real `Read-only file system` kernel error and the file genuinely never lands on disk,
+reads outside the writable dir remain unrestricted, the `sandbox_enabled=False` opt-out
+genuinely disables confinement (not a no-op flag), the real PID stays the real tool's PID (not
+`bwrap`'s own — confirms the feasibility writeup's "no `--unshare-pid`, so `bwrap` execs
+directly into the target" claim empirically, not just by reading `bwrap`'s docs), and the
+existing timeout-kill logic needs no change. Full suite: 1325 passed; 3 failures, all
+pre-existing/environmental and confirmed unrelated to this change (the 2 already-documented
+`gqlmap` wording mismatches in `test_tier1_graphql_scanner.py`, plus one `spa_crawler` test
+that now correctly reaches `exit_code == 0` under the sandbox but needs a live JuiceShop
+target at `127.0.0.1:3000` that isn't currently running on this host to find any endpoints —
+confirmed via a direct `curl` to that port returning unreachable, nothing to do with Tier 1/
+Tier 2 execution).
+
+**Status: ✅ IMPLEMENTED, pushed, tested.**
 
 ---
 
