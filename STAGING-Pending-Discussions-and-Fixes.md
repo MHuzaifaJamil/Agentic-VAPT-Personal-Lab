@@ -184,6 +184,42 @@ have admitted (round 5). That is a stronger argument for *not* continuing to spe
 every tool's CLI dialect by hand than the security framing alone: it costs correctness in
 both directions, not just safety margin in one.
 
+**Feasibility validation, 2026-11-04 (Mugheeraat 1.0, read-only groundwork — not
+implementation, approval for this still awaits this session's own operator per the
+standing discipline above):** checked the actual primitives on this exact Kali host rather
+than treating the proposal as hypothetical.
+
+- `unprivileged_userns_clone` is `1` (enabled) and `bwrap` (bubblewrap — the standard,
+  purpose-built tool for exactly this: Flatpak's own sandboxing mechanism, not a hand-rolled
+  bind-mount script) is already installed (`/usr/bin/bwrap`). `unshare`/`nsenter` are also
+  present; `firejail`/`fuse-overlayfs` are not installed but aren't needed given `bwrap`
+  already covers the requirement.
+- Confirmed live, unprivileged (no root/sudo): `unshare --user --mount --map-root-user bash
+  -c "mount --bind /tmp /mnt"` succeeds (`exit=0`) — mount-namespace creation genuinely works
+  for this user on this host, not just in theory.
+- Confirmed live with `bwrap --ro-bind / / --bind <artifacts_dir> <artifacts_dir> -- <cmd>`:
+  a write to a path *inside* the bound artifacts directory succeeds normally; a write to any
+  path *outside* it — tested both a plain path and a path specifically chosen to be unlike
+  anything any of tonight's six argv-parsing fixes were built around — fails identically with
+  `bash: ...: Read-only file system`, a kernel-level rejection with zero argv parsing
+  involved at any point. This is not a heuristic that could have a seventh gap found next
+  week: the subprocess's own `write()`/`open()` syscalls fail before any bytes reach disk,
+  regardless of which flag, dialect, or bundling shape the Scripter's command used to name
+  the destination.
+- Not yet checked (genuine open items for whoever implements this): subprocess-spawn latency
+  overhead of wrapping every Tier 2 invocation in `bwrap` (expected to be low — it's a single
+  `clone()` + mount setup, not a container runtime, but not measured against this project's
+  own `ExecutionResult` timing); exact integration point in `bridge/tier2.py` (wrapping
+  `subprocess.Popen`'s argv with a `bwrap` prefix, likely right where `cwd=artifacts_dir` is
+  already set — see Round 34's own earlier commits for why that line matters); interaction
+  with tools that `fork()`/re-`exec()` internally (nmap, sqlmap) to confirm the namespace is
+  inherited correctly, not just the direct child.
+
+Net: the proposal is confirmed technically feasible on the real target host with tooling
+already present, not merely plausible in the abstract. Still implementation work gated on
+this session's own operator, per the discipline stated at the top of this entry — this
+addendum only narrows what that implementation would need to do, it doesn't start it.
+
 ---
 
 ### Round 33 — 2026-10-14: Research-consultation pass against `Research/2026-10-07-Realistic-Mitigations-for-Every-Known-Issue.md` — 10 of its ~11 actionable items implemented and tested; 1 explicitly staged, not applied
