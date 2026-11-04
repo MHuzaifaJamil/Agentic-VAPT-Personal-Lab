@@ -274,6 +274,52 @@ Tier 2 execution).
 
 **Status: ✅ IMPLEMENTED, pushed, tested.**
 
+**Follow-up, same day (Mugheeraat 1.0, caught by an automated background push-security
+review of `80f4901`, not self-discovered):** `implementation` commit `2a7c212` fixes two real
+issues the review flagged, independently verified live before fixing rather than taken on
+trust:
+
+1. **TOCTOU symlink escape.** `Path.mkdir(parents=True, exist_ok=True)` — used identically in
+   both `tier1/wrapper.py` and `tier2.py` to create the per-engagement/per-target cwd —
+   treats a symlinked directory as satisfying `exist_ok` exactly as much as a real one
+   (confirmed live: `mkdir(parents=True, exist_ok=True)` raises no error and happily creates
+   a subdirectory through a pre-existing symlinked ancestor). If
+   `artifacts_dir/<engagement_id>/<target_id>` or any ancestor of it were ever replaced with
+   a symlink — stale test data, manual tampering, a future less-trusted code path — the
+   sandbox would silently `.resolve()` through it and bind-mount whatever it points to as the
+   writable boundary, not the intended directory. Fixed by unifying the previously-duplicated
+   cwd-construction logic (same bug present in both files, which is almost certainly why the
+   review flagged `tier1/wrapper.py` too even though Tier 1 isn't sandboxed) into a new
+   `bridge/artifacts_cwd.py::resolve_target_cwd`, which verifies via `os.path.realpath` vs.
+   pure-lexical `os.path.normpath(os.path.abspath(...))` comparison that no symlink was
+   traversed, raising instead of trusting it. `bridge/sandbox.py::wrap_argv` re-applies the
+   identical check defensively at the actual bind-mount construction point too, in case a
+   future caller ever bypasses the shared helper.
+2. **Unnecessary writable `/proc`.** The original implementation (see the "Implementation"
+   addendum above) speculatively added `--dev-bind /dev /dev --proc /proc` to the `bwrap`
+   invocation, unvalidated by any actual test failure — every real Tier 1 regression the
+   2026-11-04 full-suite run caught needed `/tmp` or `$HOME`, none of them `/dev` or `/proc`.
+   A writable, host-shared `/proc` without `--unshare-pid` lets the sandboxed process reopen
+   another process's still-open-but-unlinked file descriptor via `/proc/<pid>/fd/N`, which
+   bypasses normal path-based mount permission checks entirely (there's no path left to
+   re-validate against once a file is unlinked) — a real, documented sandbox-escape class,
+   not a theoretical one. Removed. The sandbox now matches the literally-validated/approved
+   feasibility-test invocation exactly: `bwrap --die-with-parent --ro-bind / / --bind
+   <writable_dir> <writable_dir> -- <argv>`, nothing more. A bind belongs back here only if a
+   concrete, live-tested Tier 2 regression demonstrates the need — the same discipline that
+   correctly scoped this sandbox to Tier 2 only in the first place.
+
+New live regression tests (`test_bridge_artifacts_cwd.py`, 6 tests) prove both the
+symlinked-ancestor and symlinked-leaf attacks are refused rather than silently trusted, at
+both the shared helper and `sandbox.py`'s own layer. Full suite: 1332 passed, the same 3
+pre-existing/environmental failures as before (2 documented `gqlmap` mismatches, 1 missing
+live JuiceShop target), unrelated to this change.
+
+**Process note:** this is a genuine example of why independent review matters even on
+same-day, operator-approved work — the symlink TOCTOU and the unneeded `/proc` write access
+were both real, both shipped in the first push, and both caught before any exploitation by a
+second pass rather than by the implementing session's own review of its own code.
+
 ---
 
 ### Round 33 — 2026-10-14: Research-consultation pass against `Research/2026-10-07-Realistic-Mitigations-for-Every-Known-Issue.md` — 10 of its ~11 actionable items implemented and tested; 1 explicitly staged, not applied
