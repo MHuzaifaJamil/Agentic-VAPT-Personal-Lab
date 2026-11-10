@@ -29,6 +29,53 @@ purpose is to show how a fix evolved, not just its final state.
 
 ---
 
+### Round 37 — 2026-11-11: `run_phase_4_3` aborts an entire engagement's Phase 4.3 loop on a transport-level engine-client error, instead of failing just the one finding
+
+**Problem statement:** Running a retroactive Adjudicator pass against 5 historical
+engagements holding the 7 independently-verified `.kdbx`-disclosure `CANDIDATE` findings
+(operator-authorized 2026-11-04, see `AGENT-COORDINATION-LOG.md`'s "Mugheeraat 3.0 —
+retroactive Adjudicator run: final, verified outcome" entry for the full trace), 6 of 7
+candidates were adjudicated cleanly (all → DISMISSED, consistent with Round 35's
+session-identity-state root cause — no new CONFIRMED finding). The 7th (finding_id 16,
+task 801, target_id 27 → engagement 31) was never adjudicated: that engagement's entire
+Phase 4.3 pass aborted with `HTTPError: HTTP Error 400: Bad Request`.
+
+**Root cause (verified by direct code read, not assumed):** `orchestrator/
+phase_lifecycle.py::run_phase_4_3`'s per-finding loop (lines ~1206-1214) wraps
+`run_adjudicator(...)` in `except StructuredOutputError` only. `model_invocation_logs`
+confirms the actual failure (invocation_id 653: `status='CRASHED'`, 285.4s latency vs.
+20-85s for every other call that night) was a transport-level exception from
+`engine_client.chat_completion()` — not a schema-validation failure — so it isn't caught.
+It propagates out of `run_adjudicator`, out of `run_phase_4_3`, and aborts every other
+finding in that engagement's Phase 4.3 pass, rather than being confined to the one finding
+that triggered it. The `reporter`-side call in the same function has an equivalent
+`StructuredOutputError`-only gap (lines ~1288-1326). `ADJUDICATION_FAILED` (and its Reporter
+mirror `GENERATION_FAILED`) already exist as the correct terminal status for exactly this
+kind of single-finding failure — they're just not reached when the failure is transport-level
+rather than schema-level.
+
+**Note on the underlying 400 itself:** not yet root-caused — the one-off retroactive-run
+driver script that surfaced this didn't capture `llama-server`'s own stderr, so there's no
+direct evidence of *why* llama-server returned 400 for this specific call. Leading
+unverified guess is a context-window/retry-prompt-growth issue (this finding's evidence,
+1859 bytes of plain feroxbuster text, was checked directly and has nothing unusual in it),
+but that's a guess, not a finding — flagged here as a gap in the test setup, not a claim.
+
+**Proposed fix (sketch, not yet drafted as a formal requirement):** extend the exception
+handling around both `run_adjudicator` and `run_reporter` in `run_phase_4_3` to also catch
+transport/engine-client-level errors (whatever `LlamaCppEngineClient.chat_completion`
+actually raises on a non-2xx response — needs checking against `engine/client.py` directly
+before drafting the exact `except` clause), mark that one finding `ADJUDICATION_FAILED` (or
+that one report `GENERATION_FAILED`) same as the existing schema-failure path, and continue
+the loop rather than aborting the engagement.
+
+**Status:** 🟡 Newly identified, not yet approved or implemented — staged here per the
+standing convention for Mugheeraat 1.0 to pick up pending operator review. finding_id 16
+remains in `CANDIDATE` status in the live DB until this is fixed and the engagement is
+re-run.
+
+---
+
 ### Round 36 — 2026-11-04: Prioritize the embedding-based skill-retrieval upgrade (independent literature support found)
 
 **Status: ✅ APPROVED by the operator 2026-11-04** (grouped under the "session-bootstrap
