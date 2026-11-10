@@ -74,6 +74,41 @@ standing convention for Mugheeraat 1.0 to pick up pending operator review. findi
 remains in `CANDIDATE` status in the live DB until this is fixed and the engagement is
 re-run.
 
+**Implementation + live validation, 2026-11-11 (Mugheeraat 1.0, operator-directed "Go On for
+All 04 Next Items" after critical-analysis exchange with Mugheeraat 3.0):** `implementation`
+commits `3942c49` (the fix itself) and `edd6f9a` (a second, deeper fix found while
+live-validating the first). New `engine.client.EngineRequestError` wraps
+`urllib.error.HTTPError` with the real response body captured; `run_phase_4_3` now catches
+`(StructuredOutputError, EngineRequestError)` at both the Adjudicator and Reporter call
+sites, marking the one finding/report terminal and continuing the loop.
+
+Live-validated against the real engagement 31/finding_id 16 (reset to `CANDIDATE`, re-run
+with the real Mistral-7B Adjudicator loaded) rather than trusting the unit tests alone:
+first re-run reproduced the identical HTTP 400 (confirmed deterministic, not a fluke) and
+confirmed `run_phase_4_3` now survives it cleanly — but the HTTP 400's response body (newly
+captured by this fix) revealed the actual cause for the first time: llama-server's own
+error was `"Conversation roles must alternate user/assistant/user/assistant/..."` (Mistral's
+chat template enforcing strict alternation). Traced to a second, separate, real bug:
+`engine/structured.py::get_structured_completion`'s retry loop appended a new `"user"`
+correction message on every retry without ever inserting the model's own prior turn as an
+`"assistant"` message first — `[system, user, user]` after any retry, which Mistral's
+template rejects outright. Shared code every council role routes through (Strategist/
+Scripter/Adjudicator/Reporter/Auditor), so this was a latent bug for any role×model
+combination needing a retry against a strictly-alternating template, not Adjudicator-
+specific — just never triggered before. Fixed (`edd6f9a`) by inserting an accurate
+assistant-turn echo before the correction message. Second re-run with this fix applied
+showed the HTTP 400 is gone entirely — finding_id 16 now reaches a clean terminal state
+(`StructuredOutputError`/`ADJUDICATION_FAILED` — the model genuinely couldn't converge on
+valid JSON for this one finding's content after the full 3-attempt budget, a separate,
+lower-priority question, not a crash).
+
+Full suite throughout: 1339 passed (JuiceShop's `vapt-test-lab` container was started
+during this session for an unrelated reason, so the previously-failing live `spa_crawler`
+test now also passes — only the 2 documented pre-existing `gqlmap` wording-mismatch
+failures remain).
+
+**Status: ✅ IMPLEMENTED, pushed, live-validated twice against the real model.**
+
 ---
 
 ### Round 36 — 2026-11-04: Prioritize the embedding-based skill-retrieval upgrade (independent literature support found)
