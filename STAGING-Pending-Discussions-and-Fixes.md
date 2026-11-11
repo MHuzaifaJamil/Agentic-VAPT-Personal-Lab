@@ -29,6 +29,80 @@ purpose is to show how a fix evolved, not just its final state.
 
 ---
 
+### Round 38 — 2026-11-11/12: Round 35's own AUTHENTICATED SESSIONS prompt block silently broke the Tier-1-curl self-correction pattern Round 31 had already documented as "almost always works" — made deterministic instead of retry-dependent; a second, correlated, not-yet-investigated Adjudicator pattern flagged alongside it
+
+**Status: ✅ IMPLEMENTED for the curl-tier fix (committed `8fc7133`, independently verified
+by Mugheeraat 3.0, live-validated against engagement 34), ⬜ FLAGGED NOT YET INVESTIGATED for
+the Adjudicator `ADJUDICATION_FAILED`-rate observation below (same missing-observability
+blocker Round 31 already hit — not fixed blind).**
+
+**Problem statement:** Live end-to-end validation of Round 35 (engagement 33, the first real
+engagement to run with session-bootstrap + the AUTHENTICATED SESSIONS Scripter prompt block
+active) produced 0 CONFIRMED findings — 20 tasks generated, only 2 ever reached `EXECUTED`.
+Every one of the 10 session-aware IDOR/BROKEN_AUTH/SSRF hypotheses (every task proposing
+`curl -K <session file>`) was permanently `GATE2_BLOCKED` on `'curl' is not a registered Tier
+1 tool...'`, across all 3 correction attempts, every single time.
+
+**Why this contradicts Round 31's own documented baseline:** Round 31 (2026-09-28, pre-dates
+Round 35 by over a month) checked this exact rejection text across ~11 curl tasks over 4
+rounds in a pre-Round-35 engagement and found the Scripter's universal first-attempt shape is
+to always propose `tool_name: curl` at Tier 1 — Gate 2 rejects it, and the existing
+`gate2_rejection_reason`-fed retry loop *almost always* self-corrects to a resolved Tier-2
+binary path on the next attempt (10 of 11 tasks checked). Only one task (821) failed to
+converge, left as a documented, deliberately-unpursued limitation because `model_invocation_
+logs` has no prompt/output columns to see what the model actually said on its failed retries.
+
+**Root cause:** Round 35's AUTHENTICATED SESSIONS prompt block (added to both `primary_
+scripter.py`/`secondary_scripter.py`, telling the Scripter to use `-K <path>` "combines with
+any other curl flags... in the same command") is what broke the previously-reliable
+self-correction — every session-aware curl proposal stopped converging once that block was
+in the prompt, while non-session curl tasks in the same engagement (2 of them) still
+self-corrected fine. This is a real regression Round 35 introduced, not a pre-existing general
+Scripter defect, and not evidence that Round 31's "almost always self-corrects" baseline was
+ever wrong.
+
+**Fix applied:** rather than keep depending on the model to notice and correct its own tier
+field (now proven unreliable specifically in the session-aware case, and already known from
+Round 31 to occasionally fail even in the plain case), `phase_lifecycle.py` gained
+`_normalize_scripter_command_tier()`: when the Scripter proposes `tier: 1` with a tool name
+that isn't a registered Tier 1 schema but does resolve to a real, allowlisted Tier 2 binary,
+it's silently promoted to `tier: 2` with the resolved absolute path before Gate 2 ever sees it
+— identical to what Gate 2's own rejection message already told the model to do, just applied
+deterministically instead of over a retry round-trip. Mugheeraat 3.0 independently verified
+this doesn't weaken any Tier 2 safety check (`resolve_binary()` only does path-allowlist
+resolution; the full `tier2.py::run_security_command` pipeline — path allowlist → behavioral
+denylist → high-risk check → rate limit → spawn — still runs unchanged). A matching one-line
+reminder was also added to the AUTHENTICATED SESSIONS block itself as a second line of
+defense. 5 new tests added (4 unit, 1 integration); full suite 1365/2(pre-existing,
+unrelated)/4(skipped). This also makes Round 31's own open question moot going forward — no
+curl task will ever depend on retry-based self-correction again, session-aware or not — though
+it still doesn't explain *why* task 821 specifically failed to converge historically.
+
+**Live validation (engagement 34, same Juice Shop target, fix in place):** task 937 (an IDOR
+hypothesis against `/rest/admin/application-configuration`, using `-K
+session_session_user_a.curlrc`) went straight to `EXECUTED` with the correct `/usr/bin/curl`
+Tier 2 path — zero curl-tier blocks across 2 full rounds (5 tasks executed vs. engagement 33's
+2). The one candidate finding this produced (finding 22) was correctly adjudicated
+`DISMISSED` on real evidence (`/rest/admin/application-configuration` just returns
+non-sensitive config data regardless of auth) — a genuine Adjudicator judgment, not a crash.
+
+**Second pattern observed, flagged but NOT yet investigated:** of 4 real candidates produced
+across engagement 34's first 2 rounds, 2 (findings 21 and 23) hit `ADJUDICATION_FAILED` —
+Mistral-7B-Instruct-v0.3 exhausting its 3-attempt structured-output budget against `validate_
+gate3_adjudication`'s schema (3 nested objects — `false_positive_checks`, `impact_check`,
+conditionally-structured `identity_check` — plus `evidence_structure`). Historically only 3
+`ADJUDICATION_FAILED` rows exist in the whole DB; 2 of them are from this one engagement — a
+50% rate vs. an effectively-single-digit historical one. Both failures correlate with
+Round-35-era findings (one BFLA task using two session identities, one nuclei signal) — worth
+investigating whether the newer `identity_check` conditional-field schema is specifically hard
+for this model to satisfy reliably, but this hits the exact same wall Round 31 already
+documented: `model_invocation_logs` has no prompt/response columns, so there's no way to see
+what the model actually produced on these 3 failed attempts without first adding real
+prompt/response logging (a genuine observability feature, not a quick fix) — not fixed blind,
+left for whoever picks this up next, same as Round 31's own task-821 question.
+
+---
+
 ### Round 37 — 2026-11-11: `run_phase_4_3` aborts an entire engagement's Phase 4.3 loop on a transport-level engine-client error, instead of failing just the one finding
 
 **Problem statement:** Running a retroactive Adjudicator pass against 5 historical
