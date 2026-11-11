@@ -29,12 +29,14 @@ purpose is to show how a fix evolved, not just its final state.
 
 ---
 
-### Round 38 — 2026-11-11/12: Round 35's own AUTHENTICATED SESSIONS prompt block silently broke the Tier-1-curl self-correction pattern Round 31 had already documented as "almost always works" — made deterministic instead of retry-dependent; a second, correlated, not-yet-investigated Adjudicator pattern flagged alongside it
+### Round 38 — 2026-11-11/12 (corrected 2026-11-12 after Mugheeraat 3.0's independent DB re-check): Round 35's own AUTHENTICATED SESSIONS prompt block silently broke the Tier-1-curl self-correction pattern Round 31 had already documented as working most of the time — made deterministic instead of retry-dependent; two unrelated Adjudicator failure patterns, not one, flagged alongside it
 
 **Status: ✅ IMPLEMENTED for the curl-tier fix (committed `8fc7133`, independently verified
-by Mugheeraat 3.0, live-validated against engagement 34), ⬜ FLAGGED NOT YET INVESTIGATED for
-the Adjudicator `ADJUDICATION_FAILED`-rate observation below (same missing-observability
-blocker Round 31 already hit — not fixed blind).**
+by Mugheeraat 3.0, live-validated against engagement 34). Two separate Adjudicator issues
+flagged, neither applied yet: ⬜ finding 23's class (genuine structured-output exhaustion)
+NOT YET INVESTIGATED — same missing-observability blocker Round 31 already hit, not fixed
+blind; ⬜ finding 21's class (unbounded raw-evidence size → context overflow) IS fully
+diagnosed with a clear fix candidate, just not applied without operator sign-off.**
 
 **Problem statement:** Live end-to-end validation of Round 35 (engagement 33, the first real
 engagement to run with session-bootstrap + the AUTHENTICATED SESSIONS Scripter prompt block
@@ -44,13 +46,18 @@ Every one of the 10 session-aware IDOR/BROKEN_AUTH/SSRF hypotheses (every task p
 1 tool...'`, across all 3 correction attempts, every single time.
 
 **Why this contradicts Round 31's own documented baseline:** Round 31 (2026-09-28, pre-dates
-Round 35 by over a month) checked this exact rejection text across ~11 curl tasks over 4
-rounds in a pre-Round-35 engagement and found the Scripter's universal first-attempt shape is
-to always propose `tool_name: curl` at Tier 1 — Gate 2 rejects it, and the existing
-`gate2_rejection_reason`-fed retry loop *almost always* self-corrects to a resolved Tier-2
-binary path on the next attempt (10 of 11 tasks checked). Only one task (821) failed to
-converge, left as a documented, deliberately-unpursued limitation because `model_invocation_
-logs` has no prompt/output columns to see what the model actually said on its failed retries.
+Round 35 by over a month) checked this exact rejection text across every curl-tagged task in a
+pre-Round-35 engagement (31) and found the Scripter's universal first-attempt shape is to
+always propose `tool_name: curl` at Tier 1 — Gate 2 rejects it, and the existing `gate2_
+rejection_reason`-fed retry loop *almost always* self-corrects to a resolved Tier-2 binary path
+on the next attempt. **Corrected count (Mugheeraat 3.0, independently re-verified against the
+live DB 2026-11-12 — Round 31's own original "only task 821" framing undercounted):** of the
+20 curl-tagged tasks in engagement 31, 1 (840) was `GATE1_REJECTED` before ever reaching Gate 2
+at all (excluded from the convergence question), leaving 19 that actually reached Gate 2 — 16
+converged to `EXECUTED`, 3 (821, 831, **839**) stayed permanently `GATE2_BLOCKED`. That's
+~84% convergence with 3 outliers, not "10 of 11, one outlier" as originally written. Left as a
+documented, deliberately-unpursued limitation because `model_invocation_logs` has no
+prompt/output columns to see what the model actually said on its failed retries.
 
 **Root cause:** Round 35's AUTHENTICATED SESSIONS prompt block (added to both `primary_
 scripter.py`/`secondary_scripter.py`, telling the Scripter to use `-K <path>` "combines with
@@ -86,20 +93,39 @@ Tier 2 path — zero curl-tier blocks across 2 full rounds (5 tasks executed vs.
 `DISMISSED` on real evidence (`/rest/admin/application-configuration` just returns
 non-sensitive config data regardless of auth) — a genuine Adjudicator judgment, not a crash.
 
-**Second pattern observed, flagged but NOT yet investigated:** of 4 real candidates produced
-across engagement 34's first 2 rounds, 2 (findings 21 and 23) hit `ADJUDICATION_FAILED` —
-Mistral-7B-Instruct-v0.3 exhausting its 3-attempt structured-output budget against `validate_
-gate3_adjudication`'s schema (3 nested objects — `false_positive_checks`, `impact_check`,
-conditionally-structured `identity_check` — plus `evidence_structure`). Historically only 3
-`ADJUDICATION_FAILED` rows exist in the whole DB; 2 of them are from this one engagement — a
-50% rate vs. an effectively-single-digit historical one. Both failures correlate with
-Round-35-era findings (one BFLA task using two session identities, one nuclei signal) — worth
-investigating whether the newer `identity_check` conditional-field schema is specifically hard
-for this model to satisfy reliably, but this hits the exact same wall Round 31 already
-documented: `model_invocation_logs` has no prompt/response columns, so there's no way to see
-what the model actually produced on these 3 failed attempts without first adding real
-prompt/response logging (a genuine observability feature, not a quick fix) — not fixed blind,
-left for whoever picks this up next, same as Round 31's own task-821 question.
+**Second pattern observed — turned out to be TWO separate bugs, not one, per Mugheeraat 3.0's
+independent re-check of the live DB (2026-11-12), which found a real, already-diagnosed,
+actionable bug underneath what the original writeup here wrongly lumped in with the
+observability gap:**
+
+- **Finding 23 (BFLA, task 948) — genuine structured-output exhaustion**, `gate3_rationale`:
+  `"ADJUDICATION_FAILED: exhausted 2 retries (3 attempts total)"`. This is the schema-
+  complexity case: Mistral-7B-Instruct-v0.3 against `validate_gate3_adjudication`'s nested
+  schema (`false_positive_checks`, `impact_check`, conditionally-structured `identity_check`,
+  `evidence_structure`). Hits the same wall Round 31 already documented: `model_invocation_
+  logs` has no prompt/response columns, so there's no way to see what the model actually
+  produced on these 3 failed attempts without first adding real prompt/response logging (a
+  genuine observability feature, not a quick fix) — not fixed blind, left for whoever picks
+  this up next, same as Round 31's own task-821/831/839 question.
+- **Finding 21 (nuclei signal, task 925) — NOT a schema-complexity failure; a transport-level
+  context-overflow, already fully diagnosed, independent of model/schema.** Its `gate3_
+  rationale` is a real HTTP 400 from the engine: `"request (109399 tokens) exceeds the
+  available context size (32768 tokens)"` — rejected before generation even started (290ms
+  latency, zero completion_tokens), not after 3 failed structured-output attempts. Root cause,
+  traced and confirmed: `_gather_raw_evidence` (`phase_lifecycle.py` ~line 1053) reads the
+  task's raw output artifact file directly (`Path(artifact["file_path"]).read_text()`) with no
+  size cap at all — never the sanitized/truncated summary. Task 925's raw artifact on disk is
+  genuinely 206,672 bytes across just 20 lines (nuclei dumping full matched response bodies per
+  hit), which alone explains the 109k-token prompt. **This has nothing to do with `identity_
+  check` or any Round-35 schema addition** — it's an unbounded-evidence-size bug that could hit
+  any finding with a large enough raw tool artifact, regardless of vulnerability class. Not yet
+  fixed; the actionable fix candidate is capping/truncating `_gather_raw_evidence`'s raw-
+  artifact read (or having nuclei's Tier-2 wrapper not dump full response bodies unbounded in
+  the first place) — left for the operator to prioritize, not applied here without sign-off.
+
+Historically only 3 `ADJUDICATION_FAILED` rows exist in the whole DB; 2 of them are from this
+one engagement, but they are two unrelated root causes that happened to land in the same
+engagement, not one correlated pattern — do not conflate them when picking this up next.
 
 ---
 
