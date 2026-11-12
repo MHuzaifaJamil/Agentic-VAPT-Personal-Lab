@@ -158,6 +158,20 @@ observability gap:**
   itself was left untouched — capping at the evidence-gathering layer covers every tool, not
   just nuclei.
 
+  **Known blind spot, flagged by Mugheeraat 3.0, independently verified, not fixed (no concrete
+  repro, current behavior is still strictly better than uncapped):** the cap truncates by raw
+  byte position, not by relevance. On task 925's own artifact, the one severity=medium line (of
+  19, the rest `info`) happens to end at byte offset 36,842 — inside the 40,000-char cap, but
+  only because nuclei emits by template execution order, not by severity, so this was
+  coincidence, not a property the fix guarantees. A future multi-finding artifact whose
+  severity-worthy line lands *after* the cutoff would silently hand the Adjudicator 40KB of
+  irrelevant `info`-level noise and none of the actual triggering evidence — no crash, no
+  `ADJUDICATION_FAILED`, just a quiet `DISMISSED` (or a wrong `CONFIRMED`) with misleading
+  rationale, harder to catch than the overflow bug it replaces. Left for whoever eventually
+  looks at per-candidate evidence scoping (e.g. having `candidate_detection` record which
+  line/offset actually matched so `_gather_raw_evidence` can prioritize it instead of truncating
+  from the head blindly).
+
 Historically only 3 `ADJUDICATION_FAILED` rows exist in the whole DB; 2 of them are from this
 one engagement, but they are two unrelated root causes that happened to land in the same
 engagement, not one correlated pattern — do not conflate them when picking this up next.
