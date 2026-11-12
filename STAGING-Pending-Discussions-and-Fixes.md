@@ -29,6 +29,49 @@ purpose is to show how a fix evolved, not just its final state.
 
 ---
 
+### Round 40 — 2026-11-12/13: Round 35's session-aware probes never issue the baseline/comparison request the Adjudicator's evidence bar requires — 3 for 3 real candidates across 2 engagements, genuinely new finding, not a reopening of Round 27 item 5
+
+**Status: ⬜ NOT YET FIXED — a real design decision, not a one-line patch; presented as options
+below for operator choice, not applied.**
+
+**Problem statement:** Live-monitoring engagements 34 and 35 (both running with the curl-tier
+fix + evidence-size-cap fix applied), every real session-aware curl candidate so far — finding
+22 (task 937, engagement 34), finding 23 (task 948, engagement 34, before it hit
+`ADJUDICATION_FAILED`), and finding 25 (task 1000, engagement 35) — was `DISMISSED` citing the
+exact same gap: *"does not provide a baseline request/response for comparison"* /
+*"no evidence of authentication or cross-identity access."* 3 for 3. Checked all three tasks'
+actual `proposed_command` directly: every one is a single `curl -K <session file> -X GET
+<url>` call — one identity, one request, no second request against the same resource as a
+different identity or unauthenticated to establish what "normal"/"authorized" looks like.
+
+**Why this is NOT Round 27 item 5 reopening (checked before writing this):** that item proved
+the evidence bar is meetable in principle — a *manually constructed* baseline (401, "Invalid
+email or password") + attack (200, valid JWT) pair, fed through a live Adjudicator call, got a
+correct `CONFIRMED`. That proved the Adjudicator side works. What's missing here is one layer
+earlier: the live, autonomous Scripter pipeline never actually constructs that pair for any
+real IDOR/BFLA/broken-access-control hypothesis it proposes — Round 35's AUTHENTICATED
+SESSIONS block tells the Scripter *how* to use a session (`-K <path>`) and mentions comparing
+two identities in prose, but nothing structurally requires a second, paired request to actually
+happen. Also checked Round 33 item 10's self-evident-single-disclosure carve-out (`identity_
+check`/evidence-bar prompt text) — doesn't apply here either: that carve-out is for findings
+where ONE response is conclusive on its own (e.g. a JWT with an admin claim), not for IDOR/BFLA
+hypotheses which are inherently comparison-dependent by definition (you cannot tell from one
+response alone whether access was "supposed" to be denied).
+
+**Options for the operator to choose between (not a recommendation forced through without
+discussion, same convention as Round 26's SPA-recon-gap writeup):**
+
+| Option | Effect |
+|---|---|
+| **Prompt-level nudge**: AUTHENTICATED SESSIONS block explicitly instructs the Scripter that any IDOR/BFLA/broken-access-control task MUST be followed by a matching comparison task (same endpoint, the other identity's session or unauthenticated) before the finding can be considered evidence-complete | Cheap, no architecture change, but relies on the Scripter's own judgment again — the same category of reliability the curl-tier bug just proved unreliable for session-aware prompting specifically. |
+| **Deterministic code-level pairing** (matches this session's own established "don't trust the LLM with a mechanical detail" precedent — `tier2.py`'s status-marker fix, this session's curl-tier fix): when a session-aware task executes and `candidate_detection` flags it, automatically/deterministically enqueue and execute a companion baseline request (same endpoint, other identity or no session) before the finding ever reaches the Adjudicator, attaching both pieces of evidence to the same finding | More reliable, consistent with the project's own stated philosophy, but a real scope increase — touches `candidate_detection.py`, task orchestration, and evidence-gathering; needs its own design pass, not a quick patch. |
+| **Leave as-is, gather more data** | No engineering now; keep running engagements and see whether a future round's hypothesis happens to get paired evidence anyway (e.g. via an unrelated follow-up task hitting the same endpoint) — unlikely given 3-for-3 so far, but costs nothing to confirm with more samples. |
+
+Not implemented. Flagged per standing practice; awaiting operator direction on which path (if
+any) to take.
+
+---
+
 ### Round 39 — 2026-11-12: a successfully self-recovered engagement kept showing `PAUSED` in the DB/dashboard for over an hour while it was actually running fine
 
 **Status: ✅ IMPLEMENTED (commit `17477b9`), live-observed against engagement 34 before the
