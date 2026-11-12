@@ -29,20 +29,32 @@ purpose is to show how a fix evolved, not just its final state.
 
 ---
 
-### Round 40 — 2026-11-12/13: Round 35's session-aware probes never issue the baseline/comparison request the Adjudicator's evidence bar requires — 3 for 3 real candidates across 2 engagements, genuinely new finding, not a reopening of Round 27 item 5
+### Round 40 — 2026-11-12/13 (corrected 2026-11-13 after Mugheeraat 3.0's independent re-check): session-aware IDOR/BFLA tasks never issue the paired comparison request a sound verdict actually needs — confirmed at the task-generation layer, NOT "3 for 3 DISMISSED on this rationale" as originally overstated
 
 **Status: ⬜ NOT YET FIXED — a real design decision, not a one-line patch; presented as options
-below for operator choice, not applied.**
+below for operator choice, not applied. The original "3 for 3" framing below was wrong on the
+rationale-text count (corrected to 1 for 3) but the underlying structural claim — confirmed
+independently at the task_queue layer, not inferred from rationale text — still stands.**
 
-**Problem statement:** Live-monitoring engagements 34 and 35 (both running with the curl-tier
-fix + evidence-size-cap fix applied), every real session-aware curl candidate so far — finding
-22 (task 937, engagement 34), finding 23 (task 948, engagement 34, before it hit
-`ADJUDICATION_FAILED`), and finding 25 (task 1000, engagement 35) — was `DISMISSED` citing the
-exact same gap: *"does not provide a baseline request/response for comparison"* /
-*"no evidence of authentication or cross-identity access."* 3 for 3. Checked all three tasks'
-actual `proposed_command` directly: every one is a single `curl -K <session file> -X GET
-<url>` call — one identity, one request, no second request against the same resource as a
-different identity or unauthenticated to establish what "normal"/"authorized" looks like.
+**Correction (Mugheeraat 3.0, independently verified 2026-11-13):** pulling all 3 `gate3_
+rationale` texts directly shows this is **1 for 3 on the specific missing-baseline rationale,
+not 3 for 3**:
+- Finding 22 (937): `DISMISSED`, but for an unrelated reason — *"no indication of cross-site
+  scripting, server-side request forgery"* — never mentions baseline/comparison at all.
+- Finding 23 (948): **not `DISMISSED`** — `ADJUDICATION_FAILED` (*"exhausted 2 retries (3
+  attempts total)"*). Never reached a real adjudication verdict at all, so it cannot be cited
+  as the Adjudicator applying this specific rationale.
+- Finding 25 (1000): `DISMISSED`, and this one genuinely does say *"does not provide a
+  baseline request/response for comparison... no evidence of authentication or cross-identity
+  access."*
+
+**Problem statement (structural claim, unaffected by the count correction above — verified
+independently at the task-generation layer, not from adjudication outcomes at all):**
+`task_queue.proposed_command` for all three tasks (937, 948, 1000 — all `vulnerability_class`
+IDOR/BFLA) is a single, lone `curl -K <session file> -X GET <url>` call. Zero companion
+requests against the same resource as the other identity or unauthenticated, for any of them.
+That's confirmed directly from the stored command arrays, so it stands regardless of how many
+times the Adjudicator happened to cite it in a rationale.
 
 **Why this is NOT Round 27 item 5 reopening (checked before writing this):** that item proved
 the evidence bar is meetable in principle — a *manually constructed* baseline (401, "Invalid
@@ -64,8 +76,32 @@ discussion, same convention as Round 26's SPA-recon-gap writeup):**
 | Option | Effect |
 |---|---|
 | **Prompt-level nudge**: AUTHENTICATED SESSIONS block explicitly instructs the Scripter that any IDOR/BFLA/broken-access-control task MUST be followed by a matching comparison task (same endpoint, the other identity's session or unauthenticated) before the finding can be considered evidence-complete | Cheap, no architecture change, but relies on the Scripter's own judgment again — the same category of reliability the curl-tier bug just proved unreliable for session-aware prompting specifically. |
-| **Deterministic code-level pairing** (matches this session's own established "don't trust the LLM with a mechanical detail" precedent — `tier2.py`'s status-marker fix, this session's curl-tier fix): when a session-aware task executes and `candidate_detection` flags it, automatically/deterministically enqueue and execute a companion baseline request (same endpoint, other identity or no session) before the finding ever reaches the Adjudicator, attaching both pieces of evidence to the same finding | More reliable, consistent with the project's own stated philosophy, but a real scope increase — touches `candidate_detection.py`, task orchestration, and evidence-gathering; needs its own design pass, not a quick patch. |
-| **Leave as-is, gather more data** | No engineering now; keep running engagements and see whether a future round's hypothesis happens to get paired evidence anyway (e.g. via an unrelated follow-up task hitting the same endpoint) — unlikely given 3-for-3 so far, but costs nothing to confirm with more samples. |
+| **Deterministic code-level pairing** (matches this session's own established "don't trust the LLM with a mechanical detail" precedent — `tier2.py`'s status-marker fix, this session's curl-tier fix): when a session-aware task executes and `candidate_detection` flags it, automatically/deterministically enqueue and execute a companion baseline request (same endpoint, other identity or no session) before the finding ever reaches the Adjudicator, attaching both pieces of evidence to the same finding | More reliable, consistent with the project's own stated philosophy, but a real scope increase — touches `candidate_detection.py`, task orchestration, and evidence-gathering; needs its own design pass, not a quick patch. **Has a prerequisite gap, see below — not a clean drop-in as stated.** |
+| **Leave as-is, gather more data** | No engineering now; keep running engagements and see whether a future round's hypothesis happens to get paired evidence anyway (e.g. via an unrelated follow-up task hitting the same endpoint) — possible but not yet observed, costs nothing to confirm with more samples. |
+
+**Prerequisite gap underneath Option 2, flagged by Mugheeraat 3.0, independently verified —
+read before scoping that option:** `candidate_detection.py` already names the relevant scope
+(`_ACCESS_CONTROL_CLASSES = {"IDOR", "BFLA", "BROKEN_AUTH", "MASS_ASSIGNMENT", "CSRF"}`, line
+362, reused by `_match_http_probe_signal`) — any pairing mechanism should hook into that same
+set, not invent a new list; XSS/SQLI/SSTI/etc. already have single-response-sufficient signals
+and don't need this at all. But "baseline" means something different across that set, so a
+single uniform "fire the same request with the other session" heuristic doesn't actually cover
+it: IDOR needs cross-identity-same-resource (identity A vs. B against the same resource ID);
+BFLA needs same-identity-different-privilege-action (can this low-priv user reach a high-priv
+action at all — not really "another session"); CSRF needs token/origin presence vs. absence;
+BROKEN_AUTH needs valid-vs-invalid-credential pairing. A technically-present companion request
+built the wrong way is still evidentially empty.
+
+Deeper still: `_match_http_probe_signal`'s access-control rule currently fires on bare
+HTTP-success status alone, with zero resource-ownership concept. Task 937's hypothesis
+("manipulate the `id` parameter") never establishes whose resource `id=1` actually belongs to.
+A deterministic companion request fired as the other identity against the same `id` proves
+nothing if `id=1` happens to already belong to that identity — two successful responses, still
+no real evidence of cross-identity leakage, just a different flavor of inconclusive. Pairing
+therefore needs the Strategist/Scripter to express resource ownership ("this ID belongs to a
+different identity") *before* a companion request means anything — that's the real design
+question underneath Option 2, not whether a second curl call is technically easy to fire (it
+is). Flagged as a prerequisite to scope Option 2 around, not a reason to avoid it.
 
 Not implemented. Flagged per standing practice; awaiting operator direction on which path (if
 any) to take.
