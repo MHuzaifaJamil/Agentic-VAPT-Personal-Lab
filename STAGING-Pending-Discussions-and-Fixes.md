@@ -29,6 +29,37 @@ purpose is to show how a fix evolved, not just its final state.
 
 ---
 
+### Round 39 — 2026-11-12: a successfully self-recovered engagement kept showing `PAUSED` in the DB/dashboard for over an hour while it was actually running fine
+
+**Status: ✅ IMPLEMENTED (commit `17477b9`), live-observed against engagement 34 before the
+fix (not yet re-validated live after, since it only reproduces on a genuine 9000s model
+timeout — will confirm if one recurs).**
+
+**Problem statement:** Engagement 34's Round 4 Strategist call hit the real `9000.0s` model-
+unresponsive ceiling (`FR-GATE-08`), and `orchestrator/driver.py`'s `EngineUnresponsiveError`
+handler correctly marked `engagements.status = 'PAUSED'` before re-raising. `cli/run.py`'s
+self-recovery loop (`--max-auto-resumes`) then retried, and the retry succeeded cleanly —
+Strategist, 5x Auditor, and Scripter calls all completed normally afterward. But
+`engagements.status` stayed `PAUSED` (with `control_intent = 'NONE'`) for the entire retried
+run, live-confirmed for over an hour while real work was actively completing underneath it. A
+human operator watching the dashboard during that window would see a falsely "stuck" status
+with nothing wrong to actually investigate.
+
+**Root cause:** `cli/run.py` only ever set `status = 'IN_PROGRESS'` once, immediately before
+entering the `while True:` self-recovery loop — never again on a retried attempt. The retry
+loop re-calls `run_full_engagement` (which does real work and can succeed), but nothing in
+that retry path re-asserted `IN_PROGRESS` after `driver.py`'s handler had just set `PAUSED`.
+
+**Fix applied:** factored the status/PID update into a small `_mark_in_progress()` helper,
+called once before the loop (as before) and now also immediately before each retried call
+inside the `except EngineUnresponsiveError` branch, right after the backoff sleep. One new
+regression test (`test_run_self_recovery_clears_the_stale_paused_status_on_the_retried_
+attempt`) seeds a real `engagements` row, forces the first attempt to fail and mark `PAUSED`
+exactly like the real handler does, and asserts the retried call observes `IN_PROGRESS` before
+it ever runs. Full suite 1366/2(pre-existing, unrelated)/4(skipped).
+
+---
+
 ### Round 38 — 2026-11-11/12 (corrected 2026-11-12 after Mugheeraat 3.0's independent DB re-check): Round 35's own AUTHENTICATED SESSIONS prompt block silently broke the Tier-1-curl self-correction pattern Round 31 had already documented as working most of the time — made deterministic instead of retry-dependent; two unrelated Adjudicator failure patterns, not one, flagged alongside it
 
 **Status: ✅ IMPLEMENTED for the curl-tier fix (committed `8fc7133`, independently verified
