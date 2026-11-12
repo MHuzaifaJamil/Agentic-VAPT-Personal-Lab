@@ -63,11 +63,12 @@ it ever runs. Full suite 1366/2(pre-existing, unrelated)/4(skipped).
 ### Round 38 — 2026-11-11/12 (corrected 2026-11-12 after Mugheeraat 3.0's independent DB re-check): Round 35's own AUTHENTICATED SESSIONS prompt block silently broke the Tier-1-curl self-correction pattern Round 31 had already documented as working most of the time — made deterministic instead of retry-dependent; two unrelated Adjudicator failure patterns, not one, flagged alongside it
 
 **Status: ✅ IMPLEMENTED for the curl-tier fix (committed `8fc7133`, independently verified
-by Mugheeraat 3.0, live-validated against engagement 34). Two separate Adjudicator issues
-flagged, neither applied yet: ⬜ finding 23's class (genuine structured-output exhaustion)
-NOT YET INVESTIGATED — same missing-observability blocker Round 31 already hit, not fixed
-blind; ⬜ finding 21's class (unbounded raw-evidence size → context overflow) IS fully
-diagnosed with a clear fix candidate, just not applied without operator sign-off.**
+by Mugheeraat 3.0, live-validated across the whole of engagement 34 — 15 EXECUTED / 0
+GATE2_BLOCKED curl tasks, vs. engagement 33's 2 EXECUTED / 10 GATE2_BLOCKED). ✅ IMPLEMENTED
+(2026-11-12, operator-approved after reviewing engagement 34's full results) for finding 21's
+class — the unbounded raw-evidence-size context overflow, committed `ed5093a`. ⬜ finding 23's
+class (genuine structured-output exhaustion) remains NOT YET INVESTIGATED — same missing-
+observability blocker Round 31 already hit, not fixed blind.**
 
 **Problem statement:** Live end-to-end validation of Round 35 (engagement 33, the first real
 engagement to run with session-bootstrap + the AUTHENTICATED SESSIONS Scripter prompt block
@@ -149,10 +150,13 @@ observability gap:**
   genuinely 206,672 bytes across just 20 lines (nuclei dumping full matched response bodies per
   hit), which alone explains the 109k-token prompt. **This has nothing to do with `identity_
   check` or any Round-35 schema addition** — it's an unbounded-evidence-size bug that could hit
-  any finding with a large enough raw tool artifact, regardless of vulnerability class. Not yet
-  fixed; the actionable fix candidate is capping/truncating `_gather_raw_evidence`'s raw-
-  artifact read (or having nuclei's Tier-2 wrapper not dump full response bodies unbounded in
-  the first place) — left for the operator to prioritize, not applied here without sign-off.
+  any finding with a large enough raw tool artifact, regardless of vulnerability class.
+  **✅ FIXED 2026-11-12 (commit `ed5093a`, operator-approved after reviewing engagement 34's
+  full results):** `_gather_raw_evidence` now caps the raw-artifact read at 40,000 characters
+  (comfortably under the ~1.89-bytes/token worst case measured on task 925's own artifact),
+  disclosing the original size in-band rather than silently truncating. Nuclei's Tier-2 wrapper
+  itself was left untouched — capping at the evidence-gathering layer covers every tool, not
+  just nuclei.
 
 Historically only 3 `ADJUDICATION_FAILED` rows exist in the whole DB; 2 of them are from this
 one engagement, but they are two unrelated root causes that happened to land in the same
