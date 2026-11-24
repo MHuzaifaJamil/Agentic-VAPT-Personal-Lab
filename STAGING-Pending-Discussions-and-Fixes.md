@@ -31,10 +31,14 @@ purpose is to show how a fix evolved, not just its final state.
 
 ### Round 40 — 2026-11-12/13 (corrected 2026-11-13 after Mugheeraat 3.0's independent re-check): session-aware IDOR/BFLA tasks never issue the paired comparison request a sound verdict actually needs — confirmed at the task-generation layer, NOT "3 for 3 DISMISSED on this rationale" as originally overstated
 
-**Status: ⬜ NOT YET FIXED — a real design decision, not a one-line patch; presented as options
-below for operator choice, not applied. The original "3 for 3" framing below was wrong on the
-rationale-text count (corrected to 1 for 3) but the underlying structural claim — confirmed
-independently at the task_queue layer, not inferred from rationale text — still stands.**
+**Status: ✅ IMPLEMENTED 2026-11-24 as Round 41 below** — the operator chose a hybrid of
+Options 1/2 (neither prompt-nudge-alone nor full deterministic request-firing): make the
+*ownership data itself* deterministic (closing the prerequisite gap flagged below), while
+leaving the actual request construction to the Scripter, now that it has real data to act on
+instead of a blind guess. The original "3 for 3" framing below was wrong on the rationale-text
+count (corrected to 1 for 3) but the underlying structural claim — confirmed independently at
+the task_queue layer, not inferred from rationale text — still stands and is what Round 41
+closes.
 
 **Correction (Mugheeraat 3.0, independently verified 2026-11-13):** pulling all 3 `gate3_
 rationale` texts directly shows this is **1 for 3 on the specific missing-baseline rationale,
@@ -105,6 +109,67 @@ is). Flagged as a prerequisite to scope Option 2 around, not a reason to avoid i
 
 Not implemented. Flagged per standing practice; awaiting operator direction on which path (if
 any) to take.
+
+---
+
+### Round 41 — 2026-11-13/14, implemented 2026-11-24: deterministic resource-ownership mapping, scoped to IDOR only — closes Round 40's prerequisite gap
+
+**Status: ✅ IMPLEMENTED (commit `166982e`), operator-approved 2026-11-24 after a 10-day pause
+to decide. Includes a real live-reproduced vulnerability (not a hypothesis) and a path bug the
+real test suite caught and corrected during implementation.**
+
+**Live reproduction, independently confirmed twice before any code was written:** while
+verifying Round 40's design against the real running Juice Shop target, this session manually
+reproduced a genuine IDOR: `GET /rest/basket/<id>` performs zero ownership check. Identity A's
+own bearer token successfully read identity B's basket (full contents, real `UserId`), and the
+reverse. An unauthenticated baseline request correctly returns `401`; a nonexistent id
+correctly returns `{"data": null}` — a clean, specific signal, not universal. Mugheeraat 3.0
+independently reproduced the same thing with separate throwaway accounts before any design
+work proceeded. This is OWASP Juice Shop behaving exactly as the deliberately-vulnerable
+training app it is — the correct, expected outcome once the pipeline's own gaps stopped
+masking it.
+
+**Design (operator-approved after Mugheeraat 3.0's critical review found no engineering
+objection):** `session_bootstrap.py`'s `RegistrationRecipe` gained an optional
+`extract_owned_resource_id: Callable[[dict], str] | None` field — `None` for any recipe with
+no known-resource concept (every recipe but Juice Shop, for now). Juice Shop's `POST
+/rest/user/login` response already carries the account's own basket id (stable across repeat
+logins — Juice Shop reuses one basket per user, confirmed live) inside the SAME response
+`extract_bearer_token` already reads — **zero new HTTP calls**, no dependency on any product
+existing, no new failure mode in a function whose docstring guarantees idempotency. Persisted
+as a small, non-secret sidecar file next to the identity's `.curlrc` (not a new
+`target_credentials` column — no schema migration, no encryption needed for a plain id).
+`phase_lifecycle.py` fetches it (`_fetch_known_resource_ownership`) and threads it into both
+Scripters; a new `KNOWN RESOURCE OWNERSHIP` prompt block (mirrors the existing `VERIFIED OPEN
+PORTS` pattern) tells the Scripter which identity owns which id and instructs it to propose
+both the baseline (own id) and cross-identity (other's id) request — not just one. Deliberately
+scoped to IDOR only, via the same per-target-recipe pattern Round 35 already established;
+BFLA/CSRF/BROKEN_AUTH/MASS_ASSIGNMENT are explicitly out of scope, per Round 40's own
+per-class-semantics finding that a uniform mechanism doesn't fit all of
+`_ACCESS_CONTROL_CLASSES`.
+
+**Bug the real test suite caught and corrected during implementation (not shipped wrong):**
+the first implementation read `login_response["bid"]` directly. Running the actual test suite
+immediately raised `KeyError: 'bid'` against the real live target — `bid`/`umail` are nested
+*inside* `"authentication"` alongside `"token"`, not top-level siblings of it:
+`{"authentication": {"token": ..., "bid": <int>, "umail": ...}}`. The original design writeup
+misread an unbroken, single-line-JWT raw curl transcript's brace nesting; `json.dumps(...,
+indent=2)` against a real live response made the true structure unambiguous. Fixed to
+`login_response["authentication"]["bid"]`, re-verified against the real target (test passes
+clean). The underlying vulnerability finding itself was never wrong — this was a bug in the
+*extraction path*, not the exploit.
+
+**Testing:** 18 new tests (9 `session_bootstrap` unit/integration — including a dedicated
+regression pin for the exact path bug above so it can't silently reintroduce itself, an
+upgrade-path test for an identity bootstrapped before this Round existed, and a
+no-ownership-extractor backward-compatibility test; 2 `phase_lifecycle` fetch-function tests;
+6 Scripter prompt-block tests mirroring the existing `AUTHENTICATED SESSIONS` coverage; 1 live
+integration test against the real target). Full suite 1384/2(pre-existing, unrelated
+gqlmap)/4(skipped).
+
+**Not yet done:** relaunching a live engagement to confirm this actually gets a session-aware
+IDOR hypothesis to a real `CONFIRMED` verdict (the operator held off further engagements
+pending this implementation+review).
 
 ---
 
